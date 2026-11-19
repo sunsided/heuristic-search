@@ -14,7 +14,8 @@ Explicit-state heuristic graph search: A*, weighted and anytime, bounded-subopti
 
 ## Status
 
-Pre-release. Version 0.0.0 reserves the name; the API is not started yet and will change.
+Pre-release. Breadth-first search, Dijkstra, A*, Weighted A* and greedy best-first search
+work on the `draft/initial` branch; the API will change. See [docs/design.md](docs/design.md).
 
 ## License
 
