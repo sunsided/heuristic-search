@@ -206,7 +206,7 @@ Adoption, step by step:
 Behaviour changes miniplan will see:
 
 - A* reopens closed states (miniplan's A* never does), so with inconsistent heuristics such
-  as `hadd`/`hff` it returns cheaper plans and may expand more.
+  as `hadd`/`hff` it may return cheaper plans and may expand more.
 - Ties break by larger `g` then FIFO instead of heap order, so expansion counts shift.
 - `expanded` excludes the goal pop; `generated` counts all edges, not only opened ones.
 - Paths are rebuilt from parent links instead of cloning a `Vec<OpId>` per node, which
@@ -218,13 +218,13 @@ Things other repos would need to change or provide. None of these are done here.
 
 - miniplan: forward `Successors` adapter and heuristic adapter (above); decide the cost type
   (`u32` vs `f64`).
-- miniplan: preferred operators (`Heuristic::preferred_ops`) are unused by its planners
-  today. If GBFS with preferred-operator queues moves here, `heuristic-search` needs an
+- miniplan: preferred operators (`Heuristic::preferred_ops`) exist in its trait but no
+  planner calls them today. If GBFS with preferred-operator queues moves here, `heuristic-search` needs an
   optional capability like `PreferredActions` (emit preferred actions per state).
 - miniplan: meet detection by per-fact buckets must be expressible through the planned meet
   capability without copying states into this crate.
-- miniplan: its tests that assert exact `nodes_expanded`/`nodes_generated` will need new
-  values after adoption.
+- miniplan: expansion and generation counts change after adoption (see above). Its tests
+  do not assert exact counts today, but benchmarks and logs comparing runs will shift.
 - `mapf-search` (planned): low-level path search needs time-expanded states and constraint
   checks; both fit `Successors` and `Goal` as they are.
 - `planning-heuristics` (planned): heuristics there should implement this crate's
@@ -246,8 +246,10 @@ Things other repos would need to change or provide. None of these are done here.
   - GBFS is complete on finite graphs;
   - BFS edge count equals Dijkstra on the unit-cost graph;
   - every returned path is valid and its cost is the sum of its edges.
-- Every public entry point has a doctest.
+- Every search function has a doctest.
 - `no_std` is checked by building for `thumbv7em-none-eabihf`.
+- The property-test oracle (Bellman-Ford in the test fixtures) is independent of the
+  crate's own Dijkstra.
 - Later: differential tests against miniplan's planners on its PDDL fixtures, run from
   miniplan once it depends on this crate; benchmarks (criterion) on grids and random graphs
   before optimising the open list.
@@ -268,6 +270,9 @@ Things other repos would need to change or provide. None of these are done here.
 
 ## Open questions
 
+- Overflow: `Cost::times` saturates, but the `+` that combines `g` and `h` into a key does
+  not. Integer costs near the type's maximum panic in debug builds. Add `saturating_add`
+  to `Cost`, or document a headroom requirement?
 - miniplan cost type: `u32` (exact, needs heuristic rounding) or `f64` (no change to
   heuristics, float ties)?
 - Should searches take the start by value (as now) or allow several start states (useful
@@ -299,8 +304,8 @@ Things other repos would need to change or provide. None of these are done here.
   IJRR 35(1-3), 2016.
 - J. Chen, R. C. Holte, S. Zilles, N. R. Sturtevant. Front-to-end bidirectional heuristic
   search with near-optimal node expansions. IJCAI 2017. (NBS)
-- S. K. Sadhukhan. A new approach to bidirectional heuristic search using error functions.
-  2013. (BAE*)
+- S. K. Sadhukhan. Bidirectional A* with error (BAE*). 2013. Cited as in miniplan;
+  exact title and venue not verified.
 - V. Sewell, S. Jacobson. Dynamically improved bounds bidirectional search. Artificial
   Intelligence 291, 2021. (DIBBS)
 - C. M. Dellin, S. S. Srinivasa. A unifying formalism for shortest path problems with
