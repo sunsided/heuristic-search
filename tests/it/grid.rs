@@ -35,6 +35,7 @@ fn to_goal(cell: &Cell) -> Option<u32> {
     Some(manhattan(*cell, GOAL))
 }
 
+/// BFS, Dijkstra and A* agree on the shortest detour around the wall.
 #[test]
 fn all_optimal_algorithms_agree() {
     let grid = walled();
@@ -48,6 +49,7 @@ fn all_optimal_algorithms_agree() {
     assert_eq!(costs, [14; 3]);
 }
 
+/// The Manhattan heuristic saves expansions and never causes reopening.
 #[test]
 fn astar_expands_fewer_states_than_dijkstra() {
     let grid = walled();
@@ -61,6 +63,7 @@ fn astar_expands_fewer_states_than_dijkstra() {
     assert_eq!(informed.reopened, 0, "Manhattan distance is consistent");
 }
 
+/// Weighted A* stays within its bound; GBFS still reaches the goal.
 #[test]
 fn suboptimal_searches_stay_within_bounds() {
     let grid = walled();
@@ -77,6 +80,7 @@ fn suboptimal_searches_stay_within_bounds() {
     assert_eq!(*greedy.goal(), GOAL);
 }
 
+/// A walled-off goal is unsolvable after expanding every reachable cell once.
 #[test]
 fn enclosed_goal_is_unsolvable() {
     let grid = Grid::parse(&["..#.", "..#.", "..#."]);

@@ -21,6 +21,7 @@ fn is_three(state: &usize) -> bool {
     *state == 3
 }
 
+/// Dijkstra prefers three cheap edges over one expensive edge.
 #[test]
 fn dijkstra_finds_cheapest_path() {
     let graph = diamond();
@@ -33,6 +34,7 @@ fn dijkstra_finds_cheapest_path() {
     assert_valid_path(&graph, 0, &solution);
 }
 
+/// BFS takes the single expensive edge and reports its true cost.
 #[test]
 fn bfs_finds_fewest_edges_and_sums_costs() {
     let graph = diamond();
@@ -44,6 +46,7 @@ fn bfs_finds_fewest_edges_and_sums_costs() {
     assert_eq!(solution.cost, 10);
 }
 
+/// A* with the exact distance as heuristic finds the cheapest path.
 #[test]
 fn astar_with_admissible_heuristic_is_optimal() {
     let graph = diamond();
@@ -61,6 +64,7 @@ fn astar_with_admissible_heuristic_is_optimal() {
     assert_eq!(solution.cost, 3);
 }
 
+/// A perfect heuristic leads A* straight along the cheapest path.
 #[test]
 fn astar_with_perfect_heuristic_expands_only_the_path() {
     let graph = diamond();
@@ -94,6 +98,7 @@ fn astar_reopens_with_inconsistent_heuristic() {
     assert_valid_path(&graph, 0, &solution);
 }
 
+/// A start state that is a goal yields a path without edges.
 #[test]
 fn start_goal_yields_empty_path() {
     let graph = diamond();
@@ -108,6 +113,7 @@ fn start_goal_yields_empty_path() {
     }
 }
 
+/// Every algorithm reports an unreachable goal as unsolvable.
 #[test]
 fn unreachable_goal_is_unsolvable() {
     let graph = Graph::new(3, &[(0, 1, 1), (1, 0, 1)]);
@@ -132,6 +138,7 @@ fn unreachable_goal_is_unsolvable() {
     );
 }
 
+/// States the heuristic declares dead ends are never expanded.
 #[test]
 fn dead_end_heuristic_prunes_states() {
     let graph = diamond();
@@ -144,6 +151,20 @@ fn dead_end_heuristic_prunes_states() {
     assert_eq!(solution.states, [0, 3]);
 }
 
+/// A dead end reached again through a cheaper path must stay closed, not be reopened.
+#[test]
+fn dead_end_is_not_reopened() {
+    // 0 -> 1 costs 5, 0 -> 2 -> 1 costs 2; 1 is declared a dead end.
+    let graph = Graph::new(4, &[(0, 1, 5), (0, 2, 1), (2, 1, 1), (1, 3, 1)]);
+    let h = |state: &usize| (*state != 1).then_some(0_u64);
+    let result = astar(&graph, 0, &is_three, &h, Limits::NONE);
+
+    assert_eq!(result.outcome, Outcome::Unsolvable);
+    assert_eq!(result.stats.expanded, 2);
+    assert_eq!(result.stats.reopened, 0);
+}
+
+/// An expansion limit of `n` stops the search after exactly `n` expansions.
 #[test]
 fn expansion_limit_stops_search() {
     let graph = diamond();
@@ -153,6 +174,7 @@ fn expansion_limit_stops_search() {
     assert_eq!(result.stats.expanded, 2);
 }
 
+/// A closure budget is asked before every expansion with the current counters.
 #[test]
 fn closure_budget_sees_stats() {
     let graph = diamond();
@@ -167,6 +189,7 @@ fn closure_budget_sees_stats() {
     assert_eq!(seen, [0]);
 }
 
+/// Weighted A* with weight 1 behaves exactly like A*.
 #[test]
 fn weighted_astar_with_weight_one_matches_astar() {
     let graph = diamond();
@@ -177,6 +200,7 @@ fn weighted_astar_with_weight_one_matches_astar() {
     assert_eq!(plain, weighted);
 }
 
+/// GBFS trusts a misleading heuristic and returns the expensive path.
 #[test]
 fn gbfs_follows_the_heuristic() {
     let graph = diamond();
@@ -190,6 +214,7 @@ fn gbfs_follows_the_heuristic() {
     assert_eq!(solution.cost, 10);
 }
 
+/// `f64` costs work like integer costs.
 #[test]
 fn float_costs_work() {
     use heuristic_search::Successors;

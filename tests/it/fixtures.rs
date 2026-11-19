@@ -22,18 +22,6 @@ impl Graph {
         Self { edges: adjacency }
     }
 
-    /// The same graph with every edge reversed, for computing exact distances to a goal.
-    pub fn reversed(&self) -> Self {
-        let mut reversed = vec![Vec::new(); self.edges.len()];
-        for (from, edges) in self.edges.iter().enumerate() {
-            for &(to, cost) in edges {
-                reversed[to].push((from, cost));
-            }
-        }
-
-        Self { edges: reversed }
-    }
-
     /// The same graph with every edge cost set to `1`.
     pub fn unit(&self) -> Self {
         let edges = self

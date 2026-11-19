@@ -7,23 +7,29 @@ use proptest::prelude::*;
 
 use crate::fixtures::{Graph, assert_valid_path};
 
-/// Exact cost from every node to `goal`, or `None` if `goal` is unreachable, computed by
-/// running Dijkstra backwards from `goal` once per node.
+/// Exact cost from every node to `goal`, or `None` if `goal` is unreachable.
+///
+/// Bellman-Ford relaxation, independent of the crate's own searches so it can serve as the
+/// oracle for them.
 fn distances_to(graph: &Graph, goal: usize) -> Vec<Option<u64>> {
-    let reversed = graph.reversed();
+    let mut distance = vec![None; graph.edges.len()];
+    distance[goal] = Some(0);
 
-    (0..graph.edges.len())
-        .map(|node| {
-            dijkstra(
-                &reversed,
-                goal,
-                &|state: &usize| *state == node,
-                Limits::NONE,
-            )
-            .into_solution()
-            .map(|solution| solution.cost)
-        })
-        .collect()
+    for _ in 0..graph.edges.len() {
+        for (from, edges) in graph.edges.iter().enumerate() {
+            for &(to, cost) in edges {
+                let Some(via) = distance[to].map(|d: u64| d + cost) else {
+                    continue;
+                };
+
+                if distance[from].is_none_or(|d| via < d) {
+                    distance[from] = Some(via);
+                }
+            }
+        }
+    }
+
+    distance
 }
 
 /// A random graph with up to 12 nodes and edge costs `0..=9`, plus a goal node.
