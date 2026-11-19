@@ -1,8 +1,11 @@
 //! Property tests on random weighted graphs: A* with admissible heuristics matches
 //! Dijkstra, Weighted A* stays within its bound, BFS finds the fewest edges, and every
-//! returned path is valid.
+//! returned path is valid. Searches from several starts match the best single start.
 
-use heuristic_search::{Limits, Weight, astar, bfs, dijkstra, gbfs, weighted_astar};
+use heuristic_search::{
+    Limits, Weight, astar, astar_multi, bfs, bfs_multi, dijkstra, dijkstra_multi, gbfs,
+    weighted_astar,
+};
 use proptest::prelude::*;
 
 use crate::fixtures::{Graph, assert_valid_path};
@@ -110,6 +113,39 @@ proptest! {
         prop_assert_eq!(shortest.as_ref().map(|s| s.len() as u64), unit_optimal.map(|s| s.cost));
         if let Some(solution) = &shortest {
             assert_valid_path(&graph, 0, solution);
+        }
+    }
+
+    /// Searching from a set of starts finds the minimum over searching from each alone:
+    /// cheapest cost for Dijkstra and A*, fewest edges for BFS.
+    #[test]
+    fn multi_start_matches_best_single_start(
+        (graph, goal) in graph_and_goal(),
+        raw_starts in prop::collection::vec(0_usize..12, 0..5),
+    ) {
+        let nodes = graph.edges.len();
+        let starts: Vec<usize> = raw_starts.into_iter().map(|s| s % nodes).collect();
+        let exact = distances_to(&graph, goal);
+        let h = |state: &usize| Some(exact[*state].unwrap_or(0));
+        let is_goal = |state: &usize| *state == goal;
+
+        let best_cost = starts.iter().filter_map(|&s| exact[s]).min();
+        let best_len = starts
+            .iter()
+            .filter_map(|&s| bfs(&graph, s, &is_goal, Limits::NONE).into_solution())
+            .map(|solution| solution.len())
+            .min();
+
+        let cheapest = dijkstra_multi(&graph, starts.iter().copied(), &is_goal, Limits::NONE);
+        let informed = astar_multi(&graph, starts.iter().copied(), &is_goal, &h, Limits::NONE);
+        let shortest = bfs_multi(&graph, starts.iter().copied(), &is_goal, Limits::NONE);
+
+        prop_assert_eq!(cheapest.solution().map(|s| s.cost), best_cost);
+        prop_assert_eq!(informed.solution().map(|s| s.cost), best_cost);
+        prop_assert_eq!(shortest.solution().map(heuristic_search::Solution::len), best_len);
+        for solution in [&cheapest, &informed, &shortest].into_iter().filter_map(|r| r.solution()) {
+            prop_assert!(starts.contains(&solution.states[0]));
+            assert_valid_path(&graph, solution.states[0], solution);
         }
     }
 }

@@ -1,4 +1,5 @@
-//! Best-first search: [`astar`], [`dijkstra`], [`weighted_astar`] and [`gbfs`].
+//! Best-first search: [`astar`], [`dijkstra`], [`weighted_astar`] and [`gbfs`], each also
+//! from several start states (`*_multi`).
 //!
 //! All four run the same engine and differ only in the open-list key and in whether a
 //! cheaper path to a known state is taken up (reopening):
@@ -87,7 +88,7 @@ where
 {
     let order = Order::Weighted(Weight::ONE);
 
-    Engine::new(graph, goal, heuristic, order).run(start, budget)
+    Engine::new(graph, goal, heuristic, order).run([start], budget)
 }
 
 /// Dijkstra's algorithm (uniform-cost search) from `start` to the cheapest goal.
@@ -128,7 +129,7 @@ where
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
 {
-    Engine::new(graph, goal, &Zero, Order::G).run(start, budget)
+    Engine::new(graph, goal, &Zero, Order::G).run([start], budget)
 }
 
 /// Weighted A*: A* ordered by `g + w * h`, trading solution quality for speed.
@@ -176,7 +177,7 @@ where
     T: Goal<G::State> + ?Sized,
     H: Heuristic<G::State, G::Cost> + ?Sized,
 {
-    Engine::new(graph, goal, heuristic, Order::Weighted(weight)).run(start, budget)
+    Engine::new(graph, goal, heuristic, Order::Weighted(weight)).run([start], budget)
 }
 
 /// Greedy best-first search: always expands the state with the smallest heuristic value.
@@ -228,7 +229,118 @@ where
     T: Goal<G::State> + ?Sized,
     H: Heuristic<G::State, G::Cost> + ?Sized,
 {
-    Engine::new(graph, goal, heuristic, Order::H).run(start, budget)
+    Engine::new(graph, goal, heuristic, Order::H).run([start], budget)
+}
+
+/// [`astar`] from several start states at once, to the cheapest goal from any of them.
+///
+/// Every start has path cost zero. Repeated starts count once, an empty set of starts is
+/// [`Outcome::Unsolvable`], and a start that is a goal is returned as a zero-cost path
+/// without expanding anything. The heuristic estimates the distance to the goal, so it
+/// needs no change for several starts.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, astar_multi};
+///
+/// /// Counting up by one, at cost 1.
+/// struct Up;
+///
+/// impl Successors for Up {
+///     type State = u32;
+///     type Action = ();
+///     type Cost = u32;
+///
+///     fn successors(&self, n: &u32, mut emit: impl FnMut((), u32, u32)) {
+///         emit((), n + 1, 1);
+///     }
+/// }
+///
+/// let distance = |n: &u32| 8_u32.checked_sub(*n);
+/// let result = astar_multi(&Up, [0, 6, 3], &|n: &u32| *n == 8, &distance, Limits::NONE);
+/// let solution = result.into_solution().expect("8 is reachable");
+///
+/// assert_eq!(solution.states, [6, 7, 8]);
+/// assert_eq!(solution.cost, 2);
+/// ```
+pub fn astar_multi<G, T, H>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goal: &T,
+    heuristic: &H,
+    budget: impl Budget,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost> + ?Sized,
+{
+    let order = Order::Weighted(Weight::ONE);
+
+    Engine::new(graph, goal, heuristic, order).run(starts, budget)
+}
+
+/// [`dijkstra`] from several start states at once, to the cheapest goal from any of them.
+///
+/// Start handling as in [`astar_multi`].
+pub fn dijkstra_multi<G, T>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goal: &T,
+    budget: impl Budget,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+{
+    Engine::new(graph, goal, &Zero, Order::G).run(starts, budget)
+}
+
+/// [`weighted_astar`] from several start states at once.
+///
+/// Start handling as in [`astar_multi`]; the cost bound is relative to the cheapest goal
+/// from any start.
+pub fn weighted_astar_multi<G, T, H>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goal: &T,
+    heuristic: &H,
+    weight: Weight,
+    budget: impl Budget,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost> + ?Sized,
+{
+    Engine::new(graph, goal, heuristic, Order::Weighted(weight)).run(starts, budget)
+}
+
+/// [`gbfs`] from several start states at once.
+///
+/// Start handling as in [`astar_multi`].
+pub fn gbfs_multi<G, T, H>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goal: &T,
+    heuristic: &H,
+    budget: impl Budget,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost> + ?Sized,
+{
+    Engine::new(graph, goal, heuristic, Order::H).run(starts, budget)
 }
 
 /// How the engine orders its open list.
@@ -306,12 +418,22 @@ where
         }
     }
 
-    /// Searches from `start` until a goal is expanded, the open list runs empty or `budget`
-    /// is used up.
-    fn run(mut self, start: G::State, mut budget: impl Budget) -> GraphResult<G> {
-        let mut space = SearchSpace::new(start);
+    /// Searches from `starts` until a goal is expanded, the open list runs empty or
+    /// `budget` is used up. A start that is a goal ends the search before any expansion.
+    fn run(
+        mut self,
+        starts: impl IntoIterator<Item = G::State>,
+        mut budget: impl Budget,
+    ) -> GraphResult<G> {
+        let (mut space, start_goal) = SearchSpace::seed(starts, self.goal);
+        if let Some(found) = start_goal {
+            return self.finish(Outcome::Found(space.solution(found)));
+        }
+
         let mut open = OpenList::new();
-        self.open_if_alive(&space, &mut open, 0);
+        for start in 0..space.len() {
+            self.open_if_alive(&space, &mut open, start);
+        }
 
         while let Some(node) = open.pop_live(|id| space.g(id)) {
             if self.goal.is_goal(space.state(node)) {

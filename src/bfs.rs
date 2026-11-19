@@ -44,35 +44,79 @@ use crate::space::{NodeId, Reach, SearchSpace};
 /// assert_eq!(solution.actions, ['b', 'a', 'b']);
 /// assert_eq!(solution.cost, 5);
 /// ```
-pub fn bfs<G, T>(graph: &G, start: G::State, goal: &T, mut budget: impl Budget) -> GraphResult<G>
+pub fn bfs<G, T>(graph: &G, start: G::State, goal: &T, budget: impl Budget) -> GraphResult<G>
 where
     G: Successors,
     G::State: Clone + Hash + Eq,
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
 {
-    let mut stats = Stats::default();
-    let mut space = SearchSpace::new(start);
-    if goal.is_goal(space.state(0)) {
-        return finish(Outcome::Found(space.solution(0)), stats);
+    bfs_multi(graph, [start], goal, budget)
+}
+
+/// Breadth-first search from several start states at once, to the goal with the fewest
+/// edges from any of them.
+///
+/// Every start is at depth zero. Repeated starts count once, an empty set of starts is
+/// [`Outcome::Unsolvable`], and a start that is a goal is returned as a path without edges.
+/// Otherwise behaves like [`bfs()`].
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, bfs_multi};
+///
+/// /// Counting up by one, at cost 1.
+/// struct Up;
+///
+/// impl Successors for Up {
+///     type State = u32;
+///     type Action = ();
+///     type Cost = u32;
+///
+///     fn successors(&self, n: &u32, mut emit: impl FnMut((), u32, u32)) {
+///         emit((), n + 1, 1);
+///     }
+/// }
+///
+/// let result = bfs_multi(&Up, [0, 6, 3], &|n: &u32| *n == 8, Limits::NONE);
+/// let solution = result.into_solution().expect("8 is reachable");
+///
+/// assert_eq!(solution.states, [6, 7, 8]);
+/// ```
+pub fn bfs_multi<G, T>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goal: &T,
+    mut budget: impl Budget,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+{
+    let mut counters = Stats::default();
+    let (mut space, start_goal) = SearchSpace::seed(starts, goal);
+    if let Some(found) = start_goal {
+        return finish(Outcome::Found(space.solution(found)), counters);
     }
 
-    let mut queue = VecDeque::from([0]);
+    let mut queue: VecDeque<NodeId> = (0..space.len()).collect();
     let mut buffer = Vec::new();
     while let Some(node) = queue.pop_front() {
-        if budget.exhausted(&stats) {
-            return finish(Outcome::LimitReached, stats);
+        if budget.exhausted(&counters) {
+            return finish(Outcome::LimitReached, counters);
         }
 
-        stats.expanded += 1;
-
-        stats.generated += collect_successors(graph, space.state(node), &mut buffer);
+        counters.expanded += 1;
+        counters.generated += collect_successors(graph, space.state(node), &mut buffer);
         if let Some(found) = enqueue_new(&mut space, &mut queue, &mut buffer, node, goal) {
-            return finish(Outcome::Found(space.solution(found)), stats);
+            return finish(Outcome::Found(space.solution(found)), counters);
         }
     }
 
-    finish(Outcome::Unsolvable, stats)
+    finish(Outcome::Unsolvable, counters)
 }
 
 /// Adds the unseen successors in `buffer` (emptying it) to the search space and the back of

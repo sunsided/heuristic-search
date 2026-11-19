@@ -20,6 +20,12 @@
 //! - [`weighted_astar`]: Weighted A*, at most `w` times the cheapest cost.
 //! - [`gbfs`]: greedy best-first search, fast and unbounded.
 //!
+//! Each has a `*_multi` variant ([`astar_multi`] and so on) that searches from several
+//! start states at once.
+//!
+//! Costs are generic over [`Cost`]. For planning, `u32` is the intended default: action
+//! costs are small integers and heuristics over them stay exact.
+//!
 //! ## Example
 //!
 //! ```
@@ -78,8 +84,11 @@ mod outcome;
 mod problem;
 mod space;
 
-pub use best_first::{GraphResult, astar, dijkstra, gbfs, weighted_astar};
-pub use bfs::bfs;
+pub use best_first::{
+    GraphResult, astar, astar_multi, dijkstra, dijkstra_multi, gbfs, gbfs_multi, weighted_astar,
+    weighted_astar_multi,
+};
+pub use bfs::{bfs, bfs_multi};
 pub use cost::{Cost, Weight};
 pub use outcome::{Budget, Limits, Outcome, SearchResult, Solution, Stats};
 pub use problem::{Goal, Heuristic, Successors, Zero};

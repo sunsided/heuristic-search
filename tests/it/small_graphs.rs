@@ -1,7 +1,8 @@
 //! Hand-made graphs with known answers.
 
 use heuristic_search::{
-    Limits, Outcome, Stats, Weight, astar, bfs, dijkstra, gbfs, weighted_astar,
+    Limits, Outcome, Stats, Weight, astar, astar_multi, bfs, bfs_multi, dijkstra, dijkstra_multi,
+    gbfs, gbfs_multi, weighted_astar, weighted_astar_multi,
 };
 
 use crate::fixtures::{Graph, assert_valid_path};
@@ -245,4 +246,78 @@ fn float_costs_work() {
 
     assert_eq!(solution.states, [0, 1, 2]);
     assert!((solution.cost - 1.0).abs() < f64::EPSILON);
+}
+
+/// An empty set of start states is unsolvable for every algorithm.
+#[test]
+fn no_starts_is_unsolvable() {
+    let graph = diamond();
+    let zero = |_: &usize| Some(0_u64);
+    let none = core::iter::empty::<usize>;
+
+    let results = [
+        bfs_multi(&graph, none(), &is_three, Limits::NONE),
+        dijkstra_multi(&graph, none(), &is_three, Limits::NONE),
+        astar_multi(&graph, none(), &is_three, &zero, Limits::NONE),
+        weighted_astar_multi(&graph, none(), &is_three, &zero, Weight::ONE, Limits::NONE),
+        gbfs_multi(&graph, none(), &is_three, &zero, Limits::NONE),
+    ];
+
+    for result in results {
+        assert_eq!(result.outcome, Outcome::Unsolvable);
+        assert_eq!(result.stats, Stats::default());
+    }
+}
+
+/// A start that is a goal wins at cost zero, even when the heuristic prefers another start.
+#[test]
+fn goal_among_starts_costs_nothing() {
+    let graph = diamond();
+    // Misleading: node 2 looks closer than the goal itself.
+    let h = |s: &usize| Some([9_u64, 9, 0, 5][*s]);
+
+    let results = [
+        bfs_multi(&graph, [2, 3], &is_three, Limits::NONE),
+        dijkstra_multi(&graph, [2, 3], &is_three, Limits::NONE),
+        astar_multi(&graph, [2, 3], &is_three, &h, Limits::NONE),
+        weighted_astar_multi(
+            &graph,
+            [2, 3],
+            &is_three,
+            &h,
+            Weight::integer(2),
+            Limits::NONE,
+        ),
+        gbfs_multi(&graph, [2, 3], &is_three, &h, Limits::NONE),
+    ];
+
+    for result in results {
+        assert_eq!(result.stats.expanded, 0);
+        let solution = result.into_solution().expect("a start is the goal");
+        assert_eq!(solution.states, [3]);
+        assert_eq!(solution.cost, 0);
+    }
+}
+
+/// Repeated starts are searched once and do not change the result.
+#[test]
+fn repeated_starts_are_deduplicated() {
+    let graph = diamond();
+    let once = dijkstra_multi(&graph, [0], &is_three, Limits::NONE);
+    let repeated = dijkstra_multi(&graph, [0, 0, 0], &is_three, Limits::NONE);
+
+    assert_eq!(once, repeated);
+}
+
+/// Several starts find the cheapest goal from any of them.
+#[test]
+fn multi_start_picks_the_cheapest_start() {
+    let graph = diamond();
+    let solution = dijkstra_multi(&graph, [0, 1], &is_three, Limits::NONE)
+        .into_solution()
+        .expect("3 is reachable");
+
+    assert_eq!(solution.states, [1, 2, 3]);
+    assert_eq!(solution.cost, 2);
+    assert_valid_path(&graph, 1, &solution);
 }

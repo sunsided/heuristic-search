@@ -8,6 +8,7 @@ use hashbrown::{DefaultHashBuilder, HashTable};
 
 use crate::cost::Cost;
 use crate::outcome::Solution;
+use crate::problem::Goal;
 
 /// Index of a node in a [`SearchSpace`]. Stable for the lifetime of the space.
 pub(crate) type NodeId = usize;
@@ -50,16 +51,38 @@ pub(crate) struct SearchSpace<S, A, C> {
 }
 
 impl<S: Hash + Eq, A, C: Cost> SearchSpace<S, A, C> {
-    /// Creates a space that holds only `start`, at cost zero, as node `0`.
-    pub(crate) fn new(start: S) -> Self {
+    /// Creates a space from the start states, each at cost zero.
+    ///
+    /// Repeated starts are stored once, so the starts are nodes `0..space.len()` in order
+    /// of first appearance. Stops early and returns the node of the first start that
+    /// satisfies `goal`, if any.
+    pub(crate) fn seed<T: Goal<S> + ?Sized>(
+        starts: impl IntoIterator<Item = S>,
+        goal: &T,
+    ) -> (Self, Option<NodeId>) {
         let mut space = Self {
             nodes: Vec::new(),
             index: HashTable::new(),
             hasher: DefaultHashBuilder::default(),
         };
-        space.insert(start, C::ZERO, None);
 
-        space
+        for start in starts {
+            if space.find(&start).is_some() {
+                continue;
+            }
+
+            let id = space.insert(start, C::ZERO, None);
+            if goal.is_goal(space.state(id)) {
+                return (space, Some(id));
+            }
+        }
+
+        (space, None)
+    }
+
+    /// The number of nodes in the space.
+    pub(crate) fn len(&self) -> usize {
+        self.nodes.len()
     }
 
     /// The state of node `id`.
