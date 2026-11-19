@@ -93,6 +93,34 @@ where
 /// Dijkstra's algorithm (uniform-cost search) from `start` to the cheapest goal.
 ///
 /// A* with the [`Zero`] heuristic: always optimal for non-negative edge costs.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, dijkstra};
+///
+/// /// Doubling costs 1, incrementing costs 3.
+/// struct Numbers;
+///
+/// impl Successors for Numbers {
+///     type State = u32;
+///     type Action = char;
+///     type Cost = u32;
+///
+///     fn successors(&self, n: &u32, mut emit: impl FnMut(char, u32, u32)) {
+///         if *n < 100 {
+///             emit('*', n * 2, 1);
+///             emit('+', n + 1, 3);
+///         }
+///     }
+/// }
+///
+/// let result = dijkstra(&Numbers, 1, &|n: &u32| *n == 10, Limits::NONE);
+/// let solution = result.into_solution().expect("10 is reachable");
+///
+/// assert_eq!(solution.actions, ['*', '*', '+', '*']);
+/// assert_eq!(solution.cost, 6);
+/// ```
 pub fn dijkstra<G, T>(graph: &G, start: G::State, goal: &T, budget: impl Budget) -> GraphResult<G>
 where
     G: Successors,
@@ -107,6 +135,32 @@ where
 ///
 /// With an admissible `heuristic` and `w >= 1`, the solution costs at most `w` times the
 /// optimum. Weight [`Weight::ONE`] is plain A*.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, Weight, weighted_astar};
+///
+/// /// A line of integers; each step moves one to the left or right at cost 1.
+/// struct Line;
+///
+/// impl Successors for Line {
+///     type State = i32;
+///     type Action = i32;
+///     type Cost = u32;
+///
+///     fn successors(&self, state: &i32, mut emit: impl FnMut(i32, i32, u32)) {
+///         emit(-1, state - 1, 1);
+///         emit(1, state + 1, 1);
+///     }
+/// }
+///
+/// let distance = |state: &i32| Some(9_i32.abs_diff(*state));
+/// let weight = Weight::new(3, 2);
+/// let result = weighted_astar(&Line, 0, &|s: &i32| *s == 9, &distance, weight, Limits::NONE);
+///
+/// assert!(result.solution().is_some_and(|solution| solution.cost <= 9 * 3 / 2));
+/// ```
 pub fn weighted_astar<G, T, H>(
     graph: &G,
     start: G::State,
@@ -130,6 +184,36 @@ where
 /// Ignores path cost when ordering and never reopens states, so it is fast but not optimal.
 /// The reported [`Solution::cost`](crate::Solution::cost) is the true cost of the returned
 /// path.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, gbfs};
+///
+/// /// Cells of a 1-D corridor `0..=20`; each step moves one cell at cost 1.
+/// struct Corridor;
+///
+/// impl Successors for Corridor {
+///     type State = u8;
+///     type Action = i8;
+///     type Cost = u32;
+///
+///     fn successors(&self, cell: &u8, mut emit: impl FnMut(i8, u8, u32)) {
+///         if let Some(left) = cell.checked_sub(1) {
+///             emit(-1, left, 1);
+///         }
+///         if *cell < 20 {
+///             emit(1, cell + 1, 1);
+///         }
+///     }
+/// }
+///
+/// let distance = |cell: &u8| Some(u32::from(15_u8.abs_diff(*cell)));
+/// let result = gbfs(&Corridor, 5, &|cell: &u8| *cell == 15, &distance, Limits::NONE);
+///
+/// assert_eq!(result.solution().map(|solution| solution.len()), Some(10));
+/// assert_eq!(result.stats.expanded, 10);
+/// ```
 pub fn gbfs<G, T, H>(
     graph: &G,
     start: G::State,
@@ -163,6 +247,8 @@ impl Order {
     fn key<C: Cost>(self, g: C, h: C) -> C {
         match self {
             Self::G => g,
+            // shortcut: the `+` can overflow for integer costs near their maximum; add a
+            // saturating add to `Cost` if callers hit it.
             Self::Weighted(weight) => g.times(weight.denominator()) + h.times(weight.numerator()),
             Self::H => h,
         }

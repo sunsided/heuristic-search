@@ -15,6 +15,35 @@ use crate::space::{NodeId, Reach, SearchSpace};
 /// [`Solution::cost`](crate::Solution::cost). The goal test runs when a state is generated,
 /// not when it is expanded, which saves the last layer of expansions and keeps the result
 /// shortest. Each state is expanded at most once.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, bfs};
+///
+/// /// Words over `a` and `b` up to length 4; appending a letter costs its position.
+/// struct Words;
+///
+/// impl Successors for Words {
+///     type State = String;
+///     type Action = char;
+///     type Cost = u32;
+///
+///     fn successors(&self, word: &String, mut emit: impl FnMut(char, String, u32)) {
+///         if word.len() < 4 {
+///             for letter in ['a', 'b'] {
+///                 emit(letter, format!("{word}{letter}"), u32::from(letter) - 96);
+///             }
+///         }
+///     }
+/// }
+///
+/// let result = bfs(&Words, String::new(), &|w: &String| w == "bab", Limits::NONE);
+/// let solution = result.into_solution().expect("bab is reachable");
+///
+/// assert_eq!(solution.actions, ['b', 'a', 'b']);
+/// assert_eq!(solution.cost, 5);
+/// ```
 pub fn bfs<G, T>(graph: &G, start: G::State, goal: &T, mut budget: impl Budget) -> GraphResult<G>
 where
     G: Successors,
