@@ -64,13 +64,30 @@ pub trait Cost: Copy + Add<Output = Self> {
     const ZERO: Self;
     fn cmp_cost(&self, other: &Self) -> Ordering; // total order
     fn times(self, factor: u32) -> Self;          // for weights
+    fn saturating_add(self, other: Self) -> Self; // for priority keys
 }
 ```
 
 Implemented for `u32`, `u64`, `usize`, `i64` and `f64`. Floats compare with `total_cmp`,
 so a NaN cost does not panic the heap. Weights are rational (`Weight::new(num, den)`), and
 Weighted A* orders by `den * g + num * h`, which sorts like `g + w * h` without division, so
-integer costs stay exact. `times` saturates for integers.
+integer costs stay exact.
+
+The key is computed with `times` and `saturating_add`, both saturating for integers, so
+heuristic values near `u32::MAX` cannot panic. Keys that saturate tie, which only changes
+the expansion order among them. Path costs `g` themselves use plain `+`: a path whose true
+cost overflows the cost type is a caller error.
+
+**`u32` is the default cost type for planning.** The crate stays generic over `Cost`, but
+planning action costs are small non-negative integers (miniplan's are `u32`), and integer
+costs give exact sums and ties.
+
+**Rounding float heuristics over integer costs: round up.** When a heuristic is computed in
+floating point but all path costs are integers, convert it with `ceil`, not `floor`. If
+`h <= h*` and `h*` is an integer, then `ceil(h) <= h*`, so `ceil` keeps admissibility, and
+it keeps consistency (`h(s) <= c(s, t) + h(t)` with integer `c(s, t) + ceil(h(t))` gives
+`ceil(h(s)) <= c(s, t) + ceil(h(t))`). It is also the stronger (larger) of the two.
+Rounding down is safe but throws information away.
 
 ### Planned
 
@@ -107,6 +124,21 @@ pub enum Outcome<S, A, C> { Found(Solution<S, A, C>), Unsolvable, LimitReached }
 pub struct Solution<S, A, C> { pub states: Vec<S>, pub actions: Vec<A>, pub cost: C }
 pub struct Stats { pub expanded: u64, pub generated: u64, pub reopened: u64 }
 ```
+
+### Start states
+
+Every search has a single-start function (`astar(graph, start, ...)`) and a multi-start
+one (`astar_multi(graph, starts, ...)`, taking any `IntoIterator` of states). The
+single-start form calls the multi-start one with `[start]`. Multi-start semantics:
+
+- every start is seeded with `g = 0` and no parent, so a solution may begin at any start;
+- repeated starts are stored once;
+- an empty set of starts returns `Unsolvable` without expanding anything;
+- a start that satisfies the goal returns a zero-cost solution right away, before any
+  expansion, whatever the heuristic says.
+
+Multi-start search is what backward search from a set of goal states needs, and what a
+"nearest of several sources" query is.
 
 - `Solution` holds the full state sequence and the action sequence; `states.len() ==
   actions.len() + 1`. The cost is summed along the parent links, so it is the true cost of
@@ -192,9 +224,10 @@ Adoption, step by step:
    `successors` is the applicable-operator loop that `Astar::successors` and
    `Gbfs::successors` contain today.
 2. A heuristic adapter from `&dyn miniplan::Heuristic` to `Heuristic<State, u32>`:
-   `HValue::INFINITY` maps to `None`, finite values are rounded *down* to stay admissible.
-   (Or miniplan uses `Cost = f64` to keep its float heuristics unchanged; see open
-   questions.)
+   `HValue::INFINITY` maps to `None`. miniplan's `h_add` and `h_FF` are sums of `u32`
+   action costs, so their values are integers and the conversion is exact. Any other float
+   heuristic is rounded *up* (`ceil`), which keeps admissibility and consistency (see
+   [Cost](#cost)).
 3. `Bfs`, `Astar` and `Gbfs` keep their `Planner` impls and call `bfs`, `astar`, `gbfs`.
    `SearchLimits` becomes a closure `Budget` that checks `node_budget` and an `Instant`.
    `SearchStats::{plan_cost, plan_length, elapsed}` are filled from the `Solution` and the
@@ -216,8 +249,8 @@ Behaviour changes miniplan will see:
 
 Things other repos would need to change or provide. None of these are done here.
 
-- miniplan: forward `Successors` adapter and heuristic adapter (above); decide the cost type
-  (`u32` vs `f64`).
+- miniplan: forward `Successors` adapter and `u32` heuristic adapter with `ceil` rounding
+  (above).
 - miniplan: preferred operators (`Heuristic::preferred_ops`) exist in its trait but no
   planner calls them today. If GBFS with preferred-operator queues moves here, `heuristic-search` needs an
   optional capability like `PreferredActions` (emit preferred actions per state).
@@ -238,14 +271,19 @@ Things other repos would need to change or provide. None of these are done here.
   unreachable goals, dead ends, budgets, float costs, reopening under an inconsistent
   heuristic, GBFS misled by its heuristic.
 - Grids: all optimal algorithms agree on the cost, A* expands fewer states than Dijkstra
-  and never reopens with a consistent heuristic, WA* and GBFS stay within bounds.
+  and never reopens with a consistent heuristic, WA* and GBFS stay within bounds, and
+  heuristic values near `u32::MAX` do not overflow the A* or WA* key.
+- Multi-start: empty start sets, repeated starts, and a goal among the starts (zero cost,
+  no expansion, even against a misleading heuristic).
 - Property tests (proptest) on random weighted graphs with zero-cost edges and cycles:
   - A* cost equals Dijkstra cost equals the exact distance, with heuristics that are
     admissible but usually inconsistent (random fractions of the true distance);
   - WA* finds a solution iff one exists and costs at most `w` times the optimum;
   - GBFS is complete on finite graphs;
   - BFS edge count equals Dijkstra on the unit-cost graph;
-  - every returned path is valid and its cost is the sum of its edges.
+  - every returned path is valid and its cost is the sum of its edges;
+  - multi-start search equals the minimum over single-start searches (Dijkstra and A* cost,
+    BFS edge count).
 - Every search function has a doctest.
 - `no_std` is checked by building for `thumbv7em-none-eabihf`.
 - The property-test oracle (Bellman-Ford in the test fixtures) is independent of the
@@ -257,7 +295,8 @@ Things other repos would need to change or provide. None of these are done here.
 ## Milestones
 
 1. **Foundations** (done on `draft/initial`): capability traits, `Cost`, search space,
-   open list, BFS, Dijkstra, A*, WA*, GBFS, statistics, budgets, path extraction, tests.
+   open list, BFS, Dijkstra, A*, WA*, GBFS, single- and multi-start, statistics, budgets,
+   path extraction, saturating keys, tests.
 2. **Rest of foundational + anytime**: DFS (with depth limit), IDA*, ARA*, ANA*.
    `Stats` gets `#[non_exhaustive]`; anytime algorithms report each improved solution
    through a callback.
@@ -270,13 +309,6 @@ Things other repos would need to change or provide. None of these are done here.
 
 ## Open questions
 
-- Overflow: `Cost::times` saturates, but the `+` that combines `g` and `h` into a key does
-  not. Integer costs near the type's maximum panic in debug builds. Add `saturating_add`
-  to `Cost`, or document a headroom requirement?
-- miniplan cost type: `u32` (exact, needs heuristic rounding) or `f64` (no change to
-  heuristics, float ties)?
-- Should searches take the start by value (as now) or allow several start states (useful
-  for backward search from a set of goal states)?
 - Goal test on generation for best-first search is a common speedup for GBFS. Add it as an
   option, or keep expansion-time tests everywhere except BFS?
 - Should `Stats` count heuristic evaluations, which dominate run time in planning?
