@@ -99,3 +99,18 @@ fn enclosed_goal_is_unsolvable() {
         "every reachable cell is expanded once"
     );
 }
+
+/// Heuristic values near `u32::MAX` must not overflow the open-list key, for A* (`g + h`)
+/// and for Weighted A* (`den * g + num * h`).
+#[test]
+fn huge_heuristic_values_do_not_overflow() {
+    let grid = walled();
+    let huge = |cell: &Cell| Some(if *cell == GOAL { 0 } else { u32::MAX - 1 });
+    let weight = Weight::new(3, 2);
+
+    let plain = astar(&grid, START, &is_goal, &huge, Limits::NONE);
+    let weighted = weighted_astar(&grid, START, &is_goal, &huge, weight, Limits::NONE);
+
+    assert_eq!(plain.solution().map(|s| *s.goal()), Some(GOAL));
+    assert_eq!(weighted.solution().map(|s| *s.goal()), Some(GOAL));
+}

@@ -24,6 +24,12 @@ pub trait Cost: Copy + Add<Output = Self> {
     /// without division. Integer implementations saturate instead of overflowing.
     #[must_use]
     fn times(self, factor: u32) -> Self;
+
+    /// Adds two costs, saturating at the maximum instead of overflowing for integers.
+    ///
+    /// Used where a sum only serves as a priority, such as the Weighted A* key.
+    #[must_use]
+    fn saturating_add(self, other: Self) -> Self;
 }
 
 /// Implements [`Cost`] for unsigned and signed integer types that `u32` converts into
@@ -40,6 +46,10 @@ macro_rules! integer_cost {
 
                 fn times(self, factor: u32) -> Self {
                     self.saturating_mul(<$ty>::from(factor))
+                }
+
+                fn saturating_add(self, other: Self) -> Self {
+                    <$ty>::saturating_add(self, other)
                 }
             }
         )*
@@ -58,6 +68,10 @@ impl Cost for usize {
     fn times(self, factor: u32) -> Self {
         usize::try_from(factor).map_or(usize::MAX, |factor| self.saturating_mul(factor))
     }
+
+    fn saturating_add(self, other: Self) -> Self {
+        usize::saturating_add(self, other)
+    }
 }
 
 impl Cost for f64 {
@@ -69,6 +83,10 @@ impl Cost for f64 {
 
     fn times(self, factor: u32) -> Self {
         self * f64::from(factor)
+    }
+
+    fn saturating_add(self, other: Self) -> Self {
+        self + other
     }
 }
 

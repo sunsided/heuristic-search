@@ -244,12 +244,15 @@ enum Order {
 
 impl Order {
     /// The open-list key of a node with path cost `g` and heuristic value `h`.
+    ///
+    /// Saturates for integer costs, so keys near the maximum of the cost type tie instead of
+    /// overflowing.
     fn key<C: Cost>(self, g: C, h: C) -> C {
         match self {
             Self::G => g,
-            // shortcut: the `+` can overflow for integer costs near their maximum; add a
-            // saturating add to `Cost` if callers hit it.
-            Self::Weighted(weight) => g.times(weight.denominator()) + h.times(weight.numerator()),
+            Self::Weighted(weight) => g
+                .times(weight.denominator())
+                .saturating_add(h.times(weight.numerator())),
             Self::H => h,
         }
     }
