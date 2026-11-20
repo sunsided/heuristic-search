@@ -263,8 +263,9 @@ where
 /// [`Weight::ONE`](crate::Weight::ONE) for an optimal one; move the start and report
 /// changed edges as with [`DStarLite`]. After large changes, raising the weight again
 /// gets a new path faster. Vertices that become inconsistent after their expansion in an
-/// iteration wait for the next one (AD*'s `INCONS`), and every call re-keys the queue,
-/// which is linear in the vertices seen so far.
+/// iteration wait for the next one (AD*'s `INCONS`). Start moves shift keys by D* Lite's
+/// `km`; only lowering the weight re-keys the whole queue, which is linear in the vertices
+/// seen so far.
 ///
 /// # Panics
 ///
