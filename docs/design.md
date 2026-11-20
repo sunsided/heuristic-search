@@ -373,17 +373,20 @@ Per-algorithm notes:
   to the lower end of its edge), and steps are ranked by cost plus remainder, the
   remainder at an edge point being its own best step's total. Ranking by the plain
   interpolated value instead let paths run onto edges whose far side is blocked, up to
-  21 % above the 8-connected optimum on random grids; the lookahead brought that to
-  about 2 %. The reported cost is the path's true cost (segments times their cell's
-  cost, or the cheaper cell along an edge); `interpolated_cost()` returns `g(start)`.
+  21 % above the 8-connected optimum on 20 000 random grids; the lookahead brought that
+  to about 2 % there. The reported cost is the path's true cost (segments times their
+  cell's cost, or the cheaper cell along an edge); `interpolated_cost()` returns
+  `g(start)`.
   Properties tested: `g(start)` equals an independent fixed-point sweep of the closed
   form and is at most Dijkstra over the 8-connected corner lattice; the path's cost equals
   its recomputation from geometry, is at least the straight line times the cheapest cost,
-  and is within 1.05 of the 8-connected optimum (observed 1.023 over 20 000 grids); on
+  and is within 1.1 of the 8-connected optimum (observed over a one-off run of about a
+  million grids: 1.035 on grids up to 7 x 7 with costs in `[1, 5)`, 1.043 with costs in
+  `[1, 100)`, 1.027 on grids up to 20 x 20; the gap grows a little with cost contrast); on
   uniform grids it is within 1.02 of Theta* run over the corners (observed 1.011; Theta*
   there may only use corners whose four cells are free, so Field D* is often shorter);
-  incremental repair after random cell changes and start moves matches fresh runs in
-  `g(start)`. The path's cost is not guaranteed to be at most the 8-connected optimum;
+  incremental repair after random batches of cell changes and start moves matches fresh
+  runs in `g(start)`. The path's cost is not guaranteed to be at most the 8-connected optimum;
   only `g` is. On the benchmark grid (65 x 65 corners), a plan plus a repair after the
   gap moves: 9.1 ms, against 1.8 ms for 4-connected D* Lite; each expansion updates eight
   neighbours whose `rhs` reads eight `g` values from the hash index.

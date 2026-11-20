@@ -10,9 +10,8 @@
 //! along that edge ([`interpolate`]).
 //!
 //! The interpolation needs a closed form per pair, so `rhs` comes from the incremental
-//! core's model hook ([`Searched::lookahead`](super::incremental::Searched::lookahead))
-//! rather than from single edges. The path is extracted by the same interpolation from
-//! the start ([`path`]).
+//! core's model hook ([`Searched::lookahead`]) rather than from single edges. The path is
+//! extracted by the same interpolation from the start ([`path`]).
 
 mod path;
 
@@ -53,10 +52,11 @@ pub type FieldResult = SearchResult<(f64, f64), (), NonNegF64>;
 /// the sum over its segments. Interpolation is not exact, so the path's true cost may
 /// differ a little from `g`, in either direction; it is never below the straight-line
 /// distance times the cheapest cell cost. The path's cost is not guaranteed to beat the
-/// cheapest 8-connected path: on random 7 x 7 grids with costs in `[1, 5)` and a fifth of
-/// the cells blocked it was at most about 2.3 % above it, and on uniform grids at most
-/// about 1.1 % longer than Theta*'s path over the corners (the property tests allow 5 %
-/// and 2 %).
+/// cheapest 8-connected path: on about a million random grids up to 20 x 20 with a fifth
+/// of the cells blocked, it was at most 3.5 % above it with costs in `[1, 5)` and 4.3 %
+/// with costs in `[1, 100)`, so the gap grows a little with the cost contrast. On uniform
+/// grids it was at most 1.1 % longer than Theta*'s path over the corners. The property
+/// tests allow 10 % and 2 %.
 ///
 /// Extraction walks from the start; at each point it takes the step with the smallest
 /// cost plus estimated remainder that strictly lowers the interpolated value. From a
@@ -183,10 +183,12 @@ impl FieldDStar {
         SearchResult { outcome, stats }
     }
 
-    /// The interpolated cost `g` from the current start to the goal after the last
-    /// complete [`FieldDStar::compute`], or `None` if the goal is unreachable or the start
-    /// has moved or the grid has changed since. Never above the cheapest 8-connected path
-    /// over the corners.
+    /// The interpolated cost `g` from the current start to the goal, or `None` if the goal
+    /// is unreachable. Never above the cheapest 8-connected path over the corners.
+    ///
+    /// Meaningful only right after a [`FieldDStar::compute`] that did not stop at its
+    /// budget, and before the next [`FieldDStar::move_start`] or
+    /// [`FieldDStar::cell_changed`]; otherwise it may be a stale value or `None`.
     #[must_use]
     pub fn interpolated_cost(&self) -> Option<NonNegF64> {
         self.core.consistent_g(&self.start)

@@ -420,15 +420,16 @@ fn euclidean(a: GridCell, b: GridCell) -> f64 {
 }
 
 /// The observed worst ratio of a Field D* path's cost to the cheapest 8-connected corner
-/// path, with margin: about 1.023 over 20 000 random weighted grids. Interpolation is not
-/// exact, so the path can be dearer than the corner lattice's optimum; `g` never is.
-const EIGHT_CONNECTED_FACTOR: f64 = 1.05;
+/// path, with margin: about 1.035 over 780 000 random grids like [`grids`], 1.043 with
+/// costs up to 100, 1.027 on grids up to 20 x 20. Interpolation is not exact, so the path
+/// can be dearer than the corner lattice's optimum; `g` never is.
+const EIGHT_CONNECTED_FACTOR: f64 = 1.1;
 
 /// The observed worst ratio of a Field D* path's length to Theta*'s on uniform grids, with
-/// margin: about 1.011 over 20 000 random grids, open or with obstacles.
+/// margin: about 1.011 over 670 000 random grids, open or with obstacles.
 const THETA_FACTOR: f64 = 1.02;
 
-/// The longest random sequence of cell changes and start moves for the repair test.
+/// The most batches of cell changes and start moves for the repair test.
 const CHANGES: usize = 8;
 
 /// One change for the repair test: set a cell's cost (`None` blocks it), or move the
@@ -441,15 +442,16 @@ enum Change {
     Start(usize, usize),
 }
 
-/// Random changes for [`repair_matches_fresh_runs`].
-fn changes() -> impl Strategy<Value = Vec<Change>> {
+/// Random batches of changes for [`repair_matches_fresh_runs`], each applied before one
+/// repair.
+fn changes() -> impl Strategy<Value = Vec<Vec<Change>>> {
     let cost = prop_oneof![1 => Just(None), 3 => (1.0_f64..5.0).prop_map(Some)];
     let change = prop_oneof![
         3 => (0_usize..64, 0_usize..64, cost).prop_map(|(x, y, c)| Change::Cell(x, y, c)),
         1 => (0_usize..64, 0_usize..64).prop_map(|(x, y)| Change::Start(x, y)),
     ];
 
-    prop::collection::vec(change, 1..=CHANGES)
+    prop::collection::vec(prop::collection::vec(change, 1..=3), 1..=CHANGES)
 }
 
 /// Checks a found path: it runs from `start` to `goal`, its cost is its recomputed
@@ -541,23 +543,25 @@ proptest! {
         }
     }
 
-    /// After random cell changes and start moves, the repaired planner agrees with a fresh
-    /// one on the current grid: same solvability, same `g(start)`, and a correct path.
+    /// After random batches of cell changes and start moves, the repaired planner agrees
+    /// with a fresh one on the current grid: same solvability, same `g(start)`, and a correct path.
     #[test]
     fn repair_matches_fresh_runs((costs, start, goal) in grids(), changes in changes()) {
         let mut costs = costs;
         let one = NonNegF64::new(1.0).unwrap();
         let mut planner = FieldDStar::new(&costs, start, goal, one);
         planner.compute(&costs, Limits::NONE);
-        for change in changes {
-            let (columns, rows) = costs.lattice();
-            match change {
-                Change::Cell(x, y, cost) => {
-                    let (x, y) = (x % costs.width(), y % costs.height());
-                    costs.cells[y][x] = cost;
-                    planner.cell_changed(&costs, x, y);
+        for batch in changes {
+            for change in batch {
+                let (columns, rows) = costs.lattice();
+                match change {
+                    Change::Cell(x, y, cost) => {
+                        let (x, y) = (x % costs.width(), y % costs.height());
+                        costs.cells[y][x] = cost;
+                        planner.cell_changed(&costs, x, y);
+                    }
+                    Change::Start(x, y) => planner.move_start((x % columns, y % rows)),
                 }
-                Change::Start(x, y) => planner.move_start((x % columns, y % rows)),
             }
 
             let repaired = planner.compute(&costs, Limits::NONE);
