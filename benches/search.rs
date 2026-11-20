@@ -10,7 +10,7 @@ use std::hint::black_box;
 use criterion::Criterion;
 use heuristic_search::{
     AdStar, DStarLite, DynamicGraph, EdgeSelector, EesEstimates, FocalList, Limits, MhaWeights,
-    Predecessors, Successors, Weight, astar, ana_star, ara_star, dfs, dps, ees, focal_fn,
+    Predecessors, Successors, Weight, a_star, ana_star, ara_star, dfs, dps, ees, focal_fn,
     focal_search, heuristic_fn, ida_star, ida_star_tt, iddfs, lazy_sp, mha_star, nbs,
 };
 
@@ -102,11 +102,11 @@ const START: Cell = (0, 0);
 const GOAL: Cell = (SIZE - 1, 0);
 
 /// A* with the Manhattan heuristic around the wall.
-fn bench_astar(c: &mut Criterion, grid: &Grid) {
-    c.bench_function("astar grid", |b| {
+fn bench_a_star(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("a_star grid", |b| {
         b.iter(|| {
             let h = heuristic_fn(|cell: &Cell| Some(manhattan(cell, &GOAL)));
-            black_box(astar(
+            black_box(a_star(
                 grid,
                 START,
                 &|cell: &Cell| *cell == GOAL,
@@ -424,7 +424,7 @@ fn main() {
     let grid = Grid::new();
     let mut c = Criterion::default().configure_from_args();
 
-    bench_astar(&mut c, &grid);
+    bench_a_star(&mut c, &grid);
     bench_focal_search(&mut c, &grid);
     bench_focal_list(&mut c);
     bench_focal_list_churn(&mut c);

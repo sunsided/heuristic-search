@@ -23,7 +23,7 @@ use crate::indexed_heap::IndexedHeap;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum TieBreak {
     /// Larger path cost `g` first. Prefers deeper items, which usually finishes a plateau
-    /// of equal `f` sooner. The default, and what [`astar`](crate::astar) does.
+    /// of equal `f` sooner. The default, and what [`a_star`](crate::a_star) does.
     #[default]
     LargerG,
     /// Smaller path cost `g` first.

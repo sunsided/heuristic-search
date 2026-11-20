@@ -8,7 +8,7 @@ use hashbrown::{DefaultHashBuilder, HashTable};
 
 use search_core::{Budget, Goal, Heuristic};
 
-use crate::best_first::{GraphResult, astar_multi};
+use crate::best_first::{GraphResult, a_star_multi};
 use crate::outcome::{Outcome, SearchResult, Solution, Stats};
 use crate::problem::Successors;
 
@@ -114,7 +114,7 @@ where
 
 /// [`lazy_sp`] from several start states at once.
 ///
-/// Every start has path cost zero; each round runs [`astar_multi`](crate::astar_multi) from
+/// Every start has path cost zero; each round runs [`a_star_multi`](crate::a_star_multi) from
 /// all of them over the lazily evaluated graph. Repeated starts count once, an empty set of
 /// starts finds nothing, and a start that is a goal is returned without any evaluation.
 ///
@@ -175,7 +175,7 @@ where
     let mut stats = Stats::default();
 
     for round in 0_usize.. {
-        let inner = astar_multi(
+        let inner = a_star_multi(
             &view,
             starts.iter().cloned(),
             goal,

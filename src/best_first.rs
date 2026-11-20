@@ -1,4 +1,4 @@
-//! Best-first search: [`astar`], [`dijkstra`], [`weighted_astar`] and [`gbfs`], each also
+//! Best-first search: [`a_star`], [`dijkstra`], [`weighted_a_star`] and [`gbfs`], each also
 //! from several start states (`*_multi`).
 //!
 //! All four run the same engine and differ only in the open-list key and in whether a
@@ -7,8 +7,8 @@
 //! | Algorithm         | Key                         | Reopens | Optimal              |
 //! | ----------------- | --------------------------- | ------- | -------------------- |
 //! | [`dijkstra`]      | `g`                         | yes     | yes                  |
-//! | [`astar`]         | `g + h`                     | yes     | if `h` is admissible |
-//! | [`weighted_astar`]| `g + w * h`                 | yes     | within factor `w`    |
+//! | [`a_star`]         | `g + h`                     | yes     | if `h` is admissible |
+//! | [`weighted_a_star`]| `g + w * h`                 | yes     | within factor `w`    |
 //! | [`gbfs`]          | `h`                         | no      | no                   |
 //!
 //! Ties are broken towards larger `g`, then first in, first out.
@@ -48,7 +48,7 @@ pub type GraphResult<G> =
 /// # Examples
 ///
 /// ```
-/// use heuristic_search::{Limits, Successors, heuristic_fn, astar};
+/// use heuristic_search::{Limits, Successors, heuristic_fn, a_star};
 ///
 /// /// A line of integers; each step moves one to the left or right at cost 1.
 /// struct Line;
@@ -65,14 +65,14 @@ pub type GraphResult<G> =
 /// }
 ///
 /// let distance = heuristic_fn(|state: &i32| Some(7_i32.abs_diff(*state)));
-/// let result = astar(&Line, 0, &|state: &i32| *state == 7, distance, Limits::NONE);
+/// let result = a_star(&Line, 0, &|state: &i32| *state == 7, distance, Limits::NONE);
 /// let solution = result.solution().expect("7 is reachable");
 ///
 /// assert_eq!(solution.cost, 7);
 /// assert_eq!(solution.actions, [1; 7]);
 /// assert_eq!(result.stats.expanded, 7);
 /// ```
-pub fn astar<G, T, H>(
+pub fn a_star<G, T, H>(
     graph: &G,
     start: G::State,
     goal: &T,
@@ -145,7 +145,7 @@ where
 /// # Examples
 ///
 /// ```
-/// use heuristic_search::{Limits, Successors, heuristic_fn, Weight, weighted_astar};
+/// use heuristic_search::{Limits, Successors, heuristic_fn, Weight, weighted_a_star};
 ///
 /// /// A line of integers; each step moves one to the left or right at cost 1.
 /// struct Line;
@@ -163,11 +163,11 @@ where
 ///
 /// let distance = heuristic_fn(|state: &i32| Some(9_i32.abs_diff(*state)));
 /// let weight = Weight::new(3, 2);
-/// let result = weighted_astar(&Line, 0, &|s: &i32| *s == 9, distance, weight, Limits::NONE);
+/// let result = weighted_a_star(&Line, 0, &|s: &i32| *s == 9, distance, weight, Limits::NONE);
 ///
 /// assert!(result.solution().is_some_and(|solution| solution.cost <= 9 * 3 / 2));
 /// ```
-pub fn weighted_astar<G, T, H>(
+pub fn weighted_a_star<G, T, H>(
     graph: &G,
     start: G::State,
     goal: &T,
@@ -237,7 +237,7 @@ where
     Engine::new(graph, goal, heuristic, Order::H).run([start], budget)
 }
 
-/// [`astar`] from several start states at once, to the cheapest goal from any of them.
+/// [`a_star`] from several start states at once, to the cheapest goal from any of them.
 ///
 /// Every start has path cost zero. Repeated starts count once, an empty set of starts is
 /// [`Outcome::Unsolvable`], and a start that is a goal is returned as a zero-cost path
@@ -247,7 +247,7 @@ where
 /// # Examples
 ///
 /// ```
-/// use heuristic_search::{Limits, Successors, heuristic_fn, astar_multi};
+/// use heuristic_search::{Limits, Successors, heuristic_fn, a_star_multi};
 ///
 /// /// Counting up by one, at cost 1.
 /// struct Up;
@@ -263,13 +263,13 @@ where
 /// }
 ///
 /// let distance = heuristic_fn(|n: &u32| 8_u32.checked_sub(*n));
-/// let result = astar_multi(&Up, [0, 6, 3], &|n: &u32| *n == 8, distance, Limits::NONE);
+/// let result = a_star_multi(&Up, [0, 6, 3], &|n: &u32| *n == 8, distance, Limits::NONE);
 /// let solution = result.into_solution().expect("8 is reachable");
 ///
 /// assert_eq!(solution.states, [6, 7, 8]);
 /// assert_eq!(solution.cost, 2);
 /// ```
-pub fn astar_multi<G, T, H>(
+pub fn a_star_multi<G, T, H>(
     graph: &G,
     starts: impl IntoIterator<Item = G::State>,
     goal: &T,
@@ -290,7 +290,7 @@ where
 
 /// [`dijkstra`] from several start states at once, to the cheapest goal from any of them.
 ///
-/// Start handling as in [`astar_multi`].
+/// Start handling as in [`a_star_multi`].
 pub fn dijkstra_multi<G, T>(
     graph: &G,
     starts: impl IntoIterator<Item = G::State>,
@@ -306,11 +306,11 @@ where
     Engine::new(graph, goal, Zero, Order::G).run(starts, budget)
 }
 
-/// [`weighted_astar`] from several start states at once.
+/// [`weighted_a_star`] from several start states at once.
 ///
-/// Start handling as in [`astar_multi`]; the cost bound is relative to the cheapest goal
+/// Start handling as in [`a_star_multi`]; the cost bound is relative to the cheapest goal
 /// from any start.
-pub fn weighted_astar_multi<G, T, H>(
+pub fn weighted_a_star_multi<G, T, H>(
     graph: &G,
     starts: impl IntoIterator<Item = G::State>,
     goal: &T,
@@ -330,7 +330,7 @@ where
 
 /// [`gbfs`] from several start states at once.
 ///
-/// Start handling as in [`astar_multi`].
+/// Start handling as in [`a_star_multi`].
 pub fn gbfs_multi<G, T, H>(
     graph: &G,
     starts: impl IntoIterator<Item = G::State>,

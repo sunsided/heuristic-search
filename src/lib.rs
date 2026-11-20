@@ -17,11 +17,11 @@
 //!
 //! - [`bfs()`]: breadth-first search, fewest edges.
 //! - [`dijkstra`]: uniform-cost search, cheapest path.
-//! - [`astar`]: A*, cheapest path with an admissible heuristic.
-//! - [`weighted_astar`]: Weighted A*, at most `w` times the cheapest cost.
+//! - [`a_star`]: A*, cheapest path with an admissible heuristic.
+//! - [`weighted_a_star`]: Weighted A*, at most `w` times the cheapest cost.
 //! - [`gbfs`]: greedy best-first search, fast and unbounded.
 //!
-//! Each has a `*_multi` variant ([`astar_multi`] and so on) that searches from several
+//! Each has a `*_multi` variant ([`a_star_multi`] and so on) that searches from several
 //! start states at once. So does every other search below except the incremental
 //! planners, whose start is part of their state.
 //!
@@ -106,6 +106,15 @@
 //! assert_eq!(solution.cost, 3);
 //! ```
 //!
+//! ## Naming
+//!
+//! Searches are snake-case functions; every A* variant ends in `_star` ([`a_star`],
+//! [`weighted_a_star`], [`ida_star`], [`ara_star`], [`ana_star`], [`mha_star`],
+//! [`bae_star`]). Suffixes compose in this order: `_tt` (a variant of the algorithm),
+//! `_multi` (several starts), `_meet` (a meet relation, always with several starts).
+//! Incremental planners keep state between calls, so they are types ([`LpaStar`],
+//! [`DStarLite`], [`AdStar`]). `astar` and `weighted_astar` remain as aliases.
+//!
 //! See `docs/design.md` in the repository for the design and milestones.
 //!
 //! ## Status
@@ -141,8 +150,15 @@ pub use anytime::{
     AnytimeGraphResult, AnytimeResult, ana_star, ana_star_multi, ara_star, ara_star_multi,
 };
 pub use best_first::{
-    GraphResult, astar, astar_multi, dijkstra, dijkstra_multi, gbfs, gbfs_multi, weighted_astar,
-    weighted_astar_multi,
+    GraphResult, a_star, a_star_multi, dijkstra, dijkstra_multi, gbfs, gbfs_multi, weighted_a_star,
+    weighted_a_star_multi,
+};
+/// The names of [`a_star`] and [`weighted_a_star`] (and their `*_multi` forms) before
+/// every A* variant was named `*_star`. Kept as plain aliases, not deprecated yet, so
+/// dependents keep building warning-free; they will be deprecated before 0.1.
+pub use best_first::{
+    a_star as astar, a_star_multi as astar_multi, weighted_a_star as weighted_astar,
+    weighted_a_star_multi as weighted_astar_multi,
 };
 pub use bfs::{bfs, bfs_multi};
 pub use bidirectional::{

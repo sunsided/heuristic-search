@@ -3,8 +3,8 @@
 //! returned path is valid. Searches from several starts match the best single start.
 
 use heuristic_search::{
-    Limits, Weight, astar, astar_multi, bfs, bfs_multi, dijkstra, dijkstra_multi, gbfs,
-    heuristic_fn, weighted_astar,
+    Limits, Weight, a_star, a_star_multi, bfs, bfs_multi, dijkstra, dijkstra_multi, gbfs,
+    heuristic_fn, weighted_a_star,
 };
 use proptest::prelude::*;
 
@@ -14,7 +14,7 @@ proptest! {
     /// With `h = scale(d*)` for random per-node scales in `[0, 1]`, the heuristic is
     /// admissible but usually inconsistent, which exercises reopening.
     #[test]
-    fn astar_matches_dijkstra(
+    fn a_star_matches_dijkstra(
         (graph, goal) in graph_and_goal(),
         scales in prop::collection::vec(0_u64..=4, 12),
     ) {
@@ -23,7 +23,7 @@ proptest! {
         let is_goal = |state: &usize| *state == goal;
 
         let optimal = dijkstra(&graph, 0, &is_goal, Limits::NONE).into_solution();
-        let informed = astar(&graph, 0, &is_goal, &mut h, Limits::NONE).into_solution();
+        let informed = a_star(&graph, 0, &is_goal, &mut h, Limits::NONE).into_solution();
 
         prop_assert_eq!(optimal.as_ref().map(|s| s.cost), exact[0]);
         prop_assert_eq!(informed.as_ref().map(|s| s.cost), exact[0]);
@@ -34,7 +34,7 @@ proptest! {
 
     /// Weighted A* finds a solution whenever one exists, within `w` times the optimum.
     #[test]
-    fn weighted_astar_is_bounded(
+    fn weighted_a_star_is_bounded(
         (graph, goal) in graph_and_goal(),
         numerator in 1_u32..8,
     ) {
@@ -43,7 +43,7 @@ proptest! {
         let mut h = heuristic_fn(|state: &usize| Some(exact[*state].unwrap_or(0)));
         let is_goal = |state: &usize| *state == goal;
 
-        let solution = weighted_astar(&graph, 0, &is_goal, &mut h, weight, Limits::NONE).into_solution();
+        let solution = weighted_a_star(&graph, 0, &is_goal, &mut h, weight, Limits::NONE).into_solution();
 
         prop_assert_eq!(solution.is_some(), exact[0].is_some());
         if let (Some(solution), Some(optimum)) = (&solution, exact[0]) {
@@ -103,7 +103,7 @@ proptest! {
             .min();
 
         let cheapest = dijkstra_multi(&graph, starts.iter().copied(), &is_goal, Limits::NONE);
-        let informed = astar_multi(&graph, starts.iter().copied(), &is_goal, &mut h, Limits::NONE);
+        let informed = a_star_multi(&graph, starts.iter().copied(), &is_goal, &mut h, Limits::NONE);
         let shortest = bfs_multi(&graph, starts.iter().copied(), &is_goal, Limits::NONE);
 
         prop_assert_eq!(cheapest.solution().map(|s| s.cost), best_cost);

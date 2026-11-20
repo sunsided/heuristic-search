@@ -202,8 +202,8 @@ pub type DynamicResult<G> = SearchResult<Vertex, (), Cost>;   // LPA*, D* Lite, 
 
 ### Start states
 
-Every search has a single-start function (`astar(graph, start, ...)`) and a multi-start
-one (`astar_multi(graph, starts, ...)`, taking any `IntoIterator` of states). The
+Every search has a single-start function (`a_star(graph, start, ...)`) and a multi-start
+one (`a_star_multi(graph, starts, ...)`, taking any `IntoIterator` of states). The
 single-start form calls the multi-start one with `[start]`. Multi-start semantics:
 
 - every start is seeded with `g = 0` and no parent, so a solution may begin at any start;
@@ -230,7 +230,7 @@ Every search except the incremental planners has a `*_multi` variant with these
 semantics. Per family:
 
 - best-first, anytime, bounded and MHA*: all starts seed one search space;
-- `lazy_sp_multi`: each round runs `astar_multi` from all starts;
+- `lazy_sp_multi`: each round runs `a_star_multi` from all starts;
 - bidirectional: all starts seed the forward side, as the goals seed the backward side.
   The backward heuristic must then estimate the cost back to the nearest start;
 - `dfs_multi`: starts are searched in order with one shared closed set;
@@ -348,6 +348,18 @@ Per-algorithm notes:
   drops below one a queued key used. Paths are read off tight edges by BFS from the
   target, each step charged its cheapest parallel edge, with a greedy fallback for AD*.
 
+## Naming
+
+Every A* variant is a snake-case function ending in `_star`: `a_star`, `weighted_a_star`,
+`ida_star`, `ara_star`, `ana_star`, `mha_star`, `bae_star` (`astar` and `weighted_astar`
+were renamed and stay as aliases). Non-A* searches keep their usual names (`bfs`,
+`dijkstra`, `gbfs`, `dfs`, `iddfs`, `nbs`, `dibbs`, `ees`, `dps`, `lazy_sp`,
+`focal_search`). Suffixes compose in a fixed order: `_tt` for an algorithm variant,
+`_multi` for several starts, `_meet` for a meet relation (which always takes several
+starts, so there is no `_meet_multi`). Incremental planners keep state between calls and
+are types: `LpaStar`, `DStarLite`, `AdStar`. Renaming them to `*_star`-style functions was
+rejected: they are not one-shot searches.
+
 ## Dependencies
 
 - `hashbrown` (runtime): `alloc` has no hash map. `hashbrown` is the implementation behind
@@ -378,7 +390,7 @@ Adoption, step by step:
    action costs, so their values are integers and the conversion is exact. Any other float
    heuristic is rounded *up* (`ceil`), which keeps admissibility and consistency (see
    [Cost](#cost)).
-3. `Bfs`, `Astar` and `Gbfs` keep their `Planner` impls and call `bfs`, `astar`, `gbfs`.
+3. `Bfs`, `Astar` and `Gbfs` keep their `Planner` impls and call `bfs`, `a_star`, `gbfs`.
    `SearchLimits` becomes a closure `Budget` that checks `node_budget` and an `Instant`.
    `SearchStats::{plan_cost, plan_length, elapsed}` are filled from the `Solution` and the
    caller's clock, as `outcome::Budget` does today; `plan_from_ops` turns
@@ -486,8 +498,10 @@ the move to `search-core`.
   portfolios that interleave planners? (The incremental planners already resume.)
 - BAE*: the citation (Sadhukhan 2013) is unverified, and the implementation differs from
   DIBBS only in side selection (cardinality). Confirm against the paper.
-- Naming: `astar` but `ara_star`, `ana_star`, `mha_star`, `bae_star` (snake case of the
-  star); incremental planners are types (`LpaStar`, `DStarLite`, `AdStar`).
+- Deprecating the `astar`/`weighted_astar` aliases: they are plain re-exports of
+  `a_star`/`weighted_a_star` for now, because `#[deprecated]` warns in every dependent
+  (`mapf-search` builds with `-D warnings` and calls `astar`). Deprecate them before 0.1,
+  once the dependents have moved.
 
 ## References
 
