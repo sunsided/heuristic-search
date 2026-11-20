@@ -95,6 +95,15 @@ impl<S: Hash + Eq, A, C: Cost> SearchSpace<S, A, C> {
         self.nodes[id].g
     }
 
+    /// The parent link of node `id`: the parent node, the edge label and the edge cost.
+    /// `None` for start nodes.
+    pub(crate) fn parent(&self, id: NodeId) -> Option<(NodeId, &A, C)> {
+        self.nodes[id]
+            .parent
+            .as_ref()
+            .map(|(parent, action, cost)| (*parent, action, *cost))
+    }
+
     /// Records that `state` is reachable from node `parent` through `action` at edge cost
     /// `cost`.
     ///
@@ -125,7 +134,7 @@ impl<S: Hash + Eq, A, C: Cost> SearchSpace<S, A, C> {
     }
 
     /// Looks up the node of `state`.
-    fn find(&self, state: &S) -> Option<NodeId> {
+    pub(crate) fn find(&self, state: &S) -> Option<NodeId> {
         let hash = self.hasher.hash_one(state);
         let nodes = &self.nodes;
 

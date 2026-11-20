@@ -11,11 +11,11 @@ Implemented on the `draft/initial` branch:
 - Foundational: BFS, Dijkstra, A*, greedy best-first search (GBFS), each also from several
   start states
 - Weighted and anytime: Weighted A*, ARA*, ANA*
+- Bounded-suboptimal: focal search (with a public focal list and tie-breaking), EES, DPS
 
 Planned:
 
 - Foundational: DFS, IDA*
-- Bounded-suboptimal: focal search, EES, DPS
 - Multiple heuristics: MHA*
 - Bidirectional: bidirectional BFS and Dijkstra, NBS, DIBBS, BAE*
 - Expensive edge evaluation: LazySP

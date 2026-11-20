@@ -29,6 +29,13 @@
 //! - [`ara_star`]: ARA*, Weighted A* with a falling weight schedule.
 //! - [`ana_star`]: ANA*, anytime without parameters.
 //!
+//! Bounded-suboptimal searches return a solution within `w` times the optimum:
+//!
+//! - [`focal_search`]: expands by a free [`FocalKey`] among `f <= w * f_min`. Its open list,
+//!   [`FocalList`], is public for searches with their own loop.
+//! - [`ees`]: Explicit Estimation Search, guided by inadmissible estimates.
+//! - [`dps`]: Dynamic Potential Search, needs only `h`.
+//!
 //! Costs are generic over [`Cost`]. For planning, `u32` is the intended default: action
 //! costs are small integers and heuristics over them stay exact.
 //!
@@ -63,7 +70,6 @@
 //! ## Planned scope
 //!
 //! - Foundational: DFS, IDA*
-//! - Bounded-suboptimal: EES, DPS
 //! - Multiple heuristics: MHA*
 //! - Bidirectional: NBS, BAE*, DIBBS
 //! - Expensive edge evaluation: `LazySP`
@@ -85,7 +91,10 @@ extern crate alloc;
 mod anytime;
 mod best_first;
 mod bfs;
+mod bounded;
 mod cost;
+mod focal;
+mod keyed_set;
 mod open_list;
 mod outcome;
 mod problem;
@@ -97,6 +106,8 @@ pub use best_first::{
     weighted_astar_multi,
 };
 pub use bfs::{bfs, bfs_multi};
+pub use bounded::{EesEstimates, FocalFn, FocalKey, dps, ees, focal_fn, focal_search};
 pub use cost::{Cost, Weight};
+pub use focal::{FocalList, TieBreak};
 pub use outcome::{Budget, Limits, Outcome, SearchResult, Solution, Stats};
 pub use problem::{Goal, Heuristic, HeuristicFn, Successors, Zero, heuristic_fn};

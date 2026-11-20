@@ -2,6 +2,7 @@
 //! algorithms against each other.
 
 mod anytime;
+mod bounded;
 mod fixtures;
 mod grid;
 mod properties;

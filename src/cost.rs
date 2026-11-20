@@ -195,3 +195,35 @@ impl Weight {
         self.denominator
     }
 }
+
+/// A [`Cost`] with a total [`Ord`] from [`Cost::cmp_cost`], for ordered collections.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Ordered<C>(pub(crate) C);
+
+impl<C: Cost> PartialEq for Ordered<C> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.cmp_cost(&other.0).is_eq()
+    }
+}
+
+impl<C: Cost> Eq for Ordered<C> {}
+
+impl<C: Cost> PartialOrd for Ordered<C> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<C: Cost> Ord for Ordered<C> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp_cost(&other.0)
+    }
+}
+
+/// Returns `true` if `cost <= weight * bound`, computed as `den * cost <= num * bound`
+/// without division.
+pub(crate) fn within<C: Cost>(cost: C, weight: Weight, bound: C) -> bool {
+    cost.times(weight.denominator())
+        .cmp_cost(&bound.times(weight.numerator()))
+        .is_le()
+}
