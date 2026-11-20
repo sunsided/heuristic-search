@@ -214,11 +214,13 @@ pub use dynamic::{
     AdStar, AdStarMulti, DStarLite, DStarLiteMulti, DynamicGraph, DynamicResult, LpaStar,
     LpaStarMulti,
 };
+#[cfg(feature = "float")]
+pub use dynamic::{FieldDStar, FieldResult};
 pub use focal::{FocalList, TieBreak};
 pub use fringe::{fringe_search, fringe_search_multi};
 #[cfg(feature = "float")]
 pub use grid::{
-    AnyAngleResult, lazy_theta_star, lazy_theta_star_multi, theta_star, theta_star_multi,
+    AnyAngleResult, CostGrid, lazy_theta_star, lazy_theta_star_multi, theta_star, theta_star_multi,
 };
 pub use grid::{
     EightConnected, GridCell, GridStep, LineOfSight, Octile, OctileDistance, UniformGrid, jps,

@@ -281,6 +281,15 @@ where
         (true, stats)
     }
 
+    /// The `g` of `vertex` if it is consistent (`g = rhs`) and finite; `None` if it is
+    /// inconsistent, unreached or never seen. Interns nothing.
+    #[cfg(feature = "float")]
+    pub(super) fn consistent_g(&self, vertex: &V) -> Option<C> {
+        let id = self.find(vertex)?;
+
+        self.g[id].filter(|_| self.g[id] == self.rhs[id])
+    }
+
     /// Updates the vertex whose `rhs` depends on the changed edge `from -> to`.
     pub(super) fn edge_changed<G: Searched<Vertex = V, Cost = C>>(
         &mut self,

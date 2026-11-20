@@ -21,6 +21,8 @@
 //! both need a consistent heuristic `h(a, b)` that estimates the cost from `a` to `b`, for
 //! the costs at every point in time; `|_, _| 0` always works.
 
+#[cfg(feature = "float")]
+mod field;
 mod incremental;
 mod multi;
 
@@ -30,6 +32,8 @@ use search_core::{Budget, Cost};
 
 use crate::cost::Weight;
 use crate::outcome::{SearchResult, Stats};
+#[cfg(feature = "float")]
+pub use field::{FieldDStar, FieldResult};
 use incremental::Incremental;
 pub use multi::{AdStarMulti, DStarLiteMulti, LpaStarMulti};
 

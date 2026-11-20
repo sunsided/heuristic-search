@@ -8,7 +8,9 @@
 //! **Corner rule: no corner cutting.** A diagonal move from `(x, y)` to `(x + dx, y + dy)`
 //! needs the target *and both* orthogonal neighbours `(x + dx, y)` and `(x, y + dy)` to be
 //! passable, so a path never squeezes between two blocked cells that touch at a corner and
-//! never clips the corner of a single blocked cell. Every search here follows this rule.
+//! never clips the corner of a single blocked cell. Every search here over cells follows
+//! this rule; `CostGrid` (feature `float`) adds per-cell costs for Field D*, which plans
+//! over cell corners instead.
 
 mod jps;
 mod sight;
@@ -29,6 +31,8 @@ pub use theta::{
 };
 
 use crate::problem::Successors;
+#[cfg(feature = "float")]
+use search_core::NonNegF64;
 
 /// A cell of a grid: `(x, y)`, column first.
 pub type GridCell = (usize, usize);
@@ -46,8 +50,9 @@ pub type GridStep = (i8, i8);
 /// **Corner rule: no corner cutting.** A diagonal move from `(x, y)` to `(x + dx, y + dy)`
 /// needs the target *and both* orthogonal neighbours `(x + dx, y)` and `(x, y + dy)` to be
 /// passable, so a path never squeezes between two blocked cells that touch at a corner and
-/// never clips the corner of a single blocked cell. Every grid search in this crate follows
-/// this rule.
+/// never clips the corner of a single blocked cell. Every search over grid cells in this
+/// crate follows this rule; Field D* (`FieldDStar`), which plans over cell corners, does
+/// not.
 ///
 /// # Examples
 ///
@@ -99,6 +104,64 @@ impl<G: UniformGrid + ?Sized> UniformGrid for &G {
 
     fn is_passable(&self, x: usize, y: usize) -> bool {
         (**self).is_passable(x, y)
+    }
+}
+
+/// A [`UniformGrid`] whose passable cells have traversal costs, for Field D*
+/// (`FieldDStar`, feature `float`).
+///
+/// A cell's cost is the cost per unit of length of a path through its interior. A path
+/// along the border between two cells pays the cheaper of the two. Blocked cells
+/// ([`UniformGrid::is_passable`] is `false`) and cells off the grid cost infinity.
+///
+/// The default cost is `1` for every passable cell, so `impl CostGrid for Map {}` makes a
+/// uniform grid; the costs then are Euclidean lengths.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{CostGrid, NonNegF64, UniformGrid};
+///
+/// /// A 4 x 1 strip of mud (cost 3) at x = 2, otherwise grass (cost 1).
+/// struct Strip;
+///
+/// impl UniformGrid for Strip {
+///     fn width(&self) -> usize {
+///         4
+///     }
+///
+///     fn height(&self) -> usize {
+///         1
+///     }
+///
+///     fn is_passable(&self, _: usize, _: usize) -> bool {
+///         true
+///     }
+/// }
+///
+/// impl CostGrid for Strip {
+///     fn cell_cost(&self, x: usize, _: usize) -> NonNegF64 {
+///         NonNegF64::new(if x == 2 { 3.0 } else { 1.0 }).expect("positive")
+///     }
+/// }
+///
+/// assert_eq!(Strip.cell_cost(2, 0).get(), 3.0);
+/// ```
+#[cfg(feature = "float")]
+pub trait CostGrid: UniformGrid {
+    /// The cost per unit of length of crossing the passable cell `(x, y)`: finite and
+    /// strictly positive. Only called for passable cells on the grid.
+    fn cell_cost(&self, x: usize, y: usize) -> NonNegF64 {
+        let _ = (x, y);
+
+        NonNegF64::new(1.0).expect("one is a valid cost")
+    }
+}
+
+#[cfg(feature = "float")]
+impl<G: CostGrid + ?Sized> CostGrid for &G {
+    fn cell_cost(&self, x: usize, y: usize) -> NonNegF64 {
+        (**self).cell_cost(x, y)
     }
 }
 

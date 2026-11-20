@@ -7,6 +7,8 @@ mod bidirectional;
 mod bounded;
 mod depth_first;
 mod dynamic;
+#[cfg(feature = "float")]
+mod field;
 mod fixtures;
 mod fringe;
 mod grid;
