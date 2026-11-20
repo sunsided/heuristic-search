@@ -1,7 +1,7 @@
 # heuristic-search: design
 
 Status: draft on branch `draft/initial`. Every algorithm of
-milestones 1 to 7 is implemented; see [Milestones](#milestones).
+milestones 1 to 7 and real-time search is implemented; see [Milestones](#milestones).
 
 ## Goal and scope
 
@@ -19,7 +19,9 @@ In scope, in milestone order (see [Milestones](#milestones)):
 - multiple heuristics: MHA*;
 - bidirectional: NBS, BAE*, DIBBS (plus bidirectional BFS and Dijkstra as baselines);
 - expensive edge evaluation: LazySP;
-- dynamic graphs: LPA*, D* Lite, AD*; Field D* on grids with per-cell costs.
+- dynamic graphs: LPA*, D* Lite, AD*; Field D* on grids with per-cell costs;
+- real-time search with learned tables: LRTA*, RTA*, LSS-LRTA*, RTAA*, and the
+  limited-horizon Bellman update (LHB).
 
 Out of scope: symbolic (BDD) search, multi-objective search, width/novelty search,
 stochastic search, factored (decoupled) search. Those have their own crates in the
@@ -494,6 +496,127 @@ Per-algorithm notes:
   drops below one a queued key used. Paths are read off tight edges by BFS from the
   target, each step charged its cheapest parallel edge, with a greedy fallback for AD*.
 
+## Real-time search
+
+Module `real_time`. An agent plans a bounded amount, moves, and learns: every function runs
+one trial from `start` until the agent stands on a goal (`Outcome::Found` with the
+travelled path, loops included), proves that no goal is reachable from where it stands
+(`Unsolvable`), or the budget stops it (`LimitReached`, asked before every expansion).
+Learned values live in a `LearnedHeuristic<S, C, H>`, a hash table in front of a base
+heuristic that the caller keeps across trials. It implements `Heuristic`, so a learned
+table can guide `a_star` afterwards. `None` means a proven dead end there as everywhere.
+`TrialResult` adds `TrialStats` (moves, planning steps, changed values, and the most
+expansions and changed values of any single step) to the usual `Stats`; `updates == 0`
+means the trial learned nothing, which is how callers detect convergence.
+
+| Function | Lookahead | Update of the expanded states | Keeps |
+| --- | --- | --- | --- |
+| `lrta_star` | the successors | `h(s) = min c(s, s') + h(s')` (Korf's min, no max with the old value) | admissible, consistent |
+| `rta_star` | the successors | second-best `c + h`; the best with fewer than two live successors | nothing (inadmissible by design) |
+| `lss_lrta_star` | A*, `n` expansions | Dijkstra from OPEN into CLOSED, closed values start at infinity | admissible, consistent |
+| `lhb_lrta_star` | A*, `n` expansions | the paper's Eq. 5 by its Algorithm 1 | admissible |
+| `rtaa_star` | A*, `n` expansions | `h(s) = f(best open) - g(s)` | admissible, consistent |
+| `lhb_update` | A*, `n` expansions, no move | Eq. 5, offline | admissible |
+
+Engine: the three lookahead agents share one bounded A* (`Lookahead`) that reopens on
+cheaper paths and records *every* generated edge, not only parent links: a shortest-path
+update over parent links alone overestimates on cycles. A goal that A* selects ends the
+lookahead and stays a seed of the update (peeked, not popped), otherwise closed states
+whose only exit is the goal would be marked dead. The agent then moves along the A* path
+to the selected goal or to the open state with the smallest `f`, as Koenig and Sun's
+LSS-LRTA* does, and plans again. A lookahead of zero panics: the agent could never move.
+Work per step is at most `n` expansions plus one Dijkstra over at most `n` expanded states
+and their edges; the tests check `max_step_expansions <= n` and `max_step_updates <= n`
+(`n + 1` for LHB, whose goal clamp can change one more value).
+
+Completeness and convergence need what the classic results need: a finite graph from
+which the goal stays reachable (safely explorable) and positive edge costs. On infinite
+graphs with an uninformed table the agent can wander away forever; the budget stops it.
+
+### Paper comparison: limited-horizon Bellman update (Hadar, Agostinelli, Shperberg 2025)
+
+| Paper (arXiv 2511.10264v1) | Here | Status |
+| --- | --- | --- |
+| LHBL search phase: run any search (A*, GBFS) from a sampled state for `N` expansions, guided by the target network `h_θ⁻` | `lhb_update` runs A* with the table itself as the heuristic (the tabular case has no separate target network) | same, A* only |
+| Search graph `G(V, E)`: generated states and edges, cycles allowed | `Lookahead` records every generated edge, duplicates included | same |
+| Leaves `L(n)`: descendants of `n` without children in `G` | nodes never expanded, or expanded without successors (`children == false`) | same |
+| Eq. 5: `h(s) = 0` if `s` is a goal, else `min over l in L(n) of C(n, l) + h_θ⁻(l)` | interior nodes take the minimum over reachable leaves with the old leaf values; goal nodes get 0 afterwards, so a goal leaf with `h ≠ 0` still contributes its old value to its ancestors | same; goal case read literally |
+| Algorithm 1: auxiliary node `z`, edge `l -> z` of cost `h(l)`, reverse, Dijkstra from `z`, assign every `v ∈ V` | multi-source Dijkstra over reversed edges seeded with the leaf values (equivalent to the `z` construction); interior nodes and goals are written, leaves keep their value (Algorithm 1 assigns them `h(l)`, the same value) | same |
+| An interior node that reaches no leaf: not discussed (`min` over an empty set) | becomes a proven dead end (`None`) | our reading |
+| Algorithm 1 searches for exactly `N` steps; nothing says what happens when the search expands a goal | the lookahead stops when A* selects a goal, so a goal is never interior | deliberate deviation: an interior goal under Eq. 5 takes 0 while its ancestors may route past it, and with the goal expanded admissibility could break |
+| Labels train a DNN by MSE (Eq. 4); states sampled by random walks from the goal | tabular: `lhb_update` writes the label into the table; callers choose the samples | out of scope (no function approximation) |
+| LHBL is offline; LSS-LRTA* is online real-time search | both: `lhb_update` offline, `lhb_lrta_star` the LHB update inside LSS-LRTA*'s agent | extension |
+| "LSS-LRTA* assumes consistent h-values"; LHB needs no consistency | Koenig and Sun's Dijkstra is a multi-source shortest-path computation and is correct for any seed values; consistency only makes its values monotone. Both stay admissible from an admissible table (tested with inconsistent tables) | the paper's claim holds for monotonicity, not for correctness |
+| Fig. 1: `h_LHB` exact in one update where `h_SSB` is off (edges lost in the text extraction) | own instance `limited_horizon_update_beats_single_step`: single-step gives 2, LHB the exact 3 | own example, not the figure |
+| Evaluation: Rubik's Cube, 35-STP, Lights Out with DeepCubeA networks | not reproduced; tabular learning curves on mazes below | not reproduced |
+
+**LHB against LSS-LRTA*'s update.** Both compute, for the expanded states, the cheapest
+cost to the frontier plus the frontier value, by Dijkstra over the reversed explored
+graph. They write different values in exactly three cases:
+
+1. An expanded state without successors: a leaf for LHB, which keeps its value;
+   LSS-LRTA* proves it a dead end. Test: `updates_differ_on_states_without_successors`.
+2. A goal with a nonzero value: LHB sets it to 0 (Eq. 5); LSS-LRTA* leaves open states
+   alone. Test: `updates_differ_on_goals_with_nonzero_values`.
+3. A state expanded and then reopened by a cheaper path under an inconsistent table: it
+   has children, so LHB treats it as interior; LSS-LRTA* treats it as open (a seed). Not
+   reachable with a consistent table, where A* never reopens; no hand test.
+
+Elsewhere they agree value for value: the property test
+`lss_and_limited_horizon_agree_without_dead_ends` runs both agents trial for trial on
+strongly connected graphs with consistent tables and finds identical tables, paths and
+update counts. With a lookahead of one, both are LRTA*'s update.
+
+### Learning curves
+
+`cargo bench --bench learning` (harness off) prints these. Eight random 24×24
+4-connected mazes, about 30 % walls, start top left, goal bottom right, unit moves,
+Manhattan table, means over the mazes; mean optimum 46. A trial "converges" when it
+changes no value; every converged path was checked against Dijkstra.
+
+| lookahead | LSS-LRTA* trials | LHB trials | RTAA* trials | LSS first-trial cost | RTAA* first-trial cost | LSS expansions | RTAA* expansions |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| LRTA* | 8 | | | 89 | | 744 | |
+| 1 | 8 | 8 | 8 | 89 | 89 | 744 | 744 |
+| 2 | 12 | 12 | 14 | 109 | 120 | 900 | 1120 |
+| 4 | 10 | 10 | 12 | 95 | 108 | 748 | 1060 |
+| 8 | 8 | 8 | 9 | 79 | 73 | 581 | 814 |
+| 16 | 5 | 5 | 6 | 61 | 62 | 412 | 564 |
+| 32 | 4 | 4 | 4 | 54 | 57 | 318 | 447 |
+| 64 | 3 | 3 | 2 | 52 | 53 | 249 | 291 |
+| 128 | 2 | 2 | 2 | 47 | 47 | 209 | 352 |
+
+- LSS-LRTA* and LHB are identical on these mazes, as predicted: every cell has a
+  successor, the goal's value is 0, and the Manhattan table is consistent.
+- Larger lookaheads converge in fewer trials, with cheaper first trials and fewer total
+  expansions; small lookaheads (2 and 4) are worse than 1 on these mazes, because the
+  agent commits to longer moves on little information.
+- RTAA* needs a few more trials and expansions than LSS-LRTA* at most lookaheads; its
+  values are lower or equal, but its update needs no second search.
+
+Offline, as in the paper: sweeps of `lhb_update` over every cell that reaches the goal,
+from a zero table, until nothing changes (the result was checked to be exact against
+Dijkstra). Horizon 1 is the single-step Bellman update. The expansion column is the bound
+`sweeps × cells × horizon`; lookaheads that select the goal stop early.
+
+| horizon | sweeps | expansion bound |
+| --- | --- | --- |
+| 1 | 47 | 18816 |
+| 2 | 25 | 20168 |
+| 4 | 14 | 22457 |
+| 10 | 6 | 26846 |
+| 50 | 3 | 67200 |
+| 100 | 3 | 119137 |
+
+The sweep count falls roughly as `1 / horizon` down to a floor of a few sweeps, while the
+work per sweep grows with the horizon; horizons around 10 do the least total work here.
+This is the tabular analogue of the paper's finding that LHB labels need fewer samples
+than single-step labels.
+
+Not implemented: real-time D* (Bond et al. 2010), which combines real-time search with
+D* Lite's repairs for changing graphs; the incremental planners already cover changing
+costs, and RTAA* was the cheap variant.
+
 ## Naming
 
 Every A* variant is a snake-case function ending in `_star`: `a_star`, `weighted_a_star`,
@@ -612,6 +735,13 @@ the move to `search-core`.
   - every returned path is valid and its cost is the sum of its edges;
   - multi-start search equals the minimum over single-start searches (Dijkstra and A* cost,
     BFS edge count).
+- Real-time search (`tests/it/real_time.rs`): admissibility after every trial from
+  admissible, usually inconsistent tables (with zero costs, dead ends and unreachable
+  goals), consistency after every trial from consistent tables, completeness and work per
+  step on random strongly connected graphs with positive costs (RTA* included, from
+  arbitrary tables), convergence to the Dijkstra cost from consistent and from admissible
+  inconsistent tables, LSS and LHB agreement where their updates cannot differ, and offline
+  LHB sweeps reaching exact costs.
 - Every search function has a doctest.
 - `no_std` is checked by building for `thumbv7em-none-eabihf`.
 - The property-test oracle (Bellman-Ford in the test fixtures) is independent of the
@@ -637,7 +767,9 @@ the move to `search-core`.
 7. **More algorithms**: fringe search, RBFS, beam search,
    beam-stack search, JPS (with `UniformGrid`, `Octile`, `EightConnected`), Theta* and
    Lazy Theta* (with `LineOfSight`, feature `float`), SMA*.
-8. **0.1.0**: API review, benchmarks, release.
+8. **Real-time search**: done: `LearnedHeuristic`, LRTA*, RTA*, LSS-LRTA*, RTAA*, the
+   limited-horizon Bellman update (`lhb_update`, `lhb_lrta_star`), learning-curve bench.
+9. **0.1.0**: API review, benchmarks, release.
 
 ## Open questions
 
@@ -652,6 +784,16 @@ the move to `search-core`.
   `a_star`/`weighted_a_star` for now, because `#[deprecated]` warns in every dependent
   (`mapf-search` builds with `-D warnings` and calls `astar`). Deprecate them before 0.1,
   once the dependents have moved.
+
+- Real-time search: should a trial report where the agent stopped on `Unsolvable` (the
+  dead end may not include `start` on graphs with irreversible edges)? Default: no, the
+  outcome has no payload; the table records the dead ends.
+- Real-time search: a step-level API (one plan-and-move step at a time, for agents that
+  act between steps) instead of whole trials? Default: trials only; `Limits` bounds them.
+- LHB: Eq. 5 and Algorithm 1 disagree for a goal leaf with a nonzero value; we use the old
+  value for its ancestors and set the goal itself to 0. Algorithm 1 alone would keep the
+  goal's value. Default: Eq. 5 as written.
+- LHB: the paper allows GBFS or BWAS as the search phase; only A* is implemented.
 
 ## References
 
@@ -706,3 +848,10 @@ the move to `search-core`.
   CMU-RI-TR-05-19, Carnegie Mellon University, 2005. (Field D*)
 - D. Ferguson, A. Stentz. Using interpolation to improve path planning: the Field D*
   algorithm. Journal of Field Robotics 23(2), 2006.
+- R. E. Korf. Real-time heuristic search. Artificial Intelligence 42(2-3), 1990. (LRTA*,
+  RTA*)
+- S. Koenig, X. Sun. Comparing real-time and incremental heuristic search for real-time
+  situated agents. Autonomous Agents and Multi-Agent Systems 18(3), 2009. (LSS-LRTA*)
+- S. Koenig, M. Likhachev. Real-time adaptive A*. AAMAS 2006. (RTAA*)
+- G. Hadar, F. Agostinelli, S. S. Shperberg. Beyond single-step updates: reinforcement
+  learning of heuristics with limited-horizon search. arXiv:2511.10264, 2025. (LHB)

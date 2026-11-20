@@ -1,7 +1,7 @@
 //! # Heuristic search
 //!
 //! Explicit-state heuristic graph search: A*, weighted and anytime, bounded-suboptimal,
-//! bidirectional and incremental search.
+//! bidirectional, incremental and real-time search.
 //!
 //! A problem is described by small capability traits instead of one universal problem
 //! trait: a graph implements [`Successors`], the goal test is a [`Goal`] and the estimate a
@@ -96,6 +96,16 @@
 //! - `FieldDStar` (feature `float`): Field D*, D* Lite over the corners of a `CostGrid`
 //!   with per-cell costs, whose paths cross cells at any angle through points on cell
 //!   edges.
+//!
+//! Real-time searches plan a bounded amount, move, and learn values in a
+//! [`LearnedHeuristic`] the caller keeps across trials; each call runs one trial and
+//! returns a [`TrialResult`]:
+//!
+//! - [`lrta_star`] and [`rta_star`]: LRTA* and RTA*, a lookahead of one expansion.
+//! - [`lss_lrta_star`]: LSS-LRTA*, an A* lookahead of `n` expansions and a Dijkstra update.
+//! - [`lhb_lrta_star`]: the same agent with the limited-horizon Bellman update of Hadar et
+//!   al.; [`lhb_update`] is that update on its own, for offline learning.
+//! - [`rtaa_star`]: RTAA*, the A* lookahead with a cheaper update.
 //!
 //! Costs are generic over [`Cost`]. For planning, `u32` is the intended default: action
 //! costs are small integers and heuristics over them stay exact. [`Cost`], [`Heuristic`],

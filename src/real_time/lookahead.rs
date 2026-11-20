@@ -1,5 +1,5 @@
 //! Real-time search with an A* lookahead of `n` expansions: [`lss_lrta_star`] (LSS-LRTA*),
-//! [`lhb_lrta_star`] (the same agent with the limited-horizon Bellman update of Hadi et al.),
+//! [`lhb_lrta_star`] (the same agent with the limited-horizon Bellman update of Hadar et al.),
 //! [`rtaa_star`] (RTAA*), and the limited-horizon update on its own, [`lhb_update`].
 //!
 //! All four share one engine, [`Lookahead`]: a bounded A* from the current state that keeps
@@ -97,7 +97,7 @@ where
     search.trial(start, table, budget, update::dijkstra)
 }
 
-/// One trial of LSS-LRTA*'s agent with the limited-horizon Bellman update (LHB) of Hadi
+/// One trial of LSS-LRTA*'s agent with the limited-horizon Bellman update (LHB) of Hadar
 /// et al. 2025 ("Beyond Single-Step Updates", arXiv 2511.10264), learning in `table`.
 ///
 /// The lookahead and the moves are those of [`lss_lrta_star`]; the update is the paper's
@@ -222,7 +222,7 @@ where
     search.trial(start, table, budget, update::rtaa)
 }
 
-/// The limited-horizon Bellman update (LHB) of Hadi et al. 2025, Algorithm 1, on the
+/// The limited-horizon Bellman update (LHB) of Hadar et al. 2025, Algorithm 1, on the
 /// states around `sample`; returns how many table values changed.
 ///
 /// Runs A* from `sample` with `table` as the heuristic for at most `expansions` expansions,

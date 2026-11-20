@@ -17,7 +17,7 @@
 //! | [`lhb_lrta_star`] | A*, `n` expansions      | shortest paths to the frontier leaves (LHB)    |
 //! | [`rtaa_star`]     | A*, `n` expansions      | `h(s) = f(best open) - g(s)`                   |
 //!
-//! [`lhb_update`] is the limited-horizon Bellman update of Hadi et al. on its own: a bounded
+//! [`lhb_update`] is the limited-horizon Bellman update of Hadar et al. on its own: a bounded
 //! A* from one state and the update, without moving, as the paper uses it to label sampled
 //! states offline.
 //!

@@ -1,5 +1,5 @@
 //! The learning rules that run after a lookahead: LSS-LRTA*'s Dijkstra update
-//! ([`dijkstra`]), the limited-horizon Bellman update of Hadi et al.
+//! ([`dijkstra`]), the limited-horizon Bellman update of Hadar et al.
 //! ([`limited_horizon`]) and RTAA*'s update ([`rtaa`]).
 //!
 //! Each writes learned values into the table and returns how many changed.
@@ -47,7 +47,7 @@ where
     })
 }
 
-/// The limited-horizon Bellman update (Hadi et al. 2025, Eq. 5 by Algorithm 1): every node
+/// The limited-horizon Bellman update (Hadar et al. 2025, Eq. 5 by Algorithm 1): every node
 /// with children in the search graph gets `min over leaves l reachable from it of
 /// C(n, l) + h(l)`; goal nodes get zero; leaves keep their value.
 ///

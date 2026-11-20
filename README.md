@@ -1,6 +1,6 @@
 # heuristic-search
 
-Explicit-state heuristic graph search: A*, weighted and anytime, bounded-suboptimal, bidirectional and incremental search.
+Explicit-state heuristic graph search: A*, weighted and anytime, bounded-suboptimal, bidirectional, incremental and real-time search.
 
 ## Status
 
@@ -36,6 +36,10 @@ Implemented on the `draft/initial` branch:
 - Dynamic graphs: LPA*, D* Lite, AD* (start moves keyed by D* Lite's `km`); Field D*
   (`FieldDStar`, feature `float`) over the corners of a `CostGrid` with per-cell costs,
   interpolated any-angle paths through cell edges, cell-change repair and a moving start
+- Real-time search with learned tables that persist across trials (`LearnedHeuristic`):
+  LRTA*, RTA*, LSS-LRTA* (A* lookahead, Dijkstra update), RTAA*, and the limited-horizon
+  Bellman update of Hadar et al. 2025 (`lhb_update` offline, `lhb_lrta_star` inside the
+  LSS-LRTA* agent); learning curves in `benches/learning.rs` and the design notes
 - Naming: every A* variant is `*_star` (`a_star`, `weighted_a_star`, ...); `astar` and
   `weighted_astar` remain as aliases
 - Shared traits: `Cost`, `Heuristic`, `Goal` and `Budget<Stats>` come from `search-core`
