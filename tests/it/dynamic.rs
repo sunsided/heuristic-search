@@ -219,6 +219,50 @@ proptest! {
     }
 }
 
+proptest! {
+    /// AD* stays within its weight when weights with different denominators alternate and
+    /// edges change or the start moves while an inflated weight is set.
+    #[test]
+    fn ad_star_handles_weight_changes_between_updates(
+        (mut graph, goal, changes) in scenario(),
+        weights in prop::collection::vec(((1_u32..4), (1_u32..9), (1_u32..9)), 13),
+    ) {
+        let unit = |a: &usize, b: &usize| u64::from(a != b);
+        let mut start = 0;
+        let mut planner = AdStar::new(&graph, start, goal, unit, Weight::integer(2));
+        let mut path = Vec::new();
+        let weight = |(den, extra): (u32, u32)| Weight::new(den + extra % (3 * den), den);
+
+        for (step, change) in std::iter::once(None).chain(changes.iter().map(Some)).enumerate() {
+            let (den, during, solve) = weights[step];
+            planner.set_weight(weight((den, during)));
+            if matches!(change, Some(Change::Step)) && path.len() > 1 {
+                start = path[1];
+                planner.move_start(start);
+            } else if let Some((from, to)) = change.and_then(|c| apply(&mut graph, c)) {
+                planner.edge_changed(&graph, &from, &to);
+            }
+
+            let bound = weight((den, solve));
+            planner.set_weight(bound);
+            let inflated = planner.compute(&graph, Limits::NONE);
+            let best = optimum(&graph, start, goal);
+
+            prop_assert_eq!(inflated.solution().is_some(), best.is_some());
+            if let (Some(solution), Some(best)) = (inflated.solution(), best) {
+                prop_assert_eq!(solution.states.first(), Some(&start));
+                assert_path(&graph, &solution.states, solution.cost);
+                prop_assert!(
+                    u64::from(bound.denominator()) * solution.cost
+                        <= u64::from(bound.numerator()) * best
+                );
+            }
+
+            path = inflated.solution().map(|s| s.states.clone()).unwrap_or_default();
+        }
+    }
+}
+
 /// A grid whose walls can be toggled; moving costs 1.
 struct Walls {
     /// The current walls, as a static grid (also used for Dijkstra).

@@ -51,10 +51,13 @@ type VertexId = usize;
 struct Anytime {
     /// The inflation `epsilon` of the heuristic in overconsistent keys; at least `1`.
     weight: Weight,
-    /// The largest weight any queued key may have been computed with. Keys only need
-    /// re-keying when the weight drops below it: a larger weight makes keys grow, which
-    /// the queue already handles lazily.
+    /// The weight queued keys were computed with, at its largest numerator since the last
+    /// full re-key. Raising the numerator at the same denominator only makes keys grow,
+    /// which the queue handles lazily; anything else can shrink keys.
     keyed: Weight,
+    /// Whether a weight change may have left queued keys above their vertices' keys, so
+    /// the next iteration must re-key the whole queue.
+    rekey: bool,
     /// Whether each vertex was made consistent in the current iteration (`CLOSED`).
     closed: Vec<bool>,
     /// The vertices closed in the current iteration, to reset `closed` without a scan.
@@ -133,6 +136,7 @@ where
             anytime: weight.map(|weight| Anytime {
                 weight,
                 keyed: weight,
+                rekey: false,
                 closed: Vec::new(),
                 closed_list: Vec::new(),
                 incons: Vec::new(),
@@ -213,9 +217,21 @@ where
         self.target = self.intern(target);
     }
 
-    /// AD*: sets the inflation for the next iteration.
+    /// AD*: sets the inflation for the next iteration, and for keys computed until then.
+    ///
+    /// Keys scale `g` by the denominator and inflate `h` by the numerator, so only a larger
+    /// numerator at the same denominator keeps every queued key a lower bound. Any other
+    /// change schedules a full re-key at the start of the next iteration.
     pub(super) fn set_weight(&mut self, weight: Weight) {
         if let Some(anytime) = &mut self.anytime {
+            let keyed = anytime.keyed;
+            if weight.denominator() != keyed.denominator() || weight.numerator() < keyed.numerator()
+            {
+                anytime.rekey = true;
+            } else {
+                anytime.keyed = weight;
+            }
+
             anytime.weight = weight;
         }
     }
@@ -228,9 +244,8 @@ where
     }
 
     /// AD*: starts an iteration. Empties `CLOSED` and moves `INCONS` into the queue, in
-    /// time linear in their sizes. Re-keys every vertex only if the weight dropped below
-    /// one some queued key was computed with; target moves are covered by `km`. Does
-    /// nothing for LPA* and D* Lite.
+    /// time linear in their sizes. Re-keys every vertex only if [`Incremental::set_weight`]
+    /// scheduled it; target moves are covered by `km`. Does nothing for LPA* and D* Lite.
     fn begin_iteration(&mut self) {
         let Some(anytime) = &mut self.anytime else {
             return;
@@ -245,18 +260,13 @@ where
             anytime.incons[vertex] = false;
         }
 
-        let (weight, keyed) = (anytime.weight, anytime.keyed);
-        if is_below(weight, keyed) {
-            anytime.keyed = weight;
+        if anytime.rekey {
+            anytime.rekey = false;
+            anytime.keyed = anytime.weight;
             for vertex in 0..self.vertices.len() {
                 self.requeue(vertex);
             }
         } else {
-            anytime.keyed = if is_below(keyed, weight) {
-                weight
-            } else {
-                keyed
-            };
             for vertex in incons {
                 self.requeue(vertex);
             }
@@ -588,12 +598,6 @@ where
     }
 }
 
-/// Returns `true` if weight `a` is below weight `b`, compared exactly.
-fn is_below(a: Weight, b: Weight) -> bool {
-    u64::from(a.numerator()) * u64::from(b.denominator())
-        < u64::from(b.numerator()) * u64::from(a.denominator())
-}
-
 /// The cheapest of the parallel edges to `target` among `neighbours`.
 ///
 /// A stale `g` under AD* inflation can make a dearer parallel edge the tight one; the
@@ -605,4 +609,94 @@ fn cheapest_edge<C: Cost>(neighbours: &[(VertexId, C)], target: VertexId) -> C {
         .map(|&(_, cost)| cost)
         .min()
         .expect("`target` is one of the neighbours")
+}
+
+#[cfg(test)]
+mod tests {
+    //! The AD* queue invariant: after an iteration starts, every queued key is a lower
+    //! bound on its vertex's current key, however weights, edges and the target changed.
+
+    use alloc::vec::Vec;
+
+    use proptest::prelude::*;
+
+    use super::Incremental;
+    use crate::cost::Weight;
+    use crate::dynamic::DynamicGraph;
+
+    /// A path graph `0 - 1 - ... - 7` with per-edge costs, both directions.
+    struct Path(Vec<u32>);
+
+    impl DynamicGraph for Path {
+        type Vertex = usize;
+        type Cost = u32;
+
+        fn successors(&self, v: &usize, mut emit: impl FnMut(usize, u32)) {
+            if *v < self.0.len() {
+                emit(v + 1, self.0[*v]);
+            }
+
+            if *v > 0 {
+                emit(v - 1, self.0[v - 1]);
+            }
+        }
+
+        fn predecessors(&self, v: &usize, emit: impl FnMut(usize, u32)) {
+            self.successors(v, emit);
+        }
+    }
+
+    /// Checks that every queued key is at most the vertex's key now.
+    fn keys_are_lower_bounds(
+        search: &mut Incremental<usize, u32, fn(&usize, &usize) -> u32>,
+    ) -> bool {
+        (0..search.vertices.len()).all(|vertex| match search.queue.key(vertex).copied() {
+            Some(queued) => search.key(vertex).is_some_and(|now| queued <= now),
+            None => true,
+        })
+    }
+
+    /// The distance on the path graph, consistent for costs of at least 1.
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "heuristics take vertices by reference"
+    )]
+    fn distance(a: &usize, b: &usize) -> u32 {
+        u32::try_from(a.abs_diff(*b)).expect("small graph")
+    }
+
+    proptest! {
+        /// Random weights (any denominators), edge changes and target moves between
+        /// iterations keep queued keys lower bounds once the next iteration starts.
+        #[test]
+        fn queued_keys_stay_lower_bounds(
+            steps in prop::collection::vec(
+                ((1_u32..4, 0_u32..9), (1_u32..4, 0_u32..9), 0_usize..7, 1_u32..6, any::<bool>()),
+                1..10,
+            ),
+        ) {
+            let weight = |(den, extra): (u32, u32)| Weight::new(den + extra, den);
+            let mut graph = Path(alloc::vec![1; 7]);
+            let mut target = 7;
+            let mut search: Incremental<usize, u32, fn(&usize, &usize) -> u32> =
+                Incremental::new(false, 0, target, distance, Some(Weight::integer(2)));
+
+            for (during, solve, edge, cost, moves) in steps {
+                search.set_weight(weight(during));
+                if moves && target > 0 {
+                    target -= 1;
+                    search.move_target(target);
+                } else {
+                    graph.0[edge] = cost;
+                    search.edge_changed(&graph, &edge, &(edge + 1));
+                    search.edge_changed(&graph, &(edge + 1), &edge);
+                }
+
+                search.set_weight(weight(solve));
+                search.begin_iteration();
+                prop_assert!(keys_are_lower_bounds(&mut search));
+                search.compute(&graph, crate::outcome::Limits::NONE);
+            }
+        }
+    }
 }
