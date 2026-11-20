@@ -11,12 +11,13 @@ Implemented on the `draft/initial` branch:
 - Foundational: BFS, Dijkstra, A*, greedy best-first search (GBFS); DFS, depth-limited DFS,
   iterative deepening DFS, IDA*, IDA* with a bounded transposition table; depth cutoffs
   are reported apart from budget stops (`Outcome::Cutoff`)
-- Every search except the incremental planners also from several start states
-  (`*_multi`)
+- Every search also from several start states (`*_multi`; the incremental planners as
+  `LpaStarMulti`, `DStarLiteMulti`, `AdStarMulti` with fixed starts)
 - Weighted and anytime: Weighted A*, ARA*, ANA*
 - Bounded-suboptimal: focal search (with a public focal list and tie-breaking), EES, DPS
 - Bidirectional: bidirectional BFS and Dijkstra, NBS, DIBBS, BAE*; meets by a user
-  relation (`MeetRelation`, such as subgoal satisfaction) with path replay
+  relation (`MeetRelation`) between states and backward nodes of their own type (such
+  as subgoals), with path replay or a typed `ReplayError`
 - Multiple heuristics: shared MHA*
 - Expensive edge evaluation: LazySP
 - Dynamic graphs: LPA*, D* Lite, AD* (start moves keyed by D* Lite's `km`)

@@ -13,7 +13,8 @@
 //! | [`AdStar`]     | goal to start     | the goal    | the start    |
 //!
 //! [`AdStar`] is the anytime variant of [`DStarLite`]: it inflates the heuristic by a
-//! weight the caller lowers over time.
+//! weight the caller lowers over time. [`LpaStarMulti`], [`DStarLiteMulti`] and
+//! [`AdStarMulti`] take several fixed starts, through a virtual super-start.
 //!
 //! Both need strictly positive edge costs, as in the papers: a zero-cost cycle can keep
 //! supporting its own stale distances after the edge that made them real disappears. And
@@ -21,6 +22,7 @@
 //! the costs at every point in time; `|_, _| 0` always works.
 
 mod incremental;
+mod multi;
 
 use core::hash::Hash;
 
@@ -29,6 +31,7 @@ use search_core::{Budget, Cost};
 use crate::cost::Weight;
 use crate::outcome::{SearchResult, Stats};
 use incremental::Incremental;
+pub use multi::{AdStarMulti, DStarLiteMulti, LpaStarMulti};
 
 /// A graph with stable vertices whose edge costs may change between searches.
 ///
@@ -389,7 +392,7 @@ where
 }
 
 /// Panics unless `weight` is at least `1`.
-fn assert_weight(weight: Weight) {
+pub(crate) fn assert_weight(weight: Weight) {
     assert!(
         weight.numerator() >= weight.denominator(),
         "AD* weight must be at least 1"

@@ -41,6 +41,18 @@ use crate::dynamic::{DynamicGraph, DynamicResult};
 use crate::keyed_set::KeyedSet;
 use crate::outcome::{Outcome, SearchResult, Solution, Stats};
 
+/// A heuristic `estimate(a, b)` of the cost from `a` to `b`; implemented for closures.
+pub(super) trait Estimate<V, C> {
+    /// Estimates the cost from `from` to `to`.
+    fn estimate(&mut self, from: &V, to: &V) -> C;
+}
+
+impl<V, C, F: FnMut(&V, &V) -> C> Estimate<V, C> for F {
+    fn estimate(&mut self, from: &V, to: &V) -> C {
+        self(from, to)
+    }
+}
+
 /// A queue key `[min(g, rhs) + h + km, min(g, rhs)]`, compared lexicographically.
 type Key<C> = (C, C);
 
@@ -99,6 +111,9 @@ pub(super) struct Incremental<V, C, D> {
     km: C,
     /// AD*'s state; `None` for LPA* and D* Lite.
     anytime: Option<Anytime>,
+    /// Whether queued vertices whose key ties with the target's are processed before the
+    /// target counts as settled; needed with zero-cost edges.
+    pub(super) settle_ties: bool,
     /// Counters over every call.
     pub(super) total: Stats,
     /// Neighbours of the vertex being processed; reused.
@@ -109,7 +124,7 @@ impl<V, C, D> Incremental<V, C, D>
 where
     V: Clone + Hash + Eq,
     C: Cost,
-    D: FnMut(&V, &V) -> C,
+    D: Estimate<V, C>,
 {
     /// Creates the search with only the source inconsistent (`rhs = 0`, `g = inf`).
     ///
@@ -133,6 +148,7 @@ where
             rhs: Vec::new(),
             queue: KeyedSet::new(),
             km: C::ZERO,
+            settle_ties: false,
             anytime: weight.map(|weight| Anytime {
                 weight,
                 keyed: weight,
@@ -210,7 +226,7 @@ where
     /// keys alike (D* Lite's weight is `1`).
     pub(super) fn move_target(&mut self, target: V) {
         let old = self.vertices[self.target].clone();
-        let moved = (self.heuristic)(&old, &target);
+        let moved = self.heuristic.estimate(&old, &target);
         self.km = self
             .km
             .saturating_add(moved.saturating_times(self.weight().numerator()));
@@ -277,11 +293,17 @@ where
     /// smallest queued key: the target's distance is final.
     ///
     /// Relies on positive edge costs, as in the papers: with a zero-cost edge a vertex the
-    /// target depends on can tie with the target's key and be left unprocessed.
+    /// target depends on can tie with the target's key and be left unprocessed. With
+    /// [`Incremental::settle_ties`] set, tied vertices are processed first, which the
+    /// zero-cost edges of a virtual super-start need.
     fn target_settled(&mut self, top: Key<C>) -> bool {
         let consistent = self.g[self.target] == self.rhs[self.target];
+        let ties = self.settle_ties;
 
-        consistent && self.key(self.target).is_some_and(|key| top >= key)
+        consistent
+            && self
+                .key(self.target)
+                .is_some_and(|key| if ties { top > key } else { top >= key })
     }
 
     /// Processes the queued vertex `vertex` with queue key `old`: re-keys it if its key
@@ -399,9 +421,9 @@ where
     fn h(&mut self, vertex: VertexId) -> C {
         let (vertex, target) = (&self.vertices[vertex], &self.vertices[self.target]);
         if self.forward {
-            (self.heuristic)(vertex, target)
+            self.heuristic.estimate(vertex, target)
         } else {
-            (self.heuristic)(target, vertex)
+            self.heuristic.estimate(target, vertex)
         }
     }
 

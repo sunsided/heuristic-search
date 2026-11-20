@@ -2,7 +2,8 @@
 //! toggles, each time cross-checked against Dijkstra on the current graph.
 
 use heuristic_search::{
-    AdStar, DStarLite, DynamicGraph, Limits, LpaStar, Outcome, Weight, dijkstra,
+    AdStar, AdStarMulti, DStarLite, DStarLiteMulti, DynamicGraph, Limits, LpaStar, LpaStarMulti,
+    Outcome, Weight, dijkstra,
 };
 use proptest::prelude::*;
 
@@ -461,4 +462,55 @@ fn ad_star_costs_parallel_edges_by_the_cheapest() {
 
     assert_eq!(solution.states, [0, 2, 1]);
     assert_path(&graph, &solution.states, solution.cost);
+}
+
+proptest! {
+    /// The multi-start planners track edge changes like Dijkstra from the best start:
+    /// LPA* and D* Lite exactly, AD* within its weight and exactly at weight 1. Paths start
+    /// at one of the starts.
+    #[test]
+    fn multi_start_planners_track_changes(
+        (mut graph, goal, changes) in scenario(),
+        raw_starts in prop::collection::vec(0_usize..10, 0..4),
+        numerator in 2_u32..7,
+    ) {
+        let starts: Vec<usize> = raw_starts.into_iter().map(|s| s % graph.nodes).collect();
+        let unit = |a: &usize, b: &usize| u64::from(a != b);
+        let mut lpa = LpaStarMulti::new(&graph, starts.iter().copied(), goal, unit);
+        let mut lite = DStarLiteMulti::new(&graph, starts.iter().copied(), goal, unit);
+        let mut ad = AdStarMulti::new(&graph, starts.iter().copied(), goal, unit, Weight::integer(2));
+
+        for change in std::iter::once(None).chain(changes.iter().map(Some)) {
+            if let Some((from, to)) = change.and_then(|c| apply(&mut graph, c)) {
+                lpa.edge_changed(&graph, &from, &to);
+                lite.edge_changed(&graph, &from, &to);
+                ad.edge_changed(&graph, &from, &to);
+            }
+
+            let best = starts.iter().filter_map(|&s| optimum(&graph, s, goal)).min();
+            ad.set_weight(Weight::new(numerator, 2));
+            let inflated = ad.compute(&graph, Limits::NONE);
+            ad.set_weight(Weight::ONE);
+            let results = [
+                lpa.compute(&graph, Limits::NONE),
+                lite.compute(&graph, Limits::NONE),
+                ad.compute(&graph, Limits::NONE),
+            ];
+
+            for result in &results {
+                prop_assert_eq!(result.solution().map(|s| s.cost), best);
+            }
+
+            prop_assert_eq!(inflated.solution().is_some(), best.is_some());
+            for solution in results.iter().chain([&inflated]).filter_map(|r| r.solution()) {
+                prop_assert!(starts.contains(&solution.states[0]));
+                prop_assert_eq!(solution.states.last(), Some(&goal));
+                assert_path(&graph, &solution.states, solution.cost);
+            }
+
+            if let (Some(solution), Some(best)) = (inflated.solution(), best) {
+                prop_assert!(2 * solution.cost <= u64::from(numerator) * best);
+            }
+        }
+    }
 }

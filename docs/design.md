@@ -238,8 +238,12 @@ semantics. Per family:
   bound, as if they hung below a virtual root; IDA*'s first threshold is the smallest
   start `h`. Starts are deduplicated by equality (quadratic, no `Hash` needed).
 
-The incremental planners keep a single start: it is part of their repaired state (D* Lite
-moves it), so a set of starts would be a different planner.
+The incremental planners have separate multi-start types (`LpaStarMulti`,
+`DStarLiteMulti`, `AdStarMulti`): they search from a virtual super-start joined to every
+start by a zero-cost edge, whose heuristic is the minimum over the starts, and strip it
+from the path. Because the zero-cost edges let the super-start's key tie with a start's,
+these planners process tied vertices before the target counts as settled. Their starts
+are fixed: changing them would change the super-start's heuristic under queued keys.
 
 ## Budgets
 

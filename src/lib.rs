@@ -22,8 +22,8 @@
 //! - [`gbfs`]: greedy best-first search, fast and unbounded.
 //!
 //! Each has a `*_multi` variant ([`a_star_multi`] and so on) that searches from several
-//! start states at once. So does every other search below except the incremental
-//! planners, whose start is part of their state.
+//! start states at once. So does every other search below; the incremental planners have
+//! multi-start types ([`LpaStarMulti`] and so on) with fixed starts.
 //!
 //! Depth-first searches need memory only for the current path (except [`dfs`]):
 //!
@@ -179,7 +179,10 @@ pub use depth_first::{
     depth_limited_dfs, depth_limited_dfs_multi, dfs, dfs_multi, ida_star, ida_star_multi,
     ida_star_tt, ida_star_tt_multi, iddfs, iddfs_multi,
 };
-pub use dynamic::{AdStar, DStarLite, DynamicGraph, DynamicResult, LpaStar};
+pub use dynamic::{
+    AdStar, AdStarMulti, DStarLite, DStarLiteMulti, DynamicGraph, DynamicResult, LpaStar,
+    LpaStarMulti,
+};
 pub use focal::{FocalList, TieBreak};
 pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp, lazy_sp_multi};
 pub use mha::{MhaWeights, mha_star, mha_star_multi};
