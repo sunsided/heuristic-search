@@ -47,9 +47,10 @@ pub trait Successors {
                   emit: impl FnMut(Self::Action, Self::State, Self::Cost));
 }
 
+// From search-core, re-exported:
 pub trait Goal<S> { fn is_goal(&self, state: &S) -> bool; }  // + impl for Fn(&S) -> bool
 
-pub trait Heuristic<S, C> { fn estimate(&mut self, state: &S) -> Option<C>; }
+pub trait Heuristic<S, C = u32> { fn estimate(&mut self, state: &S) -> Option<C>; }
 impl<S, C, H: Heuristic<S, C> + ?Sized> Heuristic<S, C> for &mut H { /* forwards */ }
 impl<S, C, H: Heuristic<S, C> + ?Sized> Heuristic<S, C> for Box<H> { /* forwards */ }
 pub fn heuristic_fn<S, C, F: FnMut(&S) -> Option<C>>(f: F) -> HeuristicFn<F>;
@@ -379,9 +380,9 @@ the move to `search-core`.
   same `&mut H` and `Box<H>` blanket impls, and the same rule of rounding float values up
   over integer costs. Its heuristics implement this crate's `Heuristic` behind an optional
   feature, not the other way round.
-- `Cost` gained `saturating_sub` and `to_f64`, and `Stats` became `#[non_exhaustive]` with
-  an `evaluations` counter. `planning-heuristics` and `stochastic-search` keep their own
-  copies of these definitions and need the same change, or the move to `search-core`.
+- `Stats` became `#[non_exhaustive]` with an `evaluations` counter. `saturating_sub` and
+  `to_f64` live in the local `CostExt`, since `search-core`'s `Cost` lacks them; they could
+  move there if another crate needs them.
 - `mapf-search` (planned): can reuse `FocalList`, `TieBreak` and `focal_search` with a
   path-dependent `FocalKey` for ECBS-style conflict counts.
 - `search-core` (adopted): `Heuristic`, `Cost`, `Goal` and `Budget` moved into
