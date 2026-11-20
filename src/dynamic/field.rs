@@ -283,37 +283,60 @@ impl<G: CostGrid> Corners<'_, G> {
         }
     }
 
+    /// The surroundings of `corner`: its neighbours in [`RING`] order (`None` off the
+    /// lattice), and the costs of the four cells around it, indexed by `k / 2` for the
+    /// diagonal step `RING[k]`.
+    fn around(&self, corner: GridCell) -> ([Option<GridCell>; 8], [f64; 4]) {
+        let neighbours = RING.map(|step| self.offset(corner, step));
+        let cells = [1, 3, 5, 7].map(|k| self.cell_towards(corner, RING[k]));
+
+        (neighbours, cells)
+    }
+
     /// The eight pairs of consecutive neighbours of `corner` whose straight neighbour is
     /// on the lattice, with the costs of the two cells along the straight edge.
-    fn pairs(&self, corner: GridCell) -> impl Iterator<Item = Pair> + '_ {
+    fn pairs(&self, corner: GridCell) -> impl Iterator<Item = Pair> {
+        let (neighbours, cells) = self.around(corner);
+
         (0..RING.len()).filter_map(move |i| {
-            let (a, b) = (RING[i], RING[(i + 1) % RING.len()]);
-            let (straight, diagonal) = if a.0 == 0 || a.1 == 0 { (a, b) } else { (b, a) };
-            let mirrored = if straight.0 == 0 {
-                (-diagonal.0, diagonal.1)
-            } else {
-                (diagonal.0, -diagonal.1)
-            };
+            let (straight, diagonal, other) = pair_indices(i);
 
             Some(Pair {
-                straight: self.offset(corner, straight)?,
-                diagonal: self.offset(corner, diagonal),
-                c: self.cell_towards(corner, diagonal),
-                b: self.cell_towards(corner, mirrored),
+                straight: neighbours[straight]?,
+                diagonal: neighbours[diagonal],
+                c: cells[diagonal / 2],
+                b: cells[other / 2],
             })
         })
     }
 
     /// The interpolated `rhs` of `corner` from the `g` values of its neighbours (infinite
-    /// where unknown): the minimum of [`interpolate`] over its eight pairs.
+    /// where unknown): the minimum of [`interpolate`] over its eight pairs. Looks up each
+    /// neighbour's `g` and each cell's cost once.
     fn rhs(&self, corner: GridCell, g: impl Fn(GridCell) -> f64) -> f64 {
-        self.pairs(corner)
-            .map(|pair| {
-                let g2 = pair.diagonal.map_or(f64::INFINITY, &g);
-                interpolate(g(pair.straight), g2, pair.c, pair.b).0
+        let (neighbours, cells) = self.around(corner);
+        let values = neighbours.map(|neighbour| neighbour.map_or(f64::INFINITY, &g));
+
+        (0..RING.len())
+            .map(|i| {
+                let (straight, diagonal, other) = pair_indices(i);
+                let (c, b) = (cells[diagonal / 2], cells[other / 2]);
+                interpolate(values[straight], values[diagonal], c, b).0
             })
             .fold(f64::INFINITY, f64::min)
     }
+}
+
+/// The [`RING`] indices of pair `i` (steps `i` and `i + 1`): its straight step, its
+/// diagonal step, and the other diagonal next to the straight step, whose cell is the
+/// second one along the straight edge.
+fn pair_indices(i: usize) -> (usize, usize, usize) {
+    let next = (i + 1) % RING.len();
+    let (straight, diagonal) = if i % 2 == 0 { (i, next) } else { (next, i) };
+    // The diagonal on the straight step's other side: straight + (straight - diagonal).
+    let other = (2 * straight + RING.len() - diagonal) % RING.len();
+
+    (straight, diagonal, other)
 }
 
 impl<G: CostGrid> Searched for Corners<'_, G> {

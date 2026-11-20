@@ -3,7 +3,7 @@
 //! D* Lite and AD* repairs after the wall changes; and the depth-first searches on a
 //! small open grid, where tree searches meet many transpositions; Jump Point Search
 //! against A* on the 8-connected version of the wall grid, and (feature `float`) Theta*
-//! and Lazy Theta* there.
+//! and Lazy Theta* there, and Field D*'s plan and repair over the grid's corners.
 //!
 //! Run with `cargo bench`.
 
@@ -111,6 +111,10 @@ impl UniformGrid for Grid {
 /// Line of sight with the default walk, for the any-angle searches.
 #[cfg(feature = "float")]
 impl heuristic_search::LineOfSight for Grid {}
+
+/// Unit cell costs, for Field D*.
+#[cfg(feature = "float")]
+impl heuristic_search::CostGrid for Grid {}
 
 /// The Manhattan distance between two cells.
 fn manhattan(a: &Cell, b: &Cell) -> u32 {
@@ -528,6 +532,29 @@ fn bench_d_star_lite(c: &mut Criterion) {
     });
 }
 
+/// Field D*: one full plan between the corners at the top and bottom left, then the repair
+/// after the wall's gap moves (the cells `move_gap` changes, reported as cells).
+#[cfg(feature = "float")]
+fn bench_field_d_star(c: &mut Criterion) {
+    use heuristic_search::{FieldDStar, NonNegF64};
+
+    let one = NonNegF64::new(1.0).expect("one is a valid cost");
+    c.bench_function("field_d_star replan grid", |b| {
+        b.iter(|| {
+            let mut grid = Grid::new();
+            let mut planner = FieldDStar::new(&grid, (0, 0), (0, SIZE), one);
+            black_box(planner.compute(&grid, Limits::NONE));
+
+            move_gap(&mut grid, |_, _, _| {});
+            for (row, column) in [(SIZE / 2, SIZE - 1), (SIZE / 2, 5)] {
+                planner.cell_changed(&grid, column, row);
+            }
+
+            black_box(planner.compute(&grid, Limits::NONE))
+        });
+    });
+}
+
 /// Runs every benchmark.
 fn main() {
     let grid = Grid::new();
@@ -544,6 +571,8 @@ fn main() {
     bench_focal_list_churn(&mut c);
     bench_nbs(&mut c, &grid);
     bench_d_star_lite(&mut c);
+    #[cfg(feature = "float")]
+    bench_field_d_star(&mut c);
     bench_ara_star(&mut c, &grid);
     bench_ana_star(&mut c, &grid);
     bench_ees(&mut c, &grid);
