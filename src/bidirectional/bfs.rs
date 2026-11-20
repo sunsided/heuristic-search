@@ -190,6 +190,7 @@ fn weighted<S, A, C: Cost>(result: SearchResult<S, (A, C), u64>) -> SearchResult
         }
         Outcome::Unsolvable => Outcome::Unsolvable,
         Outcome::LimitReached => Outcome::LimitReached,
+        Outcome::Cutoff => Outcome::Cutoff,
     };
 
     SearchResult {

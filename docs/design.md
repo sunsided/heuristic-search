@@ -308,6 +308,12 @@ the same machine: `FocalList push+pop 10k` 9.8 ms to 3.5 ms, `FocalList churn 10
 
 Per-algorithm notes:
 
+- IDA* with a transposition table (`ida_star_tt`) skips a state reached again in the same
+  iteration from no smaller `g`: the earlier visit had at least as much threshold left, and
+  any path through one of its then-ancestors has a cheaper equivalent. The table is
+  direct-mapped (`capacity` slots, overwrite on collision), stamped per iteration so a new
+  iteration costs nothing, and a lost entry only repeats work. Plain `ida_star` runs the
+  same loop with a no-op table and needs no `Hash`.
 - ARA* parks states improved after their expansion (`INCONS`) except in the last
   iteration of the schedule, which reopens, so the final bound holds with inconsistent
   heuristics. Goals are recognised on generation (also in MHA*).
@@ -410,6 +416,9 @@ the move to `search-core`.
     `dibbs`, `bae_star` and `bidirectional_dijkstra` now require of the cost type.
   - `Budget` is `Budget<Stats>`: write `impl Budget<Stats>` in bounds and impls.
   - `Heuristic<S, C>` defaults `C = u32`; `Zero` derives `Hash`.
+- `Outcome::Cutoff` (new variant, breaking for exhaustive matches): `depth_limited_dfs`
+  returns it when the depth limit cut states off and no goal was found, and keeps
+  `LimitReached` for budget stops.
   `Successors` follows if `width-search` or `multiobjective-search` need it.
 
 ## Testing strategy
@@ -468,10 +477,6 @@ the move to `search-core`.
   DIBBS only in side selection (cardinality). Confirm against the paper.
 - Naming: `astar` but `ara_star`, `ana_star`, `mha_star`, `bae_star` (snake case of the
   star); incremental planners are types (`LpaStar`, `DStarLite`, `AdStar`).
-- `depth_limited_dfs` overloads `LimitReached` for both a budget stop and a depth cutoff.
-  A separate `Outcome::Cutoff` would tell them apart but changes a public enum.
-- IDA* has no transposition table, so graphs with many paths to the same state blow up;
-  a bounded transposition table is the usual fix.
 
 ## References
 

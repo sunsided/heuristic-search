@@ -1,4 +1,5 @@
-//! Depth-first search: [`dfs`], [`depth_limited_dfs`], [`iddfs`] and [`ida_star`].
+//! Depth-first search: [`dfs`], [`depth_limited_dfs`], [`iddfs`], [`ida_star`] and
+//! [`ida_star_tt`].
 //!
 //! | Algorithm             | Memory            | Duplicates            | Returns                |
 //! | --------------------- | ----------------- | --------------------- | ---------------------- |
@@ -6,10 +7,12 @@
 //! | [`depth_limited_dfs`] | the current path  | cycles on the path    | a path of `<= limit`   |
 //! | [`iddfs`]             | the current path  | cycles on the path    | fewest edges           |
 //! | [`ida_star`]          | the current path  | cycles on the path    | cheapest (admissible)  |
+//! | [`ida_star_tt`]       | path + `capacity` | path, bounded table   | cheapest (admissible)  |
 //!
-//! The last three are tree searches: they keep only the current path and skip a successor
+//! The last four are tree searches: they keep only the current path and skip a successor
 //! already on it, so they need nothing but `Eq` on states but may revisit a state reached
-//! along different paths. All four are iterative, so deep paths cannot overflow the call
+//! along different paths ([`ida_star_tt`] bounds that with a transposition table, at the
+//! price of `Hash`). All of them are iterative, so deep paths cannot overflow the call
 //! stack. [`Stats::expanded`] counts every expansion, also repeated ones across iterations.
 
 use alloc::vec::Vec;
@@ -21,6 +24,10 @@ use crate::best_first::GraphResult;
 use crate::outcome::{Outcome, SearchResult, Solution, Stats};
 use crate::problem::{Successors, collect_successors};
 use crate::space::{Reach, SearchSpace};
+
+mod transposition;
+
+use transposition::{NoTable, Table, Transpositions};
 
 /// Graph depth-first search: follows the newest successor first and finds some path, not
 /// necessarily a short or cheap one.
@@ -151,8 +158,8 @@ where
 ///
 /// Skips successors already on the current path. If no goal is found, the outcome is
 /// [`Outcome::Unsolvable`] only if the limit never cut a branch off; otherwise it is
-/// [`Outcome::LimitReached`], because a goal may lie deeper. Goals are tested when they are
-/// generated.
+/// [`Outcome::Cutoff`], because a goal may lie deeper. [`Outcome::LimitReached`] means the
+/// budget stopped it. Goals are tested when they are generated.
 ///
 /// # Examples
 ///
@@ -173,7 +180,7 @@ where
 /// }
 ///
 /// let is_five = |n: &u32| *n == 5;
-/// assert_eq!(depth_limited_dfs(&Up, 0, &is_five, 4, Limits::NONE).outcome, Outcome::LimitReached);
+/// assert_eq!(depth_limited_dfs(&Up, 0, &is_five, 4, Limits::NONE).outcome, Outcome::Cutoff);
 /// assert_eq!(depth_limited_dfs(&Up, 0, &is_five, 5, Limits::NONE).solution().map(|s| s.len()), Some(5));
 /// ```
 pub fn depth_limited_dfs<G, T>(
@@ -267,7 +274,8 @@ where
     let outcome = match probe {
         Probe::Found(solution) => Outcome::Found(solution),
         Probe::Exhausted(None) => Outcome::Unsolvable,
-        Probe::Exhausted(Some(_)) | Probe::Stopped => Outcome::LimitReached,
+        Probe::Exhausted(Some(_)) => Outcome::Cutoff,
+        Probe::Stopped => Outcome::LimitReached,
     };
 
     SearchResult { outcome, stats }
@@ -493,15 +501,145 @@ where
 ///
 /// assert_eq!(result.solution().map(|s| s.cost), Some(2));
 /// ```
-#[expect(
-    clippy::similar_names,
-    reason = "`starts` is the parameter name of every `*_multi` search"
-)]
 pub fn ida_star_multi<G, T, H>(
     graph: &G,
     starts: impl IntoIterator<Item = G::State>,
     goal: &T,
+    heuristic: H,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
+{
+    run_ida(graph, starts, goal, heuristic, NoTable, budget)
+}
+
+/// IDA* with a bounded transposition table of `capacity` states: [`ida_star`] that searches
+/// below a state at most once per iteration and path cost.
+///
+/// Plain IDA* re-expands a state along every path that reaches it, which blows up on graphs
+/// with many transpositions (grids, permutation puzzles). The table remembers, per
+/// iteration, the smallest `g` each recorded state was searched from, and skips a state
+/// reached again from no smaller `g`: the earlier visit had at least as much of the
+/// threshold left. Solutions stay optimal for an admissible heuristic.
+///
+/// The table is direct-mapped: each state hashes to one of `capacity` slots, allocated up
+/// front, and a new entry overwrites the old one. A lost entry only repeats work, so any
+/// capacity is correct; `0` disables the table. Needs `Hash` on states, unlike
+/// [`ida_star`].
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, heuristic_fn, ida_star, ida_star_tt};
+///
+/// /// An open 8 x 8 grid with unit moves right and down: many paths reach each cell.
+/// struct Grid;
+///
+/// impl Successors for Grid {
+///     type State = (u8, u8);
+///     type Action = ();
+///     type Cost = u32;
+///
+///     fn successors(&self, &(x, y): &(u8, u8), mut emit: impl FnMut((), (u8, u8), u32)) {
+///         if x < 7 {
+///             emit((), (x + 1, y), 1);
+///         }
+///         if y < 7 {
+///             emit((), (x, y + 1), 1);
+///         }
+///     }
+/// }
+///
+/// // The blind heuristic `0` makes every transposition count.
+/// let blind = || heuristic_fn(|_: &(u8, u8)| Some(0_u32));
+/// let goal = |cell: &(u8, u8)| *cell == (7, 7);
+/// let plain = ida_star(&Grid, (0, 0), &goal, blind(), Limits::NONE);
+/// let table = ida_star_tt(&Grid, (0, 0), &goal, blind(), 1 << 10, Limits::NONE);
+///
+/// assert_eq!(table.solution().map(|s| s.cost), Some(14));
+/// assert_eq!(plain.solution().map(|s| s.cost), Some(14));
+/// assert!(table.stats.expanded * 10 < plain.stats.expanded);
+/// ```
+pub fn ida_star_tt<G, T, H>(
+    graph: &G,
+    start: G::State,
+    goal: &T,
+    heuristic: H,
+    capacity: usize,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
+{
+    ida_star_tt_multi(graph, [start], goal, heuristic, capacity, budget)
+}
+
+/// [`ida_star_tt`] from several start states at once, as [`ida_star_multi`] does.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, heuristic_fn, ida_star_tt_multi};
+///
+/// /// Counting up by one, at cost 1.
+/// struct Up;
+///
+/// impl Successors for Up {
+///     type State = u32;
+///     type Action = ();
+///     type Cost = u32;
+///
+///     fn successors(&self, n: &u32, mut emit: impl FnMut((), u32, u32)) {
+///         if *n < 8 {
+///             emit((), n + 1, 1);
+///         }
+///     }
+/// }
+///
+/// let h = heuristic_fn(|n: &u32| 8_u32.checked_sub(*n));
+/// let result = ida_star_tt_multi(&Up, [0, 6, 3], &|n: &u32| *n == 8, h, 64, Limits::NONE);
+///
+/// assert_eq!(result.solution().map(|s| s.cost), Some(2));
+/// ```
+pub fn ida_star_tt_multi<G, T, H>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goal: &T,
+    heuristic: H,
+    capacity: usize,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
+{
+    run_ida(graph, starts, goal, heuristic, Table::new(capacity), budget)
+}
+
+/// The IDA* iterations from `starts`, skipping states that `table` says this iteration has
+/// already searched below from a path cost at most as large.
+#[expect(
+    clippy::similar_names,
+    reason = "`starts` is the parameter name of every `*_multi` search"
+)]
+fn run_ida<G, T, H, X>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goal: &T,
     mut heuristic: H,
+    mut table: X,
     mut budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
@@ -510,6 +648,7 @@ where
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
     H: Heuristic<G::State, G::Cost>,
+    X: Transpositions<G::State, G::Cost>,
 {
     let roots = distinct(starts);
     let mut stats = Stats::default();
@@ -532,16 +671,26 @@ where
     };
 
     loop {
+        table.next_iteration();
         let probe = probe_roots(
             graph,
             &roots,
             goal,
             &mut stats,
             &mut budget,
-            |state, g, _| match heuristic.estimate(state) {
-                None => Bound::Dead,
-                Some(h) if (g + h).cmp(&threshold).is_gt() => Bound::Prune(g + h),
-                Some(_) => Bound::Open,
+            |state, g, _| {
+                if table.covers(state, g) {
+                    return Bound::Dead;
+                }
+
+                match heuristic.estimate(state) {
+                    None => Bound::Dead,
+                    Some(h) if g + h > threshold => Bound::Prune(g + h),
+                    Some(_) => {
+                        table.record(state, g);
+                        Bound::Open
+                    }
+                }
             },
         );
 

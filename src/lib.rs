@@ -30,7 +30,8 @@
 //! - [`dfs`]: graph depth-first search, some path.
 //! - [`depth_limited_dfs`] and [`iddfs`]: depth-limited and iterative deepening, fewest
 //!   edges.
-//! - [`ida_star`]: IDA*, cheapest path with an admissible heuristic.
+//! - [`ida_star`]: IDA*, cheapest path with an admissible heuristic; [`ida_star_tt`] adds
+//!   a bounded transposition table for graphs with many paths to each state.
 //!
 //! Anytime searches report each improved solution and return an [`AnytimeResult`]:
 //!
@@ -150,8 +151,8 @@ pub use bounded::{
 };
 pub use cost::{CostExt, Weight};
 pub use depth_first::{
-    depth_limited_dfs, depth_limited_dfs_multi, dfs, dfs_multi, ida_star, ida_star_multi, iddfs,
-    iddfs_multi,
+    depth_limited_dfs, depth_limited_dfs_multi, dfs, dfs_multi, ida_star, ida_star_multi,
+    ida_star_tt, ida_star_tt_multi, iddfs, iddfs_multi,
 };
 pub use dynamic::{AdStar, DStarLite, DynamicGraph, DynamicResult, LpaStar};
 pub use focal::{FocalList, TieBreak};

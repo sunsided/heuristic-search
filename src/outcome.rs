@@ -89,6 +89,10 @@ pub enum Outcome<S, A, C> {
     Unsolvable,
     /// The [`Budget`] stopped the search before it could decide.
     LimitReached,
+    /// A search with its own bound, such as the depth limit of
+    /// [`depth_limited_dfs`](crate::depth_limited_dfs), cut states off and found no goal
+    /// within the bound. A goal may lie beyond it; a larger bound may find it.
+    Cutoff,
 }
 
 /// The result of one search run.
@@ -106,7 +110,7 @@ impl<S, A, C> SearchResult<S, A, C> {
     pub fn solution(&self) -> Option<&Solution<S, A, C>> {
         match &self.outcome {
             Outcome::Found(solution) => Some(solution),
-            Outcome::Unsolvable | Outcome::LimitReached => None,
+            Outcome::Unsolvable | Outcome::LimitReached | Outcome::Cutoff => None,
         }
     }
 
@@ -115,7 +119,7 @@ impl<S, A, C> SearchResult<S, A, C> {
     pub fn into_solution(self) -> Option<Solution<S, A, C>> {
         match self.outcome {
             Outcome::Found(solution) => Some(solution),
-            Outcome::Unsolvable | Outcome::LimitReached => None,
+            Outcome::Unsolvable | Outcome::LimitReached | Outcome::Cutoff => None,
         }
     }
 }
