@@ -11,7 +11,8 @@ use criterion::Criterion;
 use heuristic_search::{
     AdStar, DStarLite, DynamicGraph, EdgeSelector, EesEstimates, FocalList, Limits, MhaWeights,
     Predecessors, Successors, Weight, a_star, ana_star, ara_star, dfs, dps, ees, focal_fn,
-    focal_search, heuristic_fn, ida_star, ida_star_tt, iddfs, lazy_sp, mha_star, nbs,
+    focal_search, fringe_search, heuristic_fn, ida_star, ida_star_tt, iddfs, lazy_sp, mha_star,
+    nbs,
 };
 
 /// Side length of the benchmark grid.
@@ -111,6 +112,21 @@ fn bench_a_star(c: &mut Criterion, grid: &Grid) {
                 START,
                 &|cell: &Cell| *cell == GOAL,
                 h,
+                Limits::NONE,
+            ))
+        });
+    });
+}
+
+/// Fringe search with the Manhattan heuristic around the wall.
+fn bench_fringe_search(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("fringe_search grid", |b| {
+        b.iter(|| {
+            black_box(fringe_search(
+                grid,
+                START,
+                &at_goal,
+                to_goal(),
                 Limits::NONE,
             ))
         });
@@ -425,6 +441,7 @@ fn main() {
     let mut c = Criterion::default().configure_from_args();
 
     bench_a_star(&mut c, &grid);
+    bench_fringe_search(&mut c, &grid);
     bench_focal_search(&mut c, &grid);
     bench_focal_list(&mut c);
     bench_focal_list_churn(&mut c);

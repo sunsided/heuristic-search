@@ -6,8 +6,8 @@ use heuristic_search::{
     EdgeSelector, EesEstimates, Limits, MhaWeights, SearchResult, Weight, Zero, ana_star_multi,
     ara_star_multi, bae_star_multi, bfs, bidirectional_bfs_multi, bidirectional_dijkstra_multi,
     depth_limited_dfs_multi, dfs_multi, dibbs_multi, dps_multi, ees_multi, focal_fn,
-    focal_search_multi, heuristic_fn, ida_star_multi, iddfs_multi, lazy_sp_multi, mha_star_multi,
-    nbs_multi,
+    focal_search_multi, fringe_search_multi, heuristic_fn, ida_star_multi, iddfs_multi,
+    lazy_sp_multi, mha_star_multi, nbs_multi,
 };
 use proptest::prelude::*;
 
@@ -53,6 +53,7 @@ proptest! {
         let evaluate = |from: &usize, action: &usize, _: &usize| Some(graph.edges[*from][*action].1);
 
         let results: Vec<(&str, Result)> = vec![
+            ("fringe_search", fringe_search_multi(&graph, s(), &is_goal, heuristic_fn(h), Limits::NONE)),
             ("ida_star", ida_star_multi(&graph, s(), &is_goal, heuristic_fn(h), Limits::NONE)),
             ("mha_star", mha_star_multi(&graph, s(), &is_goal, heuristic_fn(h), [heuristic_fn(h)], MhaWeights::ONE, Limits::NONE)),
             ("lazy_sp", lazy_sp_multi(&graph, s(), &is_goal, heuristic_fn(h), evaluate, EdgeSelector::Forward, Limits::NONE)),

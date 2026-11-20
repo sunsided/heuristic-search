@@ -12,6 +12,7 @@ through small capability traits and gets back a path and counters.
 In scope, in milestone order (see [Milestones](#milestones)):
 
 - foundational: BFS, DFS, Dijkstra, greedy best-first (GBFS), A*, IDA*;
+- linear- and bounded-memory: fringe search;
 - weighted and anytime: Weighted A* (WA*), ARA*, ANA*;
 - bounded-suboptimal: EES, DPS;
 - multiple heuristics: MHA*;
@@ -308,6 +309,13 @@ the same machine: `FocalList push+pop 10k` 9.8 ms to 3.5 ms, `FocalList churn 10
 
 Per-algorithm notes:
 
+- Fringe search keeps the cache in a `SearchSpace` (best `g`, parent, heuristic value per
+  node) and its *now* and *later* lists as two `Vec`s of `(node, ticket)`. *Now* is a
+  stack whose head is its last element, so successors inserted "after the current node"
+  are pushed in reverse. Removal is lazy: listing a node again hands it a fresh ticket,
+  and entries with an old ticket are skipped, so a cheaper path moves a node from *later*
+  (or deeper in *now*) to the head of *now* in `O(1)`. Goals are tested when a node is
+  taken within the threshold, which with an admissible `h` never exceeds the optimum.
 - IDA* with a transposition table (`ida_star_tt`) skips a state reached again in the same
   iteration from no smaller `g`: the earlier visit had at least as much threshold left, and
   any path through one of its then-ancestors has a cheaper equivalent. The table is
@@ -487,7 +495,8 @@ the move to `search-core`.
    shared MHA*.
 5. **Expensive edges**: done: `EdgeEvaluator`, LazySP.
 6. **Dynamic graphs**: done: `DynamicGraph`, LPA*, D* Lite, AD*.
-7. **0.1.0**: API review, benchmarks, release.
+7. **More algorithms** (branch `draft/algorithms`): fringe search.
+8. **0.1.0**: API review, benchmarks, release.
 
 ## Open questions
 
@@ -507,6 +516,8 @@ the move to `search-core`.
 
 - E. W. Dijkstra. A note on two problems in connexion with graphs. Numerische
   Mathematik 1, 1959.
+- Y. Björnsson, M. Enzenberger, R. C. Holte, J. Schaeffer. Fringe search: beating A* at
+  pathfinding on game maps. IEEE CIG 2005.
 - P. E. Hart, N. J. Nilsson, B. Raphael. A formal basis for the heuristic determination of
   minimum cost paths. IEEE Trans. SSC 4(2), 1968. (A*)
 - I. Pohl. Heuristic search viewed as path finding in a graph. Artificial Intelligence

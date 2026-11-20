@@ -7,6 +7,7 @@ mod bounded;
 mod depth_first;
 mod dynamic;
 mod fixtures;
+mod fringe;
 mod grid;
 mod lazy;
 mod meet;

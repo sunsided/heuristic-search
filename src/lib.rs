@@ -20,6 +20,8 @@
 //! - [`a_star`]: A*, cheapest path with an admissible heuristic.
 //! - [`weighted_a_star`]: Weighted A*, at most `w` times the cheapest cost.
 //! - [`gbfs`]: greedy best-first search, fast and unbounded.
+//! - [`fringe_search`]: fringe search, cheapest path with an admissible heuristic through
+//!   `f` threshold iterations over a cache of every state, without a priority queue.
 //!
 //! Each has a `*_multi` variant ([`a_star_multi`] and so on) that searches from several
 //! start states at once. So does every other search below except the incremental
@@ -137,6 +139,7 @@ mod cost;
 mod depth_first;
 mod dynamic;
 mod focal;
+mod fringe;
 mod indexed_heap;
 mod keyed_set;
 mod lazy;
@@ -178,6 +181,7 @@ pub use depth_first::{
 };
 pub use dynamic::{AdStar, DStarLite, DynamicGraph, DynamicResult, LpaStar};
 pub use focal::{FocalList, TieBreak};
+pub use fringe::{fringe_search, fringe_search_multi};
 pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp, lazy_sp_multi};
 pub use mha::{MhaWeights, mha_star, mha_star_multi};
 pub use outcome::{Limits, Outcome, SearchResult, Solution, Stats};

@@ -11,6 +11,8 @@ Implemented on the `draft/initial` branch:
 - Foundational: BFS, Dijkstra, A*, greedy best-first search (GBFS); DFS, depth-limited DFS,
   iterative deepening DFS, IDA*, IDA* with a bounded transposition table; depth cutoffs
   are reported apart from budget stops (`Outcome::Cutoff`)
+- Fringe search (`fringe_search`): optimal with an admissible heuristic, threshold
+  iterations over a cache of `g` per state, no priority queue
 - Every search except the incremental planners also from several start states
   (`*_multi`)
 - Weighted and anytime: Weighted A*, ARA*, ANA*
