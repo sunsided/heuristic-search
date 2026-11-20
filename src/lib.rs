@@ -24,6 +24,11 @@
 //! Each has a `*_multi` variant ([`astar_multi`] and so on) that searches from several
 //! start states at once.
 //!
+//! Anytime searches report each improved solution and return an [`AnytimeResult`]:
+//!
+//! - [`ara_star`]: ARA*, Weighted A* with a falling weight schedule.
+//! - [`ana_star`]: ANA*, anytime without parameters.
+//!
 //! Costs are generic over [`Cost`]. For planning, `u32` is the intended default: action
 //! costs are small integers and heuristics over them stay exact.
 //!
@@ -58,7 +63,6 @@
 //! ## Planned scope
 //!
 //! - Foundational: DFS, IDA*
-//! - Weighted and anytime: ARA*, ANA*
 //! - Bounded-suboptimal: EES, DPS
 //! - Multiple heuristics: MHA*
 //! - Bidirectional: NBS, BAE*, DIBBS
@@ -78,13 +82,16 @@
 
 extern crate alloc;
 
+mod anytime;
 mod best_first;
 mod bfs;
 mod cost;
+mod open_list;
 mod outcome;
 mod problem;
 mod space;
 
+pub use anytime::{AnytimeGraphResult, AnytimeResult, ana_star, ara_star};
 pub use best_first::{
     GraphResult, astar, astar_multi, dijkstra, dijkstra_multi, gbfs, gbfs_multi, weighted_astar,
     weighted_astar_multi,

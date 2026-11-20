@@ -24,16 +24,14 @@
 //!     expand --> pop
 //! ```
 
-mod open_list;
-
 use alloc::vec::Vec;
 use core::hash::Hash;
 
 use crate::cost::{Cost, Weight};
+use crate::open_list::OpenList;
 use crate::outcome::{Budget, Outcome, SearchResult, Stats};
 use crate::problem::{Goal, Heuristic, Successors, Zero, collect_successors};
 use crate::space::{NodeId, Reach, SearchSpace};
-use open_list::OpenList;
 
 /// The result type of searches over graph `G`.
 pub type GraphResult<G> =

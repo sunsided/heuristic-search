@@ -2,20 +2,24 @@
 
 Explicit-state heuristic graph search: A*, weighted and anytime, bounded-suboptimal, bidirectional and incremental search.
 
-## Planned scope
-
-- Foundational: BFS, DFS, Dijkstra, GBFS, A*, IDA*
-- Weighted and anytime: Weighted A*, ARA*, ANA*
-- Bounded-suboptimal: EES, DPS
-- Multiple heuristics: MHA*
-- Bidirectional: NBS, BAE*, DIBBS
-- Expensive edge evaluation: LazySP
-- Dynamic graphs: LPA*, D* Lite, AD*
-
 ## Status
 
-Pre-release. Breadth-first search, Dijkstra, A*, Weighted A* and greedy best-first search
-work on the `draft/initial` branch; the API will change. See [docs/design.md](docs/design.md).
+Pre-release; the API will change. See [docs/design.md](docs/design.md).
+
+Implemented on the `draft/initial` branch:
+
+- Foundational: BFS, Dijkstra, A*, greedy best-first search (GBFS), each also from several
+  start states
+- Weighted and anytime: Weighted A*, ARA*, ANA*
+
+Planned:
+
+- Foundational: DFS, IDA*
+- Bounded-suboptimal: focal search, EES, DPS
+- Multiple heuristics: MHA*
+- Bidirectional: bidirectional BFS and Dijkstra, NBS, DIBBS, BAE*
+- Expensive edge evaluation: LazySP
+- Dynamic graphs: LPA*, D* Lite, AD*
 
 ## License
 

@@ -8,41 +8,7 @@ use heuristic_search::{
 };
 use proptest::prelude::*;
 
-use crate::fixtures::{Graph, assert_valid_path};
-
-/// Exact cost from every node to `goal`, or `None` if `goal` is unreachable.
-///
-/// Bellman-Ford relaxation, independent of the crate's own searches so it can serve as the
-/// oracle for them.
-fn distances_to(graph: &Graph, goal: usize) -> Vec<Option<u64>> {
-    let mut distance = vec![None; graph.edges.len()];
-    distance[goal] = Some(0);
-
-    for _ in 0..graph.edges.len() {
-        for (from, edges) in graph.edges.iter().enumerate() {
-            for &(to, cost) in edges {
-                let Some(via) = distance[to].map(|d: u64| d + cost) else {
-                    continue;
-                };
-
-                if distance[from].is_none_or(|d| via < d) {
-                    distance[from] = Some(via);
-                }
-            }
-        }
-    }
-
-    distance
-}
-
-/// A random graph with up to 12 nodes and edge costs `0..=9`, plus a goal node.
-fn graph_and_goal() -> impl Strategy<Value = (Graph, usize)> {
-    (2_usize..12).prop_flat_map(|nodes| {
-        let edges = prop::collection::vec((0..nodes, 0..nodes, 0_u64..10), 0..nodes * 3);
-
-        (edges, 0..nodes).prop_map(move |(edges, goal)| (Graph::new(nodes, &edges), goal))
-    })
-}
+use crate::fixtures::{assert_valid_path, distances_to, graph_and_goal};
 
 proptest! {
     /// With `h = scale(d*)` for random per-node scales in `[0, 1]`, the heuristic is

@@ -30,12 +30,26 @@ pub trait Cost: Copy + Add<Output = Self> {
     /// Used where a sum only serves as a priority, such as the Weighted A* key.
     #[must_use]
     fn saturating_add(self, other: Self) -> Self;
+
+    /// Subtracts `other`, saturating at the minimum (zero for unsigned integers).
+    ///
+    /// Used for priorities that subtract one estimate from another, such as the `G - g`
+    /// slack of [`ana_star`](crate::ana_star).
+    #[must_use]
+    fn saturating_sub(self, other: Self) -> Self;
+
+    /// The cost as a float, possibly rounded.
+    ///
+    /// Used only for priorities that divide costs, such as the `(G - g) / h` order of
+    /// [`ana_star`](crate::ana_star). Rounding can
+    /// change the expansion order among nearly equal priorities but never a returned cost.
+    fn to_f64(self) -> f64;
 }
 
 /// Implements [`Cost`] for unsigned and signed integer types that `u32` converts into
-/// losslessly.
+/// losslessly, each with its conversion to `f64`.
 macro_rules! integer_cost {
-    ($($ty:ty),*) => {
+    ($($ty:ty => $to_f64:path),*) => {
         $(
             impl Cost for $ty {
                 const ZERO: Self = 0;
@@ -51,12 +65,32 @@ macro_rules! integer_cost {
                 fn saturating_add(self, other: Self) -> Self {
                     <$ty>::saturating_add(self, other)
                 }
+
+                fn saturating_sub(self, other: Self) -> Self {
+                    <$ty>::saturating_sub(self, other)
+                }
+
+                fn to_f64(self) -> f64 {
+                    $to_f64(self)
+                }
             }
         )*
     };
 }
 
-integer_cost!(u32, u64, i64);
+integer_cost!(u32 => f64::from, u64 => u64_to_f64, i64 => i64_to_f64);
+
+/// Converts a `u64` cost to the nearest float, for priorities only.
+#[expect(clippy::cast_precision_loss, reason = "only used for priorities")]
+fn u64_to_f64(cost: u64) -> f64 {
+    cost as f64
+}
+
+/// Converts an `i64` cost to the nearest float, for priorities only.
+#[expect(clippy::cast_precision_loss, reason = "only used for priorities")]
+fn i64_to_f64(cost: i64) -> f64 {
+    cost as f64
+}
 
 impl Cost for usize {
     const ZERO: Self = 0;
@@ -71,6 +105,15 @@ impl Cost for usize {
 
     fn saturating_add(self, other: Self) -> Self {
         usize::saturating_add(self, other)
+    }
+
+    fn saturating_sub(self, other: Self) -> Self {
+        usize::saturating_sub(self, other)
+    }
+
+    #[expect(clippy::cast_precision_loss, reason = "only used for priorities")]
+    fn to_f64(self) -> f64 {
+        self as f64
     }
 }
 
@@ -87,6 +130,14 @@ impl Cost for f64 {
 
     fn saturating_add(self, other: Self) -> Self {
         self + other
+    }
+
+    fn saturating_sub(self, other: Self) -> Self {
+        self - other
+    }
+
+    fn to_f64(self) -> f64 {
+        self
     }
 }
 

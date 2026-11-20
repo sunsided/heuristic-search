@@ -1,7 +1,8 @@
-//! Test graphs: a weighted adjacency-list [`Graph`] and a 4-connected [`Grid`], plus a
-//! checker that a [`Solution`] is a real path.
+//! Test graphs: a weighted adjacency-list [`Graph`] and a 4-connected [`Grid`], random graphs,
+//! a Bellman-Ford distance oracle, and a checker that a [`Solution`] is a real path.
 
 use heuristic_search::{Solution, Successors};
+use proptest::prelude::*;
 
 /// A directed graph as adjacency lists of `(target, cost)` pairs. States are node indices;
 /// an edge's action is its index in the source's adjacency list.
@@ -44,6 +45,40 @@ impl Successors for Graph {
             emit(index, to, cost);
         }
     }
+}
+
+/// Exact cost from every node to `goal`, or `None` if `goal` is unreachable.
+///
+/// Bellman-Ford relaxation, independent of the crate's own searches so it can serve as the
+/// oracle for them.
+pub fn distances_to(graph: &Graph, goal: usize) -> Vec<Option<u64>> {
+    let mut distance = vec![None; graph.edges.len()];
+    distance[goal] = Some(0);
+
+    for _ in 0..graph.edges.len() {
+        for (from, edges) in graph.edges.iter().enumerate() {
+            for &(to, cost) in edges {
+                let Some(via) = distance[to].map(|d: u64| d + cost) else {
+                    continue;
+                };
+
+                if distance[from].is_none_or(|d| via < d) {
+                    distance[from] = Some(via);
+                }
+            }
+        }
+    }
+
+    distance
+}
+
+/// A random graph with up to 12 nodes and edge costs `0..=9`, plus a goal node.
+pub fn graph_and_goal() -> impl Strategy<Value = (Graph, usize)> {
+    (2_usize..12).prop_flat_map(|nodes| {
+        let edges = prop::collection::vec((0..nodes, 0..nodes, 0_u64..10), 0..nodes * 3);
+
+        (edges, 0..nodes).prop_map(move |(edges, goal)| (Graph::new(nodes, &edges), goal))
+    })
 }
 
 /// Asserts that `solution` is a path in `graph` from `start` whose cost is the sum of its
