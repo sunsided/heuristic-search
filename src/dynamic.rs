@@ -1,5 +1,5 @@
 //! Incremental search on graphs whose edge costs change: [`LpaStar`] (Lifelong Planning
-//! A*) and [`DStarLite`], over a [`DynamicGraph`].
+//! A*), [`DStarLite`] and [`AdStar`] (Anytime D*), over a [`DynamicGraph`].
 //!
 //! Both keep their search tree between calls. After the caller changes edge costs in the
 //! graph, it reports each changed edge (`edge_changed`) and asks for a new path
@@ -10,6 +10,10 @@
 //! | -------------- | ----------------- | ----------- | ------------ |
 //! | [`LpaStar`]    | start to goal     | both ends   | nothing      |
 //! | [`DStarLite`]  | goal to start     | the goal    | the start    |
+//! | [`AdStar`]     | goal to start     | the goal    | the start    |
+//!
+//! [`AdStar`] is the anytime variant of [`DStarLite`]: it inflates the heuristic by a
+//! weight the caller lowers over time.
 //!
 //! Both need strictly positive edge costs, as in the papers: a zero-cost cycle can keep
 //! supporting its own stale distances after the edge that made them real disappears. And
@@ -20,7 +24,7 @@ mod incremental;
 
 use core::hash::Hash;
 
-use crate::cost::Cost;
+use crate::cost::{Cost, Weight};
 use crate::outcome::{Budget, SearchResult, Stats};
 use incremental::Incremental;
 
@@ -109,7 +113,7 @@ where
         heuristic: D,
     ) -> Self {
         Self {
-            core: Incremental::new(true, start, goal, heuristic),
+            core: Incremental::new(true, start, goal, heuristic, None),
         }
     }
 
@@ -207,7 +211,7 @@ where
         heuristic: D,
     ) -> Self {
         Self {
-            core: Incremental::new(false, goal, start, heuristic),
+            core: Incremental::new(false, goal, start, heuristic, None),
         }
     }
 
@@ -245,4 +249,146 @@ where
     pub fn stats(&self) -> Stats {
         self.core.total
     }
+}
+
+/// Anytime Dynamic A* (AD*, Likhachev, Ferguson, Gordon, Stentz and Thrun 2005): D* Lite
+/// with an inflated heuristic, so a first path comes fast and improves as time allows,
+/// while the start moves and edges change.
+///
+/// Each [`AdStar::compute`] is one iteration: it returns a path that costs at most the
+/// current weight times the optimum (with a consistent `heuristic`). Lower the weight with
+/// [`AdStar::set_weight`] between calls to improve the path, ending with
+/// [`Weight::ONE`](crate::Weight::ONE) for an optimal one; move the start and report
+/// changed edges as with [`DStarLite`]. After large changes, raising the weight again
+/// gets a new path faster. Vertices that become inconsistent after their expansion in an
+/// iteration wait for the next one (AD*'s `INCONS`), and every call re-keys the queue,
+/// which is linear in the vertices seen so far.
+///
+/// # Panics
+///
+/// [`AdStar::new`] and [`AdStar::set_weight`] panic if the weight is below `1`.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{AdStar, DynamicGraph, Limits, Weight};
+///
+/// /// A line `0..=9`; each step moves one to the left or right at cost 1.
+/// struct Line;
+///
+/// impl DynamicGraph for Line {
+///     type Vertex = u8;
+///     type Cost = u32;
+///
+///     fn successors(&self, v: &u8, mut emit: impl FnMut(u8, u32)) {
+///         if *v > 0 {
+///             emit(v - 1, 1);
+///         }
+///         if *v < 9 {
+///             emit(v + 1, 1);
+///         }
+///     }
+///
+///     fn predecessors(&self, v: &u8, emit: impl FnMut(u8, u32)) {
+///         self.successors(v, emit);
+///     }
+/// }
+///
+/// let distance = |a: &u8, b: &u8| u32::from(a.abs_diff(*b));
+/// let mut planner = AdStar::new(&Line, 2, 9, distance, Weight::integer(3));
+/// assert_eq!(planner.compute(&Line, Limits::NONE).solution().map(|s| s.cost), Some(7));
+///
+/// planner.set_weight(Weight::ONE);
+/// assert_eq!(planner.compute(&Line, Limits::NONE).solution().map(|s| s.cost), Some(7));
+/// ```
+pub struct AdStar<V, C, D> {
+    /// The incremental search from the goal, with AD*'s anytime state.
+    core: Incremental<V, C, D>,
+}
+
+impl<V, C, D> AdStar<V, C, D>
+where
+    V: Clone + Hash + Eq,
+    C: Cost,
+    D: FnMut(&V, &V) -> C,
+{
+    /// Prepares a search from `start` to `goal` with initial inflation `weight`. Nothing
+    /// is expanded until [`AdStar::compute`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `weight` is below `1`.
+    pub fn new<G: DynamicGraph<Vertex = V, Cost = C>>(
+        _graph: &G,
+        start: V,
+        goal: V,
+        heuristic: D,
+        weight: Weight,
+    ) -> Self {
+        assert_weight(weight);
+
+        Self {
+            core: Incremental::new(false, goal, start, heuristic, Some(weight)),
+        }
+    }
+
+    /// Runs one iteration with the current weight and returns a path from the current
+    /// start within that weight of the optimum, or
+    /// [`Outcome::Unsolvable`](crate::Outcome::Unsolvable).
+    ///
+    /// The budget and the returned stats cover this call only; see [`AdStar::stats`] for
+    /// the totals.
+    pub fn compute<G: DynamicGraph<Vertex = V, Cost = C>>(
+        &mut self,
+        graph: &G,
+        budget: impl Budget,
+    ) -> DynamicResult<G> {
+        self.core.compute(graph, budget)
+    }
+
+    /// Sets the inflation for the next iterations.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `weight` is below `1`.
+    pub fn set_weight(&mut self, weight: Weight) {
+        assert_weight(weight);
+        self.core.set_weight(weight);
+    }
+
+    /// The current inflation.
+    #[must_use]
+    pub fn weight(&self) -> Weight {
+        self.core.weight()
+    }
+
+    /// Moves the start to `start`, typically one step along the last path.
+    pub fn move_start(&mut self, start: V) {
+        self.core.move_target(start);
+    }
+
+    /// Reports that the edge `from -> to` changed its cost, appeared or disappeared in
+    /// `graph`, which must already show the new state.
+    pub fn edge_changed<G: DynamicGraph<Vertex = V, Cost = C>>(
+        &mut self,
+        graph: &G,
+        from: &V,
+        to: &V,
+    ) {
+        self.core.edge_changed(graph, from, to);
+    }
+
+    /// Counters over every [`AdStar::compute`] so far.
+    #[must_use]
+    pub fn stats(&self) -> Stats {
+        self.core.total
+    }
+}
+
+/// Panics unless `weight` is at least `1`.
+fn assert_weight(weight: Weight) {
+    assert!(
+        weight.numerator() >= weight.denominator(),
+        "AD* weight must be at least 1"
+    );
 }

@@ -15,12 +15,11 @@ Implemented on the `draft/initial` branch:
 - Bidirectional: bidirectional BFS and Dijkstra, NBS, DIBBS, BAE*
 - Multiple heuristics: shared MHA*
 - Expensive edge evaluation: LazySP
-- Dynamic graphs: LPA*, D* Lite
+- Dynamic graphs: LPA*, D* Lite, AD*
 
 Planned:
 
 - Foundational: DFS, IDA*
-- Dynamic graphs: AD*
 
 ## License
 

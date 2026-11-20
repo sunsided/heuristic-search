@@ -9,6 +9,10 @@
 //! | --------- | ------ | ------ | -------------- | -------------------- |
 //! | LPA*      | start  | goal   | predecessors   | successors           |
 //! | D* Lite   | goal   | start  | successors     | predecessors         |
+//!
+//! AD* is D* Lite with an inflated heuristic for overconsistent vertices, a `CLOSED` set
+//! per iteration and an `INCONS` list of vertices that became inconsistent after their
+//! expansion ([`Anytime`]).
 
 use alloc::collections::VecDeque;
 use alloc::vec;
@@ -17,7 +21,7 @@ use core::hash::{BuildHasher, Hash};
 
 use hashbrown::{DefaultHashBuilder, HashTable};
 
-use crate::cost::{Cost, Ordered};
+use crate::cost::{Cost, Ordered, Weight};
 use crate::dynamic::{DynamicGraph, DynamicResult};
 use crate::keyed_set::KeyedSet;
 use crate::outcome::{Budget, Outcome, SearchResult, Solution, Stats};
@@ -27,6 +31,17 @@ type Key<C> = (Ordered<C>, Ordered<C>);
 
 /// Dense id of an interned vertex.
 type VertexId = usize;
+
+/// AD*'s per-iteration state.
+struct Anytime {
+    /// The inflation `epsilon` of the heuristic in overconsistent keys; at least `1`.
+    weight: Weight,
+    /// Whether each vertex was made consistent in the current iteration (`CLOSED`).
+    closed: Vec<bool>,
+    /// Whether each vertex became inconsistent after it was closed (`INCONS`); such
+    /// vertices wait for the next iteration instead of being queued.
+    incons: Vec<bool>,
+}
 
 /// Incremental search state, kept between calls.
 pub(super) struct Incremental<V, C, D> {
@@ -53,7 +68,10 @@ pub(super) struct Incremental<V, C, D> {
     /// Locally inconsistent vertices (`g != rhs`) by key.
     queue: KeyedSet<Key<C>>,
     /// D* Lite's key modifier: the heuristic distance the target has moved in total.
+    /// Stays `0` for LPA* and AD* (which re-keys every iteration instead).
     km: C,
+    /// AD*'s state; `None` for LPA* and D* Lite.
+    anytime: Option<Anytime>,
     /// Counters over every call.
     pub(super) total: Stats,
     /// Neighbours of the vertex being processed; reused.
@@ -67,7 +85,15 @@ where
     D: FnMut(&V, &V) -> C,
 {
     /// Creates the search with only the source inconsistent (`rhs = 0`, `g = inf`).
-    pub(super) fn new(forward: bool, source: V, target: V, heuristic: D) -> Self {
+    ///
+    /// `weight` makes it AD* with that initial inflation.
+    pub(super) fn new(
+        forward: bool,
+        source: V,
+        target: V,
+        heuristic: D,
+        weight: Option<Weight>,
+    ) -> Self {
         let mut search = Self {
             forward,
             source: 0,
@@ -80,6 +106,11 @@ where
             rhs: Vec::new(),
             queue: KeyedSet::new(),
             km: C::ZERO,
+            anytime: weight.map(|weight| Anytime {
+                weight,
+                closed: Vec::new(),
+                incons: Vec::new(),
+            }),
             total: Stats::default(),
             buffer: Vec::new(),
         };
@@ -100,6 +131,7 @@ where
         mut budget: impl Budget,
     ) -> DynamicResult<G> {
         let mut stats = Stats::default();
+        self.begin_iteration();
         while let Some((&key, vertex)) = self.queue.first() {
             if self.target_settled(key) {
                 break;
@@ -138,12 +170,44 @@ where
         self.update(graph, id);
     }
 
-    /// Moves the target to `target`, raising `km` by the heuristic distance moved so old
-    /// keys stay lower bounds.
+    /// Moves the target to `target`. D* Lite raises `km` by the heuristic distance moved
+    /// so old keys stay lower bounds; AD* re-keys at the start of the next iteration.
     pub(super) fn move_target(&mut self, target: V) {
-        let old = self.vertices[self.target].clone();
-        self.km = self.km + (self.heuristic)(&old, &target);
+        if self.anytime.is_none() {
+            let old = self.vertices[self.target].clone();
+            self.km = self.km + (self.heuristic)(&old, &target);
+        }
+
         self.target = self.intern(target);
+    }
+
+    /// AD*: sets the inflation for the next iteration.
+    pub(super) fn set_weight(&mut self, weight: Weight) {
+        if let Some(anytime) = &mut self.anytime {
+            anytime.weight = weight;
+        }
+    }
+
+    /// AD*: the current inflation.
+    pub(super) fn weight(&self) -> Weight {
+        self.anytime
+            .as_ref()
+            .map_or(Weight::ONE, |anytime| anytime.weight)
+    }
+
+    /// AD*: starts an iteration. Moves `INCONS` into the queue, empties `CLOSED` and
+    /// re-keys every inconsistent vertex for the current weight and target. Linear in the
+    /// vertices seen so far. Does nothing for LPA* and D* Lite.
+    fn begin_iteration(&mut self) {
+        let Some(anytime) = &mut self.anytime else {
+            return;
+        };
+
+        anytime.closed.fill(false);
+        anytime.incons.fill(false);
+        for vertex in 0..self.vertices.len() {
+            self.requeue(vertex);
+        }
     }
 
     /// Returns `true` if the target is consistent and its key is at most `top`, the
@@ -184,6 +248,9 @@ where
         if overconsistent {
             self.g[vertex] = self.rhs[vertex];
             self.queue.remove(vertex);
+            if let Some(anytime) = &mut self.anytime {
+                anytime.closed[vertex] = true;
+            }
         } else {
             self.g[vertex] = None;
             self.update(graph, vertex);
@@ -212,9 +279,16 @@ where
     }
 
     /// Puts `vertex` into the queue with its current key if it is inconsistent, and
-    /// takes it out otherwise.
+    /// takes it out otherwise. AD* parks inconsistent vertices closed in this iteration in
+    /// `INCONS` instead.
     fn requeue(&mut self, vertex: VertexId) {
         let consistent = self.g[vertex].map(Ordered) == self.rhs[vertex].map(Ordered);
+        if let Some(anytime) = self.anytime.as_mut().filter(|a| a.closed[vertex]) {
+            anytime.incons[vertex] = !consistent;
+            self.queue.remove(vertex);
+            return;
+        }
+
         match self.key(vertex) {
             Some(key) if !consistent => self.queue.insert(vertex, key),
             _ => {
@@ -224,15 +298,31 @@ where
     }
 
     /// The key of `vertex`, or `None` if both `g` and `rhs` are infinite.
+    ///
+    /// `[min(g, rhs) + h + km, min(g, rhs)]`. AD* inflates `h` by its weight for
+    /// overconsistent vertices (`g > rhs`); to stay exact with a rational weight, its first
+    /// component is scaled by the weight's denominator throughout.
     fn key(&mut self, vertex: VertexId) -> Option<Key<C>> {
-        let best = match (self.g[vertex], self.rhs[vertex]) {
-            (Some(g), Some(rhs)) => Some(if rhs.cmp_cost(&g).is_lt() { rhs } else { g }),
-            (g, rhs) => g.or(rhs),
-        }?;
+        let (g, rhs) = (self.g[vertex], self.rhs[vertex]);
+        let overconsistent = match (g, rhs) {
+            (Some(g), Some(rhs)) => rhs.cmp_cost(&g).is_lt(),
+            (None, rhs) => rhs.is_some(),
+            (Some(_), None) => false,
+        };
+        let best = if overconsistent { rhs } else { g }?;
 
         let h = self.h(vertex);
+        let weight = self.weight();
+        let inflation = if overconsistent {
+            weight.numerator()
+        } else {
+            weight.denominator()
+        };
+        let first = (best + self.km)
+            .times(weight.denominator())
+            .saturating_add(h.times(inflation));
 
-        Some((Ordered(best + h + self.km), Ordered(best)))
+        Some((Ordered(first), Ordered(best)))
     }
 
     /// The heuristic between the target and `vertex`, in travel direction.
@@ -337,10 +427,57 @@ where
         }
 
         debug_assert!(
-            false,
-            "tight edges always lead from the target to the source"
+            self.anytime.is_some(),
+            "without inflation, tight edges always lead from the target to the source"
         );
-        None
+
+        self.greedy_path(graph)
+    }
+
+    /// AD*'s path when inconsistent vertices break every tight chain: from the target,
+    /// repeatedly step to the unvisited neighbour towards the source with the smallest
+    /// `c + g`. `None` if that gets stuck.
+    fn greedy_path<G: DynamicGraph<Vertex = V, Cost = C>>(
+        &mut self,
+        graph: &G,
+    ) -> Option<Solution<V, (), C>> {
+        let mut seen = vec![false; self.vertices.len()];
+        let mut steps = vec![(self.target, C::ZERO)];
+        let mut current = self.target;
+        seen[current] = true;
+
+        while current != self.source {
+            let (next, cost) = self
+                .towards_source(graph, current)
+                .into_iter()
+                .filter(|&(id, _)| !seen.get(id).copied().unwrap_or(false))
+                .filter_map(|(id, cost)| self.g[id].map(|g| (id, cost, g + cost)))
+                .reduce(|a, b| if b.2.cmp_cost(&a.2).is_lt() { b } else { a })
+                .map(|(id, cost, _)| (id, cost))?;
+
+            if seen.len() <= next {
+                seen.resize(next + 1, false);
+            }
+
+            seen[next] = true;
+            steps.push((next, cost));
+            current = next;
+        }
+
+        let mut states: Vec<V> = steps
+            .iter()
+            .map(|&(id, _)| self.vertices[id].clone())
+            .collect();
+        let cost = steps.iter().fold(C::ZERO, |sum, &(_, cost)| sum + cost);
+        if self.forward {
+            states.reverse();
+        }
+
+        Some(Solution {
+            actions: vec![(); states.len() - 1],
+            states,
+            cost,
+        })
     }
 
     /// Builds the solution from the BFS parent links, which lead from the source back to
@@ -381,6 +518,10 @@ where
         self.vertices.push(vertex);
         self.g.push(None);
         self.rhs.push(None);
+        if let Some(anytime) = &mut self.anytime {
+            anytime.closed.push(false);
+            anytime.incons.push(false);
+        }
 
         id
     }

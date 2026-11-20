@@ -1,7 +1,9 @@
 //! Incremental planners: LPA* and D* Lite after random edge changes, start moves and wall
 //! toggles, each time cross-checked against Dijkstra on the current graph.
 
-use heuristic_search::{DStarLite, DynamicGraph, Limits, LpaStar, Outcome, dijkstra};
+use heuristic_search::{
+    AdStar, DStarLite, DynamicGraph, Limits, LpaStar, Outcome, Weight, dijkstra,
+};
 use proptest::prelude::*;
 
 use crate::fixtures::{Cell, Graph, Grid, manhattan};
@@ -175,6 +177,48 @@ proptest! {
     }
 }
 
+proptest! {
+    /// AD* with a varying weight stays within that weight of the optimum from the current
+    /// start after every change, and is optimal at weight 1. The heuristic `[a != b]` is
+    /// consistent for costs of at least 1.
+    #[test]
+    fn ad_star_tracks_changes(
+        (mut graph, goal, changes) in scenario(),
+        numerators in prop::collection::vec(2_u32..7, 13),
+    ) {
+        let unit = |a: &usize, b: &usize| u64::from(a != b);
+        let mut start = 0;
+        let mut planner = AdStar::new(&graph, start, goal, unit, Weight::integer(3));
+        let mut path = Vec::new();
+
+        for (step, change) in std::iter::once(None).chain(changes.iter().map(Some)).enumerate() {
+            if matches!(change, Some(Change::Step)) && path.len() > 1 {
+                start = path[1];
+                planner.move_start(start);
+            } else if let Some((from, to)) = change.and_then(|c| apply(&mut graph, c)) {
+                planner.edge_changed(&graph, &from, &to);
+            }
+
+            let numerator = numerators[step];
+            planner.set_weight(Weight::new(numerator, 2));
+            let inflated = planner.compute(&graph, Limits::NONE);
+            planner.set_weight(Weight::ONE);
+            let exact = planner.compute(&graph, Limits::NONE);
+            let best = optimum(&graph, start, goal);
+
+            prop_assert_eq!(exact.solution().map(|s| s.cost), best);
+            prop_assert_eq!(inflated.solution().is_some(), best.is_some());
+            if let (Some(solution), Some(best)) = (inflated.solution(), best) {
+                prop_assert_eq!(solution.states.first(), Some(&start));
+                assert_path(&graph, &solution.states, solution.cost);
+                prop_assert!(2 * solution.cost <= u64::from(numerator) * best);
+            }
+
+            path = exact.solution().map(|s| s.states.clone()).unwrap_or_default();
+        }
+    }
+}
+
 /// A grid whose walls can be toggled; moving costs 1.
 struct Walls {
     /// The current walls, as a static grid (also used for Dijkstra).
@@ -276,4 +320,72 @@ fn budget_resumes() {
         Some(3)
     );
     assert_eq!(planner.stats().expanded, 4);
+}
+
+/// AD* with the Manhattan heuristic lowers its weight from 3 to 1 while it drives and walls
+/// toggle; every path is within the current weight of Dijkstra's cost, and ends optimal.
+#[test]
+fn ad_star_improves_while_driving() {
+    let mut world = Walls {
+        grid: Grid::parse(&[
+            "........", ".######.", "......#.", ".####.#.", "......#.", "........",
+        ]),
+    };
+    let goal = (2, 5);
+    let mut start = (5, 0);
+    let weights = [6, 5, 4, 3, 2, 2, 2];
+    let mut planner = AdStar::new(
+        &world,
+        start,
+        goal,
+        |a: &Cell, b: &Cell| manhattan(*a, *b),
+        Weight::integer(3),
+    );
+    let toggles = [(4, 5), (2, 2), (4, 5), (0, 3), (2, 2), (0, 3), (5, 3)];
+
+    for (toggle, numerator) in toggles.into_iter().zip(weights) {
+        world.grid.walls[toggle.0][toggle.1] ^= true;
+        let mut neighbours = Vec::new();
+        heuristic_search::Successors::successors(
+            &Grid {
+                walls: vec![vec![false; 8]; 6],
+            },
+            &toggle,
+            |_, n, _| neighbours.push(n),
+        );
+        for neighbour in neighbours {
+            planner.edge_changed(&world, &neighbour, &toggle);
+            planner.edge_changed(&world, &toggle, &neighbour);
+        }
+
+        planner.set_weight(Weight::new(numerator, 2));
+        let expected = dijkstra(&world.grid, start, &|c: &Cell| *c == goal, Limits::NONE)
+            .into_solution()
+            .map(|s| s.cost);
+        let path = planner.compute(&world, Limits::NONE).into_solution();
+        assert_eq!(path.is_some(), expected.is_some());
+        if let (Some(path), Some(expected)) = (&path, expected) {
+            assert!(
+                2 * path.cost <= numerator * expected,
+                "{} > {numerator}/2 * {expected}",
+                path.cost
+            );
+            if let Some(&next) = path.states.get(1) {
+                start = next;
+                planner.move_start(start);
+            }
+        }
+    }
+
+    planner.set_weight(Weight::ONE);
+    let expected = dijkstra(&world.grid, start, &|c: &Cell| *c == goal, Limits::NONE)
+        .into_solution()
+        .map(|s| s.cost);
+    assert_eq!(
+        planner
+            .compute(&world, Limits::NONE)
+            .solution()
+            .map(|s| s.cost),
+        expected
+    );
 }

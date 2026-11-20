@@ -54,6 +54,7 @@
 //!
 //! - [`LpaStar`]: Lifelong Planning A*, fixed start and goal.
 //! - [`DStarLite`]: D* Lite, fixed goal and a moving start.
+//! - [`AdStar`]: Anytime D*, D* Lite with an inflated heuristic the caller lowers.
 //!
 //! Costs are generic over [`Cost`]. For planning, `u32` is the intended default: action
 //! costs are small integers and heuristics over them stay exact.
@@ -89,7 +90,6 @@
 //! ## Planned scope
 //!
 //! - Foundational: DFS, IDA*
-//! - Dynamic graphs: AD*
 //!
 //! See `docs/design.md` in the repository for the design and milestones.
 //!
@@ -131,7 +131,7 @@ pub use bidirectional::{
 };
 pub use bounded::{EesEstimates, FocalFn, FocalKey, dps, ees, focal_fn, focal_search};
 pub use cost::{Cost, Weight};
-pub use dynamic::{DStarLite, DynamicGraph, DynamicResult, LpaStar};
+pub use dynamic::{AdStar, DStarLite, DynamicGraph, DynamicResult, LpaStar};
 pub use focal::{FocalList, TieBreak};
 pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp};
 pub use mha::{MhaWeights, mha_star};
