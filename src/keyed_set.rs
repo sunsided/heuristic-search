@@ -3,7 +3,6 @@
 
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
-use core::ops::Bound;
 
 /// Dense item ids (such as node ids) ordered by a key, at most one key per item.
 ///
@@ -63,25 +62,5 @@ impl<K: Ord + Clone> KeyedSet<K> {
     /// The item with the smallest key, and the key.
     pub(crate) fn first(&self) -> Option<(&K, usize)> {
         self.set.first().map(|(key, item)| (key, *item))
-    }
-
-    /// The item with the smallest key strictly after `(key, item)`.
-    pub(crate) fn after(&self, key: &K, item: usize) -> Option<(&K, usize)> {
-        let start = (key.clone(), item);
-
-        self.set
-            .range((Bound::Excluded(start), Bound::Unbounded))
-            .next()
-            .map(|(key, item)| (key, *item))
-    }
-
-    /// The item with the largest key strictly before `(key, item)`.
-    pub(crate) fn before(&self, key: &K, item: usize) -> Option<(&K, usize)> {
-        let end = (key.clone(), item);
-
-        self.set
-            .range((Bound::Unbounded, Bound::Excluded(end)))
-            .next_back()
-            .map(|(key, item)| (key, *item))
     }
 }

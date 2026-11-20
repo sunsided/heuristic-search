@@ -7,13 +7,15 @@
 //! [`ees`](crate::ees)) are built on. With weight `1` the focal sublist holds exactly the
 //! items of minimal `f`, so the list is an A* open list with the second key as tie-breaker.
 
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
+use core::ops::Bound::{Excluded, Unbounded};
 
 use search_core::Cost;
 
 use crate::cost::{Weight, within};
-use crate::keyed_set::KeyedSet;
+use crate::indexed_heap::IndexedHeap;
 
 /// How equal keys are ordered, after the primary and (for the focal sublist) the focal key.
 ///
@@ -120,18 +122,33 @@ pub struct FocalList<C, K> {
     weight: Weight,
     /// The tie-break rule for both orders.
     tie: TieBreak,
-    /// Every item, in open order.
-    open: KeyedSet<OpenKey<C>>,
+    /// Every item, bucketed by `f` in ascending order. Never holds an empty bucket.
+    ///
+    /// Focal membership depends on `f` alone, so a bucket is focal or not as a whole, and
+    /// moving the focal boundary moves whole buckets.
+    buckets: BTreeMap<C, Vec<usize>>,
+    /// The largest `f` of a focal bucket: buckets up to and including it are focal, none
+    /// after it. `None` if the sublist is empty. Always a key of `buckets` when set.
+    boundary: Option<C>,
     /// The items with `f <= w * f_min`, in focal order.
-    focal: KeyedSet<FocalOrder<K, OpenKey<C>>>,
-    /// The last open-order entry in the focal sublist: every open entry up to and
-    /// including it is focal, none after it. `None` if the sublist is empty.
-    boundary: Option<(OpenKey<C>, usize)>,
-    /// The focal key of each item in the list, indexed by item id; needed to move items
-    /// into the focal sublist when `f_min` grows.
-    keys: Vec<Option<K>>,
+    focal: IndexedHeap<FocalOrder<K, OpenKey<C>>>,
+    /// What the list knows about each item, indexed by item id; `None` if absent.
+    items: Vec<Option<Item<C, K>>>,
+    /// The number of items in the list.
+    len: usize,
     /// Number of pushes so far; the next entry's sequence number.
     pushes: u64,
+}
+
+/// One item of a [`FocalList`].
+#[derive(Debug, Clone)]
+struct Item<C, K> {
+    /// The item's position in the open order.
+    open: OpenKey<C>,
+    /// The focal key, kept for when the item enters the focal sublist.
+    key: K,
+    /// The item's index in its `f` bucket.
+    slot: usize,
 }
 
 impl<C: Cost, K: Ord + Clone> FocalList<C, K> {
@@ -161,10 +178,11 @@ impl<C: Cost, K: Ord + Clone> FocalList<C, K> {
         Self {
             weight,
             tie,
-            open: KeyedSet::new(),
-            focal: KeyedSet::new(),
+            buckets: BTreeMap::new(),
             boundary: None,
-            keys: Vec::new(),
+            focal: IndexedHeap::new(),
+            items: Vec::new(),
+            len: 0,
             pushes: 0,
         }
     }
@@ -172,13 +190,13 @@ impl<C: Cost, K: Ord + Clone> FocalList<C, K> {
     /// The number of items in the list.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.open.len()
+        self.len
     }
 
     /// Returns `true` if the list holds no item.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.open.is_empty()
+        self.len == 0
     }
 
     /// The number of items in the focal sublist. At least `1` unless the list is empty.
@@ -190,31 +208,40 @@ impl<C: Cost, K: Ord + Clone> FocalList<C, K> {
     /// Returns `true` if `item` is in the list.
     #[must_use]
     pub fn contains(&self, item: usize) -> bool {
-        self.open.key(item).is_some()
+        self.item(item).is_some()
     }
 
     /// The `f` value of `item`, if it is in the list.
     #[must_use]
     pub fn f(&self, item: usize) -> Option<C> {
-        self.open.key(item).map(|key| key.f)
+        self.item(item).map(|entry| entry.open.f)
     }
 
     /// The smallest `f` in the list.
     #[must_use]
     pub fn min_f(&self) -> Option<C> {
-        self.open.first().map(|(key, _)| key.f)
+        self.buckets.first_key_value().map(|(&f, _)| f)
     }
 
-    /// The item with the smallest `f` (first in open order).
+    /// The item with the smallest `f` (first in open order: ties by [`TieBreak`] on `g`,
+    /// then first in, first out).
+    ///
+    /// Scans the items of minimal `f`, so it costs time linear in their number.
     #[must_use]
     pub fn peek_min_f(&self) -> Option<usize> {
-        self.open.first().map(|(_, item)| item)
+        let (_, bucket) = self.buckets.first_key_value()?;
+
+        bucket
+            .iter()
+            .filter_map(|&item| self.item(item).map(|entry| (entry.open, item)))
+            .min()
+            .map(|(_, item)| item)
     }
 
     /// The best item of the focal sublist: smallest focal key among `f <= w * f_min`.
     #[must_use]
     pub fn peek(&self) -> Option<usize> {
-        self.focal.first().map(|(_, item)| item)
+        self.focal.peek().map(|(_, item)| item)
     }
 
     /// Removes and returns the best item of the focal sublist.
@@ -228,7 +255,7 @@ impl<C: Cost, K: Ord + Clone> FocalList<C, K> {
     /// Inserts `item` with admissible value `f`, path cost `g` and focal key `key`, or
     /// replaces its values if it is already in the list.
     pub fn push(&mut self, item: usize, f: C, g: C, key: K) {
-        self.remove(item);
+        self.detach(item);
 
         let open = OpenKey {
             f,
@@ -237,15 +264,12 @@ impl<C: Cost, K: Ord + Clone> FocalList<C, K> {
             seq: self.pushes,
         };
         self.pushes += 1;
-        self.open.insert(item, open);
-        if self.keys.len() <= item {
-            self.keys.resize(item + 1, None);
-        }
+        self.len += 1;
 
-        if self
-            .boundary
-            .is_some_and(|(last, last_item)| (open, item) < (last, last_item))
-        {
+        let bucket = self.buckets.entry(f).or_default();
+        let slot = bucket.len();
+        bucket.push(item);
+        if self.is_focal(f) {
             self.focal.insert(
                 item,
                 FocalOrder {
@@ -255,61 +279,124 @@ impl<C: Cost, K: Ord + Clone> FocalList<C, K> {
             );
         }
 
-        self.keys[item] = Some(key);
+        if self.items.len() <= item {
+            self.items.resize_with(item + 1, || None);
+        }
+
+        self.items[item] = Some(Item { open, key, slot });
         self.rebalance();
     }
 
     /// Removes `item`. Returns `true` if it was in the list.
     pub fn remove(&mut self, item: usize) -> bool {
-        let Some(open) = self.open.key(item).copied() else {
+        let present = self.detach(item);
+        if present {
+            self.rebalance();
+        }
+
+        present
+    }
+
+    /// The entry of `item`, if it is in the list.
+    fn item(&self, item: usize) -> Option<&Item<C, K>> {
+        self.items.get(item).and_then(Option::as_ref)
+    }
+
+    /// Returns `true` if items with value `f` belong to the focal sublist as it stands.
+    fn is_focal(&self, f: C) -> bool {
+        self.boundary.is_some_and(|boundary| f <= boundary)
+    }
+
+    /// Takes `item` out of every structure without restoring the focal invariant. Returns
+    /// `true` if it was in the list.
+    fn detach(&mut self, item: usize) -> bool {
+        let Some(entry) = self.items.get_mut(item).and_then(Option::take) else {
             return false;
         };
 
-        if self.boundary == Some((open, item)) {
-            self.boundary = self.open.before(&open, item).map(|(key, id)| (*key, id));
+        let f = entry.open.f;
+        if self.is_focal(f) {
+            self.focal.remove(item);
         }
 
-        self.focal.remove(item);
-        self.open.remove(item);
-        self.keys[item] = None;
-        self.rebalance();
+        self.len -= 1;
+        self.unbucket(f, entry.slot);
 
         true
     }
 
+    /// Removes the item at `slot` of the bucket for `f`, dropping the bucket if it empties.
+    fn unbucket(&mut self, f: C, slot: usize) {
+        let bucket = self.buckets.get_mut(&f).expect("every item has a bucket");
+        bucket.swap_remove(slot);
+        if let Some(&moved) = bucket.get(slot) {
+            self.items[moved]
+                .as_mut()
+                .expect("every bucketed item is in the list")
+                .slot = slot;
+        }
+
+        if bucket.is_empty() {
+            self.buckets.remove(&f);
+            if self.boundary == Some(f) {
+                self.boundary = self.buckets.range(..f).next_back().map(|(&f, _)| f);
+            }
+        }
+    }
+
     /// Restores the focal invariant after `f_min` may have changed: shrinks the sublist
-    /// from its boundary while the boundary is out of bound, then grows it while the next
-    /// open entry is within bound.
+    /// by whole buckets while the boundary is out of bound, then grows it while the next
+    /// bucket is within bound.
     fn rebalance(&mut self) {
         let Some(min_f) = self.min_f() else {
             self.boundary = None;
             return;
         };
 
-        while let Some((last, item)) = self.boundary {
-            if within(last.f, self.weight, min_f) {
+        while let Some(boundary) = self.boundary {
+            if within(boundary, self.weight, min_f) {
                 break;
             }
 
-            self.focal.remove(item);
-            self.boundary = self.open.before(&last, item).map(|(key, id)| (*key, id));
+            self.leave_focal(boundary);
+            self.boundary = self.buckets.range(..boundary).next_back().map(|(&f, _)| f);
         }
 
         loop {
-            let next = match &self.boundary {
-                Some((last, item)) => self.open.after(last, *item),
-                None => self.open.first(),
+            let next = match self.boundary {
+                Some(boundary) => self.buckets.range((Excluded(boundary), Unbounded)).next(),
+                None => self.buckets.first_key_value(),
             };
-            let Some((&open, item)) = next.filter(|(key, _)| within(key.f, self.weight, min_f))
+            let Some(f) = next
+                .map(|(&f, _)| f)
+                .filter(|&f| within(f, self.weight, min_f))
             else {
                 break;
             };
 
-            let key = self.keys[item]
-                .clone()
-                .expect("every open item has a focal key");
-            self.focal.insert(item, FocalOrder { key, open });
-            self.boundary = Some((open, item));
+            self.enter_focal(f);
+            self.boundary = Some(f);
+        }
+    }
+
+    /// Moves every item of the bucket for `f` into the focal sublist.
+    fn enter_focal(&mut self, f: C) {
+        for &item in &self.buckets[&f] {
+            let entry = self.items[item]
+                .as_ref()
+                .expect("every bucketed item is in the list");
+            let order = FocalOrder {
+                key: entry.key.clone(),
+                open: entry.open,
+            };
+            self.focal.insert(item, order);
+        }
+    }
+
+    /// Takes every item of the bucket for `f` out of the focal sublist.
+    fn leave_focal(&mut self, f: C) {
+        for &item in &self.buckets[&f] {
+            self.focal.remove(item);
         }
     }
 }
@@ -392,6 +479,11 @@ mod tests {
                 prop_assert_eq!(list.len(), model.len());
                 prop_assert_eq!(list.focal_len(), focal);
                 prop_assert_eq!(list.min_f(), min_f);
+                let first = model
+                    .iter()
+                    .min_by_key(|e| (e.1, if larger_g { u32::MAX - e.2 } else { e.2 }, e.4))
+                    .map(|e| e.0);
+                prop_assert_eq!(list.peek_min_f(), first);
             }
         }
     }

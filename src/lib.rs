@@ -122,6 +122,7 @@ mod cost;
 mod depth_first;
 mod dynamic;
 mod focal;
+mod indexed_heap;
 mod keyed_set;
 mod lazy;
 mod mha;

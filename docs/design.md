@@ -277,18 +277,23 @@ Searches that need exact removal or several orders over one node set use `KeyedS
 a `BTreeSet<(K, id)>` plus each id's current key, with insert-or-replace, remove, first,
 and neighbours of an entry. EES (cleanup order), DPS (order by `f`), the bidirectional
 searches (one or two per side) and the incremental core (inconsistency queue) use it.
-Costs get a total order for it through the internal `Ordered<C>` wrapper.
+Costs are `Ord`, so they serve as keys directly.
 
 `FocalList<C, K>` is **public**, so `mapf-search` can drive its own low-level loop. Items
 are dense ids, each at most once; `push` replaces. It keeps an open order by `f` and an
-exact focal sublist `f <= w * f_min` ordered by the focal key, also when `f_min` falls
-(a boundary pointer into the open order shrinks or grows the sublist). Ties go by `f`,
+exact focal sublist `f <= w * f_min` ordered by the focal key, also when `f_min` falls.
+Focal membership depends on `f` alone, so items sit in `f` buckets (a `BTreeMap<C,
+Vec<id>>` with swap-remove slots) and a boundary `f` moves whole buckets in or out; the
+focal sublist is a 4-ary indexed heap (`IndexedHeap`) with exact removal. A push or
+remove is `O(log n)` plus the items of buckets that cross the boundary; `peek_min_f`
+scans the bucket of minimal `f`. Ties go by `f`,
 then `TieBreak::{LargerG, SmallerG}`, then FIFO; with weight 1 it is an A* open list with
 the focal key as tie-breaker. It is property-tested against a naive model.
 
-Still open: bucket (Dial) queues for small integer costs. The bench (`benches/search.rs`)
-measures ~0.5 µs per focal-list push and pop, so a heap-based focal list is the first
-candidate if focal search gets hot.
+Against the earlier version (two `BTreeSet`s and a boundary entry in the open order), on
+the same machine: `FocalList push+pop 10k` 9.8 ms to 3.5 ms, `FocalList churn 10k`
+(decrease-key and interleaved pops) 44 ms to 6.7 ms, `focal_search grid w=2` 1.25 ms to
+0.40 ms. Still open: bucket (Dial) queues for small integer costs.
 
 Per-algorithm notes:
 
