@@ -69,6 +69,9 @@
 //! [`UniformGrid`]), with the exact octile cost [`Octile`]:
 //!
 //! - [`jps`]: Jump Point Search, cheapest path, expanding only jump points.
+//! - `theta_star` and `lazy_theta_star` (feature `float`): Theta* and Lazy Theta*,
+//!   any-angle paths between cell centres on a [`LineOfSight`] grid, with Euclidean
+//!   float costs; never longer than the cheapest 8-connected path (Theta*).
 //!
 //! [`EightConnected`] makes a grid a plain graph for the other searches.
 //!
@@ -92,7 +95,9 @@
 //!
 //! ## Features
 //!
-//! - `float`: re-exports the checked float cost `NonNegF64` from `search-core`.
+//! - `float`: re-exports the checked float cost `NonNegF64` from `search-core`, and enables
+//!   the any-angle grid searches `theta_star` and `lazy_theta_star`, whose Euclidean costs
+//!   are floats.
 //!
 //! ## Example
 //!
@@ -200,8 +205,13 @@ pub use depth_first::{
 pub use dynamic::{AdStar, DStarLite, DynamicGraph, DynamicResult, LpaStar};
 pub use focal::{FocalList, TieBreak};
 pub use fringe::{fringe_search, fringe_search_multi};
+#[cfg(feature = "float")]
 pub use grid::{
-    EightConnected, GridCell, GridStep, Octile, OctileDistance, UniformGrid, jps, jps_multi,
+    AnyAngleResult, lazy_theta_star, lazy_theta_star_multi, theta_star, theta_star_multi,
+};
+pub use grid::{
+    EightConnected, GridCell, GridStep, LineOfSight, Octile, OctileDistance, UniformGrid, jps,
+    jps_multi,
 };
 pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp, lazy_sp_multi};
 pub use mha::{MhaWeights, mha_star, mha_star_multi};

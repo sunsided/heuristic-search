@@ -13,7 +13,7 @@ In scope, in milestone order (see [Milestones](#milestones)):
 
 - foundational: BFS, DFS, Dijkstra, greedy best-first (GBFS), A*, IDA*;
 - linear- and bounded-memory: fringe search, RBFS, beam search, beam-stack search;
-- uniform-cost grids: Jump Point Search (JPS);
+- uniform-cost grids: Jump Point Search (JPS); any-angle Theta* and Lazy Theta*;
 - weighted and anytime: Weighted A* (WA*), ARA*, ANA*;
 - bounded-suboptimal: EES, DPS;
 - multiple heuristics: MHA*;
@@ -310,6 +310,25 @@ the same machine: `FocalList push+pop 10k` 9.8 ms to 3.5 ms, `FocalList churn 10
 
 Per-algorithm notes:
 
+- Theta* and Lazy Theta* need the `float` feature: path lengths are sums of square roots,
+  which no exact cost type here represents, so costs are `NonNegF64`. `f64::sqrt` is not in
+  `core` at the MSRV, so a private Newton iteration (exponent-halving guess, six steps)
+  computes it; tests agree with `std` to 4 ulp. Line of sight (`LineOfSight`, with a
+  default method) means the closed segment between cell centres touches no blocked closed
+  cell square, which for a unit diagonal is the no-corner-cutting rule, so every
+  8-connected move has line of sight and "Theta* <= 8-connected optimum" holds. The
+  default is an integer supercover walk (a crossing through a grid corner checks both side
+  cells), tested against a brute-force segment-versus-square oracle. The searches use
+  dense per-cell arrays (`width * height`, allocated up front) and the lazy open list.
+  Properties tested on random maps: solvable exactly when the 8-connected oracle is, every
+  segment has line of sight, cost is the sum of the segments and at least the straight
+  line; Theta* also at most the 8-connected optimum (with a consistent Euclidean `h` and
+  no reopening, the closed set never misses a cheaper grid path). Lazy Theta* breaks that
+  bound on some maps (found by the property test), so its docs do not claim it. On the
+  benchmark grid: Theta* 1.8 ms, Lazy Theta* 0.71 ms.
+- Field D* is not implemented: it interpolates costs along cell edges over a node lattice
+  at cell corners and is an incremental (D* Lite) planner, so it shares neither the cost
+  model nor the machinery of Theta*.
 - Grids: `UniformGrid` (width, height, `is_passable(x, y)`), cells `(x, y)`, 8-connected
   **without corner cutting** (a diagonal move needs both orthogonal neighbours open).
   Costs are `Octile { straight, diagonal }`, the exact value `straight + diagonal * √2`:
@@ -552,7 +571,8 @@ the move to `search-core`.
 5. **Expensive edges**: done: `EdgeEvaluator`, LazySP.
 6. **Dynamic graphs**: done: `DynamicGraph`, LPA*, D* Lite, AD*.
 7. **More algorithms** (branch `draft/algorithms`): fringe search, RBFS, beam search,
-   beam-stack search, JPS (with `UniformGrid`, `Octile`, `EightConnected`).
+   beam-stack search, JPS (with `UniformGrid`, `Octile`, `EightConnected`), Theta* and
+   Lazy Theta* (with `LineOfSight`, feature `float`).
 8. **0.1.0**: API review, benchmarks, release.
 
 ## Open questions
@@ -577,6 +597,10 @@ the move to `search-core`.
   ICAPS 2005.
 - D. Harabor, A. Grastien. Online graph pruning for pathfinding on grid maps. AAAI 2011.
   (JPS)
+- A. Nash, K. Daniel, S. Koenig, A. Felner. Theta*: any-angle path planning on grids.
+  AAAI 2007.
+- A. Nash, S. Koenig, C. Tovey. Lazy Theta*: any-angle path planning and path length
+  analysis in 3D. AAAI 2010.
 - Y. Björnsson, M. Enzenberger, R. C. Holte, J. Schaeffer. Fringe search: beating A* at
   pathfinding on game maps. IEEE CIG 2005.
 - P. E. Hart, N. J. Nilsson, B. Raphael. A formal basis for the heuristic determination of

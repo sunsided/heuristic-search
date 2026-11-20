@@ -20,7 +20,8 @@ Implemented on the `draft/initial` branch:
   fixed beam width
 - Grids: Jump Point Search (`jps`) on any `UniformGrid`, 8-connected without corner
   cutting, with the exact octile cost `Octile` (`a + b√2`, compared without rounding);
-  `EightConnected` makes a grid a graph for the other searches
+  `EightConnected` makes a grid a graph for the other searches; any-angle Theta* and
+  Lazy Theta* (`theta_star`, `lazy_theta_star`, feature `float`) on a `LineOfSight` grid
 - Every search except the incremental planners also from several start states
   (`*_multi`)
 - Weighted and anytime: Weighted A*, ARA*, ANA*

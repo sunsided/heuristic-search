@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc de663822c055fb4e92c5189c42b7ca67f430b837d3d17f97f4391774e185d6cf # shrinks to (map, start, goal) = (Map { open: [[true, true, true], [true, false, true], [true, true, true], [true, true, false]] }, (1, 0), (1, 3))

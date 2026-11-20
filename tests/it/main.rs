@@ -18,3 +18,5 @@ mod multi;
 mod properties;
 mod rbfs;
 mod small_graphs;
+#[cfg(feature = "float")]
+mod theta;

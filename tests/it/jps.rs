@@ -130,7 +130,7 @@ fn walk(map: &Map, solution: &Solution<GridCell, GridStep, Octile>) -> Octile {
 
 /// The cheapest cost from `start` to `goal` by Dijkstra on the oracle graph; `None` if
 /// either is blocked or off the grid, or the goal is unreachable.
-fn oracle(map: &Map, start: GridCell, goal: GridCell) -> Option<Octile> {
+pub fn oracle(map: &Map, start: GridCell, goal: GridCell) -> Option<Octile> {
     let open = |(x, y): GridCell| map.free(i64::try_from(x).unwrap(), i64::try_from(y).unwrap());
     if !open(start) || !open(goal) {
         return None;

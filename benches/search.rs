@@ -2,7 +2,8 @@
 //! searches, `LazySP` and focal search on a grid with a wall; the focal list itself; NBS;
 //! D* Lite and AD* repairs after the wall changes; and the depth-first searches on a
 //! small open grid, where tree searches meet many transpositions; Jump Point Search
-//! against A* on the 8-connected version of the wall grid.
+//! against A* on the 8-connected version of the wall grid, and (feature `float`) Theta*
+//! and Lazy Theta* there.
 //!
 //! Run with `cargo bench`.
 
@@ -107,6 +108,10 @@ impl UniformGrid for Grid {
     }
 }
 
+/// Line of sight with the default walk, for the any-angle searches.
+#[cfg(feature = "float")]
+impl heuristic_search::LineOfSight for Grid {}
+
 /// The Manhattan distance between two cells.
 fn manhattan(a: &Cell, b: &Cell) -> u32 {
     u32::try_from(a.0.abs_diff(b.0) + a.1.abs_diff(b.1)).expect("the grid is small")
@@ -198,6 +203,20 @@ fn bench_jps(c: &mut Criterion, grid: &Grid) {
                 Limits::NONE,
             ))
         });
+    });
+}
+
+/// Theta* and Lazy Theta* on the 8-connected grid, around the wall.
+#[cfg(feature = "float")]
+fn bench_theta_star(c: &mut Criterion, grid: &Grid) {
+    use heuristic_search::{lazy_theta_star, theta_star};
+
+    let (start, goal) = ((0, 0), (0, SIZE - 1));
+    c.bench_function("theta_star grid", |b| {
+        b.iter(|| black_box(theta_star(grid, start, goal, Limits::NONE)));
+    });
+    c.bench_function("lazy_theta_star grid", |b| {
+        b.iter(|| black_box(lazy_theta_star(grid, start, goal, Limits::NONE)));
     });
 }
 
@@ -515,6 +534,8 @@ fn main() {
     bench_fringe_search(&mut c, &grid);
     bench_beam(&mut c, &grid);
     bench_jps(&mut c, &grid);
+    #[cfg(feature = "float")]
+    bench_theta_star(&mut c, &grid);
     bench_focal_search(&mut c, &grid);
     bench_focal_list(&mut c);
     bench_focal_list_churn(&mut c);

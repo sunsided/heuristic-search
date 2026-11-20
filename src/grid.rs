@@ -11,6 +11,9 @@
 //! never clips the corner of a single blocked cell. Every search here follows this rule.
 
 mod jps;
+mod sight;
+#[cfg(feature = "float")]
+mod theta;
 
 use core::cmp::Ordering;
 use core::fmt;
@@ -19,6 +22,11 @@ use core::ops::Add;
 use search_core::{Cost, Heuristic};
 
 pub use jps::{jps, jps_multi};
+pub use sight::LineOfSight;
+#[cfg(feature = "float")]
+pub use theta::{
+    AnyAngleResult, lazy_theta_star, lazy_theta_star_multi, theta_star, theta_star_multi,
+};
 
 use crate::problem::Successors;
 
