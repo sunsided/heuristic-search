@@ -52,6 +52,10 @@
 //! - [`nbs`]: Near-Optimal Bidirectional Search, pairs of expansions.
 //! - [`dibbs`] and [`bae_star`]: DIBBS and BAE*, ordered by `2g + h - h_opposite`.
 //!
+//! The frontiers meet by state equality. The `*_meet` variants ([`nbs_meet`] and so on)
+//! meet by a [`MeetRelation`] instead, such as a state satisfying a subgoal for regression
+//! over partial states, and replay the backward actions to return a path of real states.
+//!
 //! [`mha_star`] (shared multi-heuristic A*) combines one consistent anchor heuristic with
 //! any number of inadmissible ones, within `w1 * w2` times the optimum.
 //!
@@ -142,8 +146,10 @@ pub use best_first::{
 };
 pub use bfs::{bfs, bfs_multi};
 pub use bidirectional::{
-    BidirectionalGraph, bae_star, bae_star_multi, bidirectional_bfs, bidirectional_bfs_multi,
-    bidirectional_dijkstra, bidirectional_dijkstra_multi, dibbs, dibbs_multi, nbs, nbs_multi,
+    BidirectionalGraph, Direction, MeetFn, MeetRelation, bae_star, bae_star_meet, bae_star_multi,
+    bidirectional_bfs, bidirectional_bfs_multi, bidirectional_dijkstra,
+    bidirectional_dijkstra_meet, bidirectional_dijkstra_multi, dibbs, dibbs_meet, dibbs_multi,
+    meet_fn, nbs, nbs_meet, nbs_multi,
 };
 pub use bounded::{
     EesEstimates, FocalFn, FocalKey, dps, dps_multi, ees, ees_multi, focal_fn, focal_search,

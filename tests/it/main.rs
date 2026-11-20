@@ -9,6 +9,7 @@ mod dynamic;
 mod fixtures;
 mod grid;
 mod lazy;
+mod meet;
 mod mha;
 mod multi;
 mod properties;

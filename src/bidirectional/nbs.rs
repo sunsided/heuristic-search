@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use search_core::{Budget, Cost, Heuristic};
 
 use crate::best_first::GraphResult;
-use crate::bidirectional::{BidirectionalGraph, Core, Direction};
+use crate::bidirectional::{BidirectionalGraph, Core, Direction, Equality, MeetRelation, Meeting};
 use crate::keyed_set::KeyedSet;
 use crate::outcome::Stats;
 use crate::problem::Successors;
@@ -150,7 +150,99 @@ where
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
 {
-    let core = Core::new(graph, starts, goals, forward, backward);
+    let core = Core::new(
+        graph,
+        starts,
+        goals,
+        forward,
+        backward,
+        None::<Meeting<G, Equality>>,
+    );
+
+    Nbs::new(core).run(budget)
+}
+
+/// [`nbs()`](crate::nbs()) that meets by a [`MeetRelation`] instead of state equality, from several
+/// starts at once.
+///
+/// `goals` are backward nodes, such as subgoals (partial states), and `meet` decides which
+/// forward states meet which backward nodes (see [`MeetRelation`] for the contract). The
+/// returned path is rebuilt from the meeting state by replaying the backward actions
+/// forwards, through the first successor edge with an equal label, so every state on it
+/// is a real state and its cost the true cost.
+/// The backward heuristic estimates the cost from the starts to a backward node.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Predecessors, Successors, Zero, meet_fn, nbs_meet};
+///
+/// /// Three facts as bits; action `k` makes fact `k` true at cost 1.
+/// struct Facts;
+///
+/// impl Successors for Facts {
+///     type State = u8;
+///     type Action = u8;
+///     type Cost = u32;
+///
+///     fn successors(&self, state: &u8, mut emit: impl FnMut(u8, u8, u32)) {
+///         for k in 0..3 {
+///             if state & (1 << k) == 0 {
+///                 emit(k, state | (1 << k), 1);
+///             }
+///         }
+///     }
+/// }
+///
+/// // Regression: a subgoal is a set of facts that must hold; action `k` achieves fact `k`.
+/// impl Predecessors for Facts {
+///     type Node = u8;
+///     type Action = u8;
+///     type Cost = u32;
+///
+///     fn predecessors(&self, subgoal: &u8, mut emit: impl FnMut(u8, u8, u32)) {
+///         for k in 0..3 {
+///             if subgoal & (1 << k) != 0 {
+///                 emit(k, subgoal & !(1 << k), 1);
+///             }
+///         }
+///     }
+/// }
+///
+/// // A state meets a subgoal it satisfies.
+/// let satisfies = meet_fn(|state: &u8, subgoal: &u8| state & subgoal == *subgoal);
+/// let result = nbs_meet(&Facts, [0], [0b110], Zero, Zero, satisfies, Limits::NONE);
+///
+/// let solution = result.into_solution().expect("facts 1 and 2 are reachable");
+/// assert_eq!(solution.cost, 2);
+/// assert_eq!(solution.states.len(), 3);
+/// assert_eq!(solution.goal() & 0b110, 0b110);
+/// ```
+pub fn nbs_meet<G, HF, HB, M>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goals: impl IntoIterator<Item = G::State>,
+    forward: HF,
+    backward: HB,
+    meet: M,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: BidirectionalGraph,
+    G::State: Clone + Hash + Eq,
+    <G as Successors>::Action: Clone + PartialEq,
+    HF: Heuristic<G::State, <G as Successors>::Cost>,
+    HB: Heuristic<G::State, <G as Successors>::Cost>,
+    M: MeetRelation<G::State>,
+{
+    let core = Core::new(
+        graph,
+        starts,
+        goals,
+        forward,
+        backward,
+        Some(Meeting::new(meet)),
+    );
 
     Nbs::new(core).run(budget)
 }
@@ -159,9 +251,9 @@ where
 type Key<C> = (C, Reverse<C>);
 
 /// The state of one NBS run.
-struct Nbs<'a, G: BidirectionalGraph, HF, HB> {
+struct Nbs<'a, G: BidirectionalGraph, HF, HB, M> {
     /// Both sides, the heuristics, the counters and the best meet.
-    core: Core<'a, G, HF, HB>,
+    core: Core<'a, G, HF, HB, M>,
     /// Per side, open states with `f > CLB`, by `f` (ties: larger `g`).
     waiting: [KeyedSet<Key<<G as Successors>::Cost>>; 2],
     /// Per side, open states with `f <= CLB`, by `g` (ties: larger `f`).
@@ -170,16 +262,17 @@ struct Nbs<'a, G: BidirectionalGraph, HF, HB> {
     clb: <G as Successors>::Cost,
 }
 
-impl<'a, G, HF, HB> Nbs<'a, G, HF, HB>
+impl<'a, G, HF, HB, M> Nbs<'a, G, HF, HB, M>
 where
     G: BidirectionalGraph,
     G::State: Clone + Hash + Eq,
     <G as Successors>::Action: Clone,
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
+    M: MeetRelation<G::State>,
 {
     /// Queues the live seeds of both sides.
-    fn new(core: Core<'a, G, HF, HB>) -> Self {
+    fn new(core: Core<'a, G, HF, HB, M>) -> Self {
         let mut search = Self {
             core,
             waiting: [KeyedSet::new(), KeyedSet::new()],

@@ -22,19 +22,23 @@
 
 mod bfs;
 mod frontier;
+mod meet;
 mod nbs;
 
 pub use bfs::{bidirectional_bfs, bidirectional_bfs_multi};
 pub use frontier::{
-    bae_star, bae_star_multi, bidirectional_dijkstra, bidirectional_dijkstra_multi, dibbs,
-    dibbs_multi,
+    bae_star, bae_star_meet, bae_star_multi, bidirectional_dijkstra, bidirectional_dijkstra_meet,
+    bidirectional_dijkstra_multi, dibbs, dibbs_meet, dibbs_multi,
 };
-pub use nbs::{nbs, nbs_multi};
+pub use meet::{Direction, MeetFn, MeetRelation, meet_fn};
+pub use nbs::{nbs, nbs_meet, nbs_multi};
+
+use meet::{Equality, Meeting};
 
 use alloc::vec::Vec;
 use core::hash::Hash;
 
-use search_core::Heuristic;
+use search_core::{Cost, Heuristic};
 
 use crate::best_first::GraphResult;
 use crate::outcome::{Outcome, SearchResult, Solution, Stats};
@@ -65,30 +69,6 @@ impl<G> BidirectionalGraph for G where
 {
 }
 
-/// A search direction; also the index of its [`Side`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Direction {
-    /// From the start along successor edges.
-    Forward = 0,
-    /// From the goals along predecessor edges.
-    Backward = 1,
-}
-
-impl Direction {
-    /// The other direction.
-    const fn opposite(self) -> Self {
-        match self {
-            Self::Forward => Self::Backward,
-            Self::Backward => Self::Forward,
-        }
-    }
-
-    /// The index of this direction's [`Side`].
-    const fn index(self) -> usize {
-        self as usize
-    }
-}
-
 /// One direction's search space and per-node data.
 struct Side<S, A, C> {
     /// Every state this side has seen. Forward, parent links point towards the start;
@@ -114,7 +94,7 @@ struct Meet<C> {
 
 /// What every bidirectional search shares: both sides, the heuristics, the counters and
 /// the best meet.
-struct Core<'a, G: Successors, HF, HB> {
+struct Core<'a, G: Successors, HF, HB, M = Equality> {
     /// The graph being searched.
     graph: &'a G,
     /// Estimates the cost from a state to the nearest goal.
@@ -129,24 +109,30 @@ struct Core<'a, G: Successors, HF, HB> {
     meet: Option<Meet<<G as Successors>::Cost>>,
     /// Neighbours of the node being expanded; reused between expansions.
     buffer: Vec<(<G as Successors>::Action, G::State, <G as Successors>::Cost)>,
+    /// The meet relation; `None` meets by equality through the sides' hash index.
+    meeting: Option<Meeting<G, M>>,
+    /// Opposite-side nodes that meet the node being checked; reused between checks.
+    candidates: Vec<NodeId>,
 }
 
-impl<'a, G, HF, HB> Core<'a, G, HF, HB>
+impl<'a, G, HF, HB, M> Core<'a, G, HF, HB, M>
 where
     G: BidirectionalGraph,
     G::State: Clone + Hash + Eq,
     <G as Successors>::Action: Clone,
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
+    M: MeetRelation<G::State>,
 {
     /// Seeds the forward side with `starts` and the backward side with `goals`, evaluates
-    /// them, and records a meet if a start is a goal.
+    /// them, and records a meet if a start meets a goal: by equality, or by `meeting`.
     fn new(
         graph: &'a G,
         starts: impl IntoIterator<Item = G::State>,
         goals: impl IntoIterator<Item = G::State>,
         forward_h: HF,
         backward_h: HB,
+        meeting: Option<Meeting<G, M>>,
     ) -> Self {
         let never = |_: &G::State| false;
         let side = |space: SearchSpace<_, _, _>| Side {
@@ -166,11 +152,14 @@ where
             stats: Stats::default(),
             meet: None,
             buffer: Vec::new(),
+            meeting,
+            candidates: Vec::new(),
         };
 
         for direction in [Direction::Forward, Direction::Backward] {
             for id in 0..core.side(direction).space.len() {
                 core.evaluate(direction, id);
+                core.index(direction, id);
                 core.check_meet(direction, id);
             }
         }
@@ -231,6 +220,7 @@ where
             let id = match side.space.reach(state, node, action, cost, improve) {
                 Reach::New(id) => {
                     self.evaluate(direction, id);
+                    self.index(direction, id);
                     id
                 }
                 Reach::Improved(id) => {
@@ -277,17 +267,39 @@ where
         side.closed.push(false);
     }
 
-    /// Updates the best meet if the state of node `id` on `direction`'s side is known on
-    /// the other side and the joined path is cheaper.
+    /// Tells the meet relation, if any, about the new node `id` on `direction`'s side.
+    fn index(&mut self, direction: Direction, id: NodeId) {
+        if let Some(meeting) = &mut self.meeting {
+            let state = self.sides[direction.index()].space.state(id);
+            meeting.relation.insert(direction, id, state);
+        }
+    }
+
+    /// Updates the best meet for every node of the other side that meets node `id` on
+    /// `direction`'s side, if the joined path is cheaper.
     fn check_meet(&mut self, direction: Direction, id: NodeId) {
         let other = direction.opposite();
+        let mut candidates = core::mem::take(&mut self.candidates);
         let state = self.side(direction).space.state(id);
-        let Some(other_id) = self.side(other).space.find(state) else {
-            return;
-        };
+        match &self.meeting {
+            None => candidates.extend(self.side(other).space.find(state)),
+            Some(meeting) => meeting
+                .relation
+                .meets(direction, state, |other_id| candidates.push(other_id)),
+        }
 
-        let cost = self.g(direction, id) + self.g(other, other_id);
-        if self.mu().is_some_and(|mu| cost.cmp(&mu).is_ge()) {
+        for other_id in candidates.drain(..) {
+            self.record_meet(direction, id, other_id);
+        }
+
+        self.candidates = candidates;
+    }
+
+    /// Makes the meet of node `id` on `direction`'s side with `other_id` on the other side
+    /// the best meet if it is cheaper.
+    fn record_meet(&mut self, direction: Direction, id: NodeId, other_id: NodeId) {
+        let cost = self.g(direction, id) + self.g(direction.opposite(), other_id);
+        if self.mu().is_some_and(|mu| cost >= mu) {
             return;
         }
 
@@ -304,6 +316,11 @@ where
 
     /// The path through the best meet: forward from the start to the meeting state, then
     /// along the backward links to a goal.
+    ///
+    /// With a meet relation the backward nodes are not states of the path (they may be
+    /// subgoals), so the backward actions are replayed forwards from the meeting state to
+    /// get real states and costs. If a replay step finds no edge with the action's label,
+    /// the backward part is joined as it is.
     fn solution(
         &self,
     ) -> Option<Solution<G::State, <G as Successors>::Action, <G as Successors>::Cost>> {
@@ -314,11 +331,37 @@ where
             .space
             .walk_to_root(meet.backward);
 
-        path.states.extend(tail.states.into_iter().skip(1));
+        if let Some(replayed) = self.replay(&path, &tail.actions) {
+            path.states.extend(replayed.0);
+            path.cost = path.cost + replayed.1;
+        } else {
+            path.states.extend(tail.states.into_iter().skip(1));
+            path.cost = path.cost + tail.cost;
+        }
+
         path.actions.extend(tail.actions);
-        path.cost = path.cost + tail.cost;
 
         Some(path)
+    }
+
+    /// The states and total cost reached by applying `actions` forwards from the last state
+    /// of `path`, or `None` without a meet relation or if a step has no matching edge.
+    fn replay(
+        &self,
+        path: &Solution<G::State, <G as Successors>::Action, <G as Successors>::Cost>,
+        actions: &[<G as Successors>::Action],
+    ) -> Option<(Vec<G::State>, <G as Successors>::Cost)> {
+        let replay = self.meeting.as_ref()?.replay;
+        let mut states: Vec<G::State> = Vec::with_capacity(actions.len());
+        let mut cost = <G as Successors>::Cost::ZERO;
+        for action in actions {
+            let current = states.last().unwrap_or_else(|| path.goal());
+            let (next, step) = replay(self.graph, current, action)?;
+            states.push(next);
+            cost = cost + step;
+        }
+
+        Some((states, cost))
     }
 
     /// Wraps up the run: the best meet if `decided`, else [`Outcome::LimitReached`].

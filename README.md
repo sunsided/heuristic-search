@@ -14,7 +14,8 @@ Implemented on the `draft/initial` branch:
   (`*_multi`)
 - Weighted and anytime: Weighted A*, ARA*, ANA*
 - Bounded-suboptimal: focal search (with a public focal list and tie-breaking), EES, DPS
-- Bidirectional: bidirectional BFS and Dijkstra, NBS, DIBBS, BAE*
+- Bidirectional: bidirectional BFS and Dijkstra, NBS, DIBBS, BAE*; meets by a user
+  relation (`MeetRelation`, such as subgoal satisfaction) with path replay
 - Multiple heuristics: shared MHA*
 - Expensive edge evaluation: LazySP
 - Dynamic graphs: LPA*, D* Lite, AD*

@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use search_core::{Budget, Cost, Heuristic, Zero};
 
 use crate::best_first::GraphResult;
-use crate::bidirectional::{BidirectionalGraph, Core, Direction};
+use crate::bidirectional::{BidirectionalGraph, Core, Direction, Equality, MeetRelation, Meeting};
 use crate::cost::CostExt;
 use crate::keyed_set::KeyedSet;
 use crate::outcome::Stats;
@@ -124,7 +124,14 @@ where
     <G as Successors>::Action: Clone,
     <G as Successors>::Cost: CostExt,
 {
-    let core = Core::new(graph, starts, goals, Zero, Zero);
+    let core = Core::new(
+        graph,
+        starts,
+        goals,
+        Zero,
+        Zero,
+        None::<Meeting<G, Equality>>,
+    );
 
     Frontier::new(core, Rule::Dijkstra).run(budget)
 }
@@ -250,7 +257,14 @@ where
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
 {
-    let core = Core::new(graph, starts, goals, forward, backward);
+    let core = Core::new(
+        graph,
+        starts,
+        goals,
+        forward,
+        backward,
+        None::<Meeting<G, Equality>>,
+    );
 
     Frontier::new(core, Rule::Dibbs).run(budget)
 }
@@ -373,7 +387,14 @@ where
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
 {
-    let core = Core::new(graph, starts, goals, forward, backward);
+    let core = Core::new(
+        graph,
+        starts,
+        goals,
+        forward,
+        backward,
+        None::<Meeting<G, Equality>>,
+    );
 
     Frontier::new(core, Rule::Bae).run(budget)
 }
@@ -392,17 +413,263 @@ enum Rule {
 /// Open-list order of one side: smallest key, then larger `g`, then node id.
 type Key<C> = (C, Reverse<C>);
 
+/// [`bidirectional_dijkstra`] that meets by a [`MeetRelation`] instead of state equality, from several
+/// starts at once.
+///
+/// `goals` are backward nodes, such as subgoals (partial states), and `meet` decides which
+/// forward states meet which backward nodes (see [`MeetRelation`] for the contract). The
+/// returned path is rebuilt from the meeting state by replaying the backward actions
+/// forwards, through the first successor edge with an equal label, so every state on it
+/// is a real state and its cost the true cost.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Predecessors, Successors, bidirectional_dijkstra_meet, meet_fn};
+///
+/// /// Three facts as bits; action `k` makes fact `k` true at cost 1.
+/// struct Facts;
+///
+/// impl Successors for Facts {
+///     type State = u8;
+///     type Action = u8;
+///     type Cost = u32;
+///
+///     fn successors(&self, state: &u8, mut emit: impl FnMut(u8, u8, u32)) {
+///         for k in 0..3 {
+///             if state & (1 << k) == 0 {
+///                 emit(k, state | (1 << k), 1);
+///             }
+///         }
+///     }
+/// }
+///
+/// // Regression: a subgoal is a set of facts that must hold; action `k` achieves fact `k`.
+/// impl Predecessors for Facts {
+///     type Node = u8;
+///     type Action = u8;
+///     type Cost = u32;
+///
+///     fn predecessors(&self, subgoal: &u8, mut emit: impl FnMut(u8, u8, u32)) {
+///         for k in 0..3 {
+///             if subgoal & (1 << k) != 0 {
+///                 emit(k, subgoal & !(1 << k), 1);
+///             }
+///         }
+///     }
+/// }
+///
+/// // A state meets a subgoal it satisfies.
+/// let satisfies = meet_fn(|state: &u8, subgoal: &u8| state & subgoal == *subgoal);
+/// let result = bidirectional_dijkstra_meet(&Facts, [0], [0b110], satisfies, Limits::NONE);
+///
+/// let solution = result.into_solution().expect("facts 1 and 2 are reachable");
+/// assert_eq!(solution.cost, 2);
+/// assert_eq!(solution.states.len(), 3);
+/// assert_eq!(solution.goal() & 0b110, 0b110);
+/// ```
+pub fn bidirectional_dijkstra_meet<G, M>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goals: impl IntoIterator<Item = G::State>,
+    meet: M,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: BidirectionalGraph,
+    G::State: Clone + Hash + Eq,
+    <G as Successors>::Action: Clone + PartialEq,
+    <G as Successors>::Cost: CostExt,
+    M: MeetRelation<G::State>,
+{
+    let core = Core::new(graph, starts, goals, Zero, Zero, Some(Meeting::new(meet)));
+
+    Frontier::new(core, Rule::Dijkstra).run(budget)
+}
+
+/// [`dibbs`] that meets by a [`MeetRelation`] instead of state equality, from several
+/// starts at once.
+///
+/// `goals` are backward nodes, such as subgoals (partial states), and `meet` decides which
+/// forward states meet which backward nodes (see [`MeetRelation`] for the contract). The
+/// returned path is rebuilt from the meeting state by replaying the backward actions
+/// forwards, through the first successor edge with an equal label, so every state on it
+/// is a real state and its cost the true cost.
+/// The backward heuristic estimates the cost from the starts to a backward node.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Predecessors, Successors, Zero, dibbs_meet, meet_fn};
+///
+/// /// Three facts as bits; action `k` makes fact `k` true at cost 1.
+/// struct Facts;
+///
+/// impl Successors for Facts {
+///     type State = u8;
+///     type Action = u8;
+///     type Cost = u32;
+///
+///     fn successors(&self, state: &u8, mut emit: impl FnMut(u8, u8, u32)) {
+///         for k in 0..3 {
+///             if state & (1 << k) == 0 {
+///                 emit(k, state | (1 << k), 1);
+///             }
+///         }
+///     }
+/// }
+///
+/// // Regression: a subgoal is a set of facts that must hold; action `k` achieves fact `k`.
+/// impl Predecessors for Facts {
+///     type Node = u8;
+///     type Action = u8;
+///     type Cost = u32;
+///
+///     fn predecessors(&self, subgoal: &u8, mut emit: impl FnMut(u8, u8, u32)) {
+///         for k in 0..3 {
+///             if subgoal & (1 << k) != 0 {
+///                 emit(k, subgoal & !(1 << k), 1);
+///             }
+///         }
+///     }
+/// }
+///
+/// // A state meets a subgoal it satisfies.
+/// let satisfies = meet_fn(|state: &u8, subgoal: &u8| state & subgoal == *subgoal);
+/// let result = dibbs_meet(&Facts, [0], [0b110], Zero, Zero, satisfies, Limits::NONE);
+///
+/// let solution = result.into_solution().expect("facts 1 and 2 are reachable");
+/// assert_eq!(solution.cost, 2);
+/// assert_eq!(solution.states.len(), 3);
+/// assert_eq!(solution.goal() & 0b110, 0b110);
+/// ```
+pub fn dibbs_meet<G, HF, HB, M>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goals: impl IntoIterator<Item = G::State>,
+    forward: HF,
+    backward: HB,
+    meet: M,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: BidirectionalGraph,
+    G::State: Clone + Hash + Eq,
+    <G as Successors>::Action: Clone + PartialEq,
+    <G as Successors>::Cost: CostExt,
+    HF: Heuristic<G::State, <G as Successors>::Cost>,
+    HB: Heuristic<G::State, <G as Successors>::Cost>,
+    M: MeetRelation<G::State>,
+{
+    let core = Core::new(
+        graph,
+        starts,
+        goals,
+        forward,
+        backward,
+        Some(Meeting::new(meet)),
+    );
+
+    Frontier::new(core, Rule::Dibbs).run(budget)
+}
+
+/// [`bae_star`] that meets by a [`MeetRelation`] instead of state equality, from several
+/// starts at once.
+///
+/// `goals` are backward nodes, such as subgoals (partial states), and `meet` decides which
+/// forward states meet which backward nodes (see [`MeetRelation`] for the contract). The
+/// returned path is rebuilt from the meeting state by replaying the backward actions
+/// forwards, through the first successor edge with an equal label, so every state on it
+/// is a real state and its cost the true cost.
+/// The backward heuristic estimates the cost from the starts to a backward node.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Predecessors, Successors, Zero, bae_star_meet, meet_fn};
+///
+/// /// Three facts as bits; action `k` makes fact `k` true at cost 1.
+/// struct Facts;
+///
+/// impl Successors for Facts {
+///     type State = u8;
+///     type Action = u8;
+///     type Cost = u32;
+///
+///     fn successors(&self, state: &u8, mut emit: impl FnMut(u8, u8, u32)) {
+///         for k in 0..3 {
+///             if state & (1 << k) == 0 {
+///                 emit(k, state | (1 << k), 1);
+///             }
+///         }
+///     }
+/// }
+///
+/// // Regression: a subgoal is a set of facts that must hold; action `k` achieves fact `k`.
+/// impl Predecessors for Facts {
+///     type Node = u8;
+///     type Action = u8;
+///     type Cost = u32;
+///
+///     fn predecessors(&self, subgoal: &u8, mut emit: impl FnMut(u8, u8, u32)) {
+///         for k in 0..3 {
+///             if subgoal & (1 << k) != 0 {
+///                 emit(k, subgoal & !(1 << k), 1);
+///             }
+///         }
+///     }
+/// }
+///
+/// // A state meets a subgoal it satisfies.
+/// let satisfies = meet_fn(|state: &u8, subgoal: &u8| state & subgoal == *subgoal);
+/// let result = bae_star_meet(&Facts, [0], [0b110], Zero, Zero, satisfies, Limits::NONE);
+///
+/// let solution = result.into_solution().expect("facts 1 and 2 are reachable");
+/// assert_eq!(solution.cost, 2);
+/// assert_eq!(solution.states.len(), 3);
+/// assert_eq!(solution.goal() & 0b110, 0b110);
+/// ```
+pub fn bae_star_meet<G, HF, HB, M>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goals: impl IntoIterator<Item = G::State>,
+    forward: HF,
+    backward: HB,
+    meet: M,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: BidirectionalGraph,
+    G::State: Clone + Hash + Eq,
+    <G as Successors>::Action: Clone + PartialEq,
+    <G as Successors>::Cost: CostExt,
+    HF: Heuristic<G::State, <G as Successors>::Cost>,
+    HB: Heuristic<G::State, <G as Successors>::Cost>,
+    M: MeetRelation<G::State>,
+{
+    let core = Core::new(
+        graph,
+        starts,
+        goals,
+        forward,
+        backward,
+        Some(Meeting::new(meet)),
+    );
+
+    Frontier::new(core, Rule::Bae).run(budget)
+}
+
 /// A bidirectional search with one keyed open list per side.
-struct Frontier<'a, G: BidirectionalGraph, HF, HB> {
+struct Frontier<'a, G: BidirectionalGraph, HF, HB, M> {
     /// Both sides, the heuristics, the counters and the best meet.
-    core: Core<'a, G, HF, HB>,
+    core: Core<'a, G, HF, HB, M>,
     /// The open lists, indexed by [`Direction::index`].
     open: [KeyedSet<Key<<G as Successors>::Cost>>; 2],
     /// The ordering, side-selection and stopping rule.
     rule: Rule,
 }
 
-impl<'a, G, HF, HB> Frontier<'a, G, HF, HB>
+impl<'a, G, HF, HB, M> Frontier<'a, G, HF, HB, M>
 where
     G: BidirectionalGraph,
     G::State: Clone + Hash + Eq,
@@ -410,9 +677,10 @@ where
     <G as Successors>::Cost: CostExt,
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
+    M: MeetRelation<G::State>,
 {
     /// Opens the live seeds of both sides.
-    fn new(core: Core<'a, G, HF, HB>, rule: Rule) -> Self {
+    fn new(core: Core<'a, G, HF, HB, M>, rule: Rule) -> Self {
         let mut search = Self {
             core,
             open: [KeyedSet::new(), KeyedSet::new()],

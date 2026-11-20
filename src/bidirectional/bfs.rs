@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use search_core::{Budget, Cost, Heuristic, Zero};
 
 use crate::best_first::GraphResult;
-use crate::bidirectional::{BidirectionalGraph, Core, Direction};
+use crate::bidirectional::{BidirectionalGraph, Core, Direction, Equality, MeetRelation, Meeting};
 use crate::outcome::{Outcome, SearchResult, Solution, Stats};
 use crate::problem::{Predecessors, Successors};
 use crate::space::NodeId;
@@ -126,7 +126,14 @@ where
     <G as Successors>::Action: Clone,
 {
     let unit = Unit(graph);
-    let mut core = Core::new(&unit, starts, goals, Zero, Zero);
+    let mut core = Core::new(
+        &unit,
+        starts,
+        goals,
+        Zero,
+        Zero,
+        None::<Meeting<Unit<'_, G>, Equality>>,
+    );
     let mut frontiers = [Vec::new(), Vec::new()];
     for direction in [Direction::Forward, Direction::Backward] {
         frontiers[direction.index()] = (0..core.side(direction).space.len()).collect();
@@ -152,8 +159,8 @@ where
 
 /// Expands every node of `layer` on `direction`'s side and returns the next layer, or
 /// `None` if the budget ran out.
-fn expand_layer<G, HF, HB>(
-    core: &mut Core<'_, G, HF, HB>,
+fn expand_layer<G, HF, HB, M>(
+    core: &mut Core<'_, G, HF, HB, M>,
     direction: Direction,
     layer: &[NodeId],
     budget: &mut impl Budget<Stats>,
@@ -164,6 +171,7 @@ where
     <G as Successors>::Action: Clone,
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
+    M: MeetRelation<G::State>,
 {
     let mut next = Vec::new();
     for &node in layer {

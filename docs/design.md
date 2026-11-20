@@ -329,6 +329,18 @@ Per-algorithm notes:
   instead). DIBBS and BAE* both order by `2g + h - h_opposite` and stop at
   `b_F + b_B >= 2 mu`; DIBBS expands the side with the smaller `b`, BAE* the side with fewer
   open states. Bidirectional BFS runs the core on a unit-cost view and restores costs.
+- Meets: by default a node meets the opposite side's node with an equal state, found
+  through that side's hash index. `MeetRelation` replaces this: the core reports every
+  new node with its dense id per side (`insert`) and asks which opposite-side ids meet a
+  new or improved node (`meets`); the relation keeps its own index (per-fact buckets for
+  miniplan, or `meet_fn`'s linear scan). `nbs_meet`, `dibbs_meet`, `bae_star_meet` and
+  `bidirectional_dijkstra_meet` take one and a set of starts. Backward nodes may then be
+  subgoals of the state type, so the solution replays the backward actions forwards from
+  the meeting state (first successor edge with an equal label, hence `Action:
+  PartialEq`) to return real states and true costs; if a step has no such edge, the
+  backward part is joined as is. Bidirectional BFS has no `_meet` variant: it runs on a
+  unit-cost view whose actions carry the costs. Backward nodes still share the forward
+  state type; a separate `Node` type would need a second search-space type.
 - LPA*, D* Lite and AD* share one core: LPA* is D* Lite run from the start. AD* adds
   inflation for overconsistent keys, `CLOSED`/`INCONS`, and re-keys everything at the
   start of each `compute` instead of using `km`. Paths are read off tight edges by BFS
@@ -455,7 +467,7 @@ the move to `search-core`.
    path extraction, saturating keys, tests.
 2. **Rest of foundational + anytime**: done: DFS, depth-limited DFS, IDDFS, IDA*, ARA*,
    ANA* (`Stats` is `#[non_exhaustive]`, improvements reported through a callback).
-3. **Bidirectional**: done except the meet capability: `Predecessors`, bidirectional BFS
+3. **Bidirectional**: done, including the meet capability: `Predecessors`, bidirectional BFS
    and Dijkstra, NBS, BAE*, DIBBS. miniplan's planners have not moved yet.
 4. **Bounded-suboptimal and multi-heuristic**: done: focal list, focal search, EES, DPS,
    shared MHA*.
@@ -470,9 +482,6 @@ the move to `search-core`.
 - Should `Stats` count heuristic evaluations, which dominate run time in planning?
 - Is a stepping API (resume a search after a budget stop) needed, for example for
   portfolios that interleave planners? (The incremental planners already resume.)
-- Meet capability for bidirectional search over subgoals (miniplan): a trait that indexes
-  one side and answers "which nodes of the other side does this node meet?", with state
-  equality as the default. Needed before miniplan's bidirectional planners can move.
 - BAE*: the citation (Sadhukhan 2013) is unverified, and the implementation differs from
   DIBBS only in side selection (cardinality). Confirm against the paper.
 - Naming: `astar` but `ara_star`, `ana_star`, `mha_star`, `bae_star` (snake case of the
