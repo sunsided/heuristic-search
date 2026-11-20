@@ -12,7 +12,7 @@ through small capability traits and gets back a path and counters.
 In scope, in milestone order (see [Milestones](#milestones)):
 
 - foundational: BFS, DFS, Dijkstra, greedy best-first (GBFS), A*, IDA*;
-- linear- and bounded-memory: fringe search, RBFS;
+- linear- and bounded-memory: fringe search, RBFS, beam search, beam-stack search;
 - weighted and anytime: Weighted A* (WA*), ARA*, ANA*;
 - bounded-suboptimal: EES, DPS;
 - multiple heuristics: MHA*;
@@ -309,6 +309,31 @@ the same machine: `FocalList push+pop 10k` 9.8 ms to 3.5 ms, `FocalList churn 10
 
 Per-algorithm notes:
 
+- Beam search keeps every generated state (kept or pruned) in a `SearchSpace` and never
+  generates it again from a later layer; within a layer the cheapest path wins. It reports
+  `Cutoff` instead of `Unsolvable` once the width has pruned anything.
+- Beam-stack search keeps its layers as `Vec`s with parent positions into the layer
+  above (stable, because a layer only changes after all deeper layers are dropped) and a
+  `HashTable` over every node in memory. Three rules decide correctness and termination:
+  - **Ties at the width.** A layer keeps every state tied with the `width`-th smallest
+    `f`, and `high` becomes the smallest `f` *above* that. Cutting inside a tie would set
+    `high` equal to `low` on a plateau, and the next interval `[high, U)` would repeat
+    the same one forever.
+  - **Duplicates.** A successor is dropped if a copy with no larger `g` is in memory in
+    any layer up to the one being filled; a dearer copy in the same layer is replaced. So
+    a state's copies along the layers get strictly cheaper, which bounds the depth on
+    cyclic graphs even before the first solution (when `U` is infinite) and with zero-cost
+    cycles. Dropping is safe: the cheaper copy's successors are admitted, now or by a later
+    interval of its own layer's item, with `f` no larger than through the dropped copy.
+    Property tests with widths 1 to 3 (and a 100 000-case stress run on 30-node graphs,
+    widths up to 8 and multi-start) found no counterexample.
+  - **The first layer** (the starts) is never pruned: no item could remember it.
+  Layers are pruned once complete rather than whenever they overflow, which gives the same
+  layer, at the price of up to `width * branching` states while a layer fills. Narrow
+  beams backtrack a lot: on the 64 x 64 benchmark grid width 64 proves the optimum in
+  under a millisecond, width 16 in about a minute. `on_solution` gets the solution only;
+  unlike ARA*/ANA* there is no lower bound to report, since the intervals left on the
+  stack do not give one cheaply.
 - RBFS is iterative: a stack of frames, one per node on the current path, each with its
   bound and its children's backed-up values `F` (an `Extended` cost, whose `Infinite` lies
   above every cost; a saturated sum would tie with real costs). A frame whose best child
@@ -504,7 +529,8 @@ the move to `search-core`.
    shared MHA*.
 5. **Expensive edges**: done: `EdgeEvaluator`, LazySP.
 6. **Dynamic graphs**: done: `DynamicGraph`, LPA*, D* Lite, AD*.
-7. **More algorithms** (branch `draft/algorithms`): fringe search, RBFS.
+7. **More algorithms** (branch `draft/algorithms`): fringe search, RBFS, beam search,
+   beam-stack search.
 8. **0.1.0**: API review, benchmarks, release.
 
 ## Open questions
@@ -525,6 +551,8 @@ the move to `search-core`.
 
 - E. W. Dijkstra. A note on two problems in connexion with graphs. Numerische
   Mathematik 1, 1959.
+- R. Zhou, E. A. Hansen. Beam-stack search: integrating backtracking with beam search.
+  ICAPS 2005.
 - Y. Björnsson, M. Enzenberger, R. C. Holte, J. Schaeffer. Fringe search: beating A* at
   pathfinding on game maps. IEEE CIG 2005.
 - P. E. Hart, N. J. Nilsson, B. Raphael. A formal basis for the heuristic determination of

@@ -10,9 +10,9 @@ use std::hint::black_box;
 use criterion::Criterion;
 use heuristic_search::{
     AdStar, DStarLite, DynamicGraph, EdgeSelector, EesEstimates, FocalList, Limits, MhaWeights,
-    Predecessors, Successors, Weight, a_star, ana_star, ara_star, dfs, dps, ees, focal_fn,
-    focal_search, fringe_search, heuristic_fn, ida_star, ida_star_tt, iddfs, lazy_sp, mha_star,
-    nbs, rbfs,
+    Predecessors, Successors, Weight, a_star, ana_star, ara_star, beam_search, beam_stack_search,
+    dfs, dps, ees, focal_fn, focal_search, fringe_search, heuristic_fn, ida_star, ida_star_tt,
+    iddfs, lazy_sp, mha_star, nbs, rbfs,
 };
 
 /// Side length of the benchmark grid.
@@ -127,6 +127,38 @@ fn bench_fringe_search(c: &mut Criterion, grid: &Grid) {
                 START,
                 &at_goal,
                 to_goal(),
+                Limits::NONE,
+            ))
+        });
+    });
+}
+
+/// Beam search with width 16, and beam-stack search with width 64 run to completion.
+///
+/// Narrow beams make beam-stack search backtrack a lot on this grid: width 16 takes about
+/// a minute to prove the optimum.
+fn bench_beam(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("beam_search grid w=16", |b| {
+        b.iter(|| {
+            black_box(beam_search(
+                grid,
+                START,
+                &at_goal,
+                to_goal(),
+                16,
+                Limits::NONE,
+            ))
+        });
+    });
+    c.bench_function("beam_stack_search grid w=64", |b| {
+        b.iter(|| {
+            black_box(beam_stack_search(
+                grid,
+                START,
+                &at_goal,
+                to_goal(),
+                64,
+                |_| {},
                 Limits::NONE,
             ))
         });
@@ -445,6 +477,7 @@ fn main() {
 
     bench_a_star(&mut c, &grid);
     bench_fringe_search(&mut c, &grid);
+    bench_beam(&mut c, &grid);
     bench_focal_search(&mut c, &grid);
     bench_focal_list(&mut c);
     bench_focal_list_churn(&mut c);

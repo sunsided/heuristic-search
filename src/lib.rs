@@ -41,6 +41,11 @@
 //!
 //! - [`ara_star`]: ARA*, Weighted A* with a falling weight schedule.
 //! - [`ana_star`]: ANA*, anytime without parameters.
+//! - [`beam_stack_search`]: beam-stack search, a beam of fixed width that backtracks over
+//!   what it pruned; optimal once complete, in memory bounded by the width per layer.
+//!
+//! [`beam_search`] is breadth-first beam search: a fixed number of states per layer, fast
+//! but incomplete ([`Outcome::Cutoff`] when the width may have pruned the goal away).
 //!
 //! Bounded-suboptimal searches return a solution within `w` times the optimum:
 //!
@@ -133,6 +138,7 @@
 extern crate alloc;
 
 mod anytime;
+mod beam;
 mod best_first;
 mod bfs;
 mod bidirectional;
@@ -155,6 +161,7 @@ mod space;
 pub use anytime::{
     AnytimeGraphResult, AnytimeResult, ana_star, ana_star_multi, ara_star, ara_star_multi,
 };
+pub use beam::{beam_search, beam_search_multi, beam_stack_search, beam_stack_search_multi};
 pub use best_first::{
     GraphResult, a_star, a_star_multi, dijkstra, dijkstra_multi, gbfs, gbfs_multi, weighted_a_star,
     weighted_a_star_multi,

@@ -15,6 +15,9 @@ Implemented on the `draft/initial` branch:
   iterations over a cache of `g` per state, no priority queue
 - RBFS (`rbfs`): recursive best-first search, optimal with an admissible heuristic in
   memory linear in the depth, iterative so deep paths cannot overflow the stack
+- Beam search (`beam_search`, incomplete; `Cutoff` when the width pruned) and beam-stack
+  search (`beam_stack_search`): complete and anytime, optimal once it completes, with a
+  fixed beam width
 - Every search except the incremental planners also from several start states
   (`*_multi`)
 - Weighted and anytime: Weighted A*, ARA*, ANA*

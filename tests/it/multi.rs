@@ -4,10 +4,11 @@
 
 use heuristic_search::{
     EdgeSelector, EesEstimates, Limits, MhaWeights, SearchResult, Weight, Zero, ana_star_multi,
-    ara_star_multi, bae_star_multi, bfs, bidirectional_bfs_multi, bidirectional_dijkstra_multi,
-    depth_limited_dfs_multi, dfs_multi, dibbs_multi, dps_multi, ees_multi, focal_fn,
-    focal_search_multi, fringe_search_multi, heuristic_fn, ida_star_multi, iddfs_multi,
-    lazy_sp_multi, mha_star_multi, nbs_multi, rbfs_multi,
+    ara_star_multi, bae_star_multi, beam_search_multi, beam_stack_search_multi, bfs,
+    bidirectional_bfs_multi, bidirectional_dijkstra_multi, depth_limited_dfs_multi, dfs_multi,
+    dibbs_multi, dps_multi, ees_multi, focal_fn, focal_search_multi, fringe_search_multi,
+    heuristic_fn, ida_star_multi, iddfs_multi, lazy_sp_multi, mha_star_multi, nbs_multi,
+    rbfs_multi,
 };
 use proptest::prelude::*;
 
@@ -70,6 +71,8 @@ proptest! {
         for anytime in [
             ana_star_multi(&graph, s(), &is_goal, heuristic_fn(h), |_, _| {}, Limits::NONE),
             ara_star_multi(&graph, s(), &is_goal, heuristic_fn(h), [Weight::integer(2), Weight::ONE], |_, _| {}, Limits::NONE),
+            beam_stack_search_multi(&graph, s(), &is_goal, heuristic_fn(h), 1, |_| {}, Limits::NONE),
+            beam_stack_search_multi(&graph, s(), &is_goal, heuristic_fn(h), 3, |_| {}, Limits::NONE),
         ] {
             prop_assert!(anytime.complete);
             prop_assert_eq!(anytime.solution.map(|solution| solution.cost), best);
@@ -116,6 +119,14 @@ proptest! {
             .map(|solution| solution.len())
             .min();
         let nodes = graph.edges.len();
+
+        let beam = beam_search_multi(&graph, s(), &is_goal, heuristic_fn(|state: &usize| exact[*state]), 2, Limits::NONE);
+        if let Some(solution) = beam.solution() {
+            prop_assert!(starts.contains(&solution.states[0]));
+            assert_valid_path(&graph, solution.states[0], solution);
+        } else if beam.outcome == heuristic_search::Outcome::Unsolvable {
+            prop_assert_eq!(best, None);
+        }
 
         checked(&graph, &starts, &dfs_multi(&graph, s(), &is_goal, Limits::NONE), best);
         checked(&graph, &starts, &depth_limited_dfs_multi(&graph, s(), &is_goal, nodes, Limits::NONE), best);

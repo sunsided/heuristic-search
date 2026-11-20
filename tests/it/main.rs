@@ -2,6 +2,7 @@
 //! algorithms against each other.
 
 mod anytime;
+mod beam;
 mod bidirectional;
 mod bounded;
 mod depth_first;
