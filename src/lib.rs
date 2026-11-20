@@ -20,6 +20,8 @@
 //! - [`a_star`]: A*, cheapest path with an admissible heuristic.
 //! - [`weighted_a_star`]: Weighted A*, at most `w` times the cheapest cost.
 //! - [`gbfs`]: greedy best-first search, fast and unbounded.
+//! - [`fringe_search`]: fringe search, cheapest path with an admissible heuristic through
+//!   `f` threshold iterations over a cache of every state, without a priority queue.
 //!
 //! Each has a `*_multi` variant ([`a_star_multi`] and so on) that searches from several
 //! start states at once. So does every other search below; the incremental planners have
@@ -32,11 +34,22 @@
 //!   edges.
 //! - [`ida_star`]: IDA*, cheapest path with an admissible heuristic; [`ida_star_tt`] adds
 //!   a bounded transposition table for graphs with many paths to each state.
+//! - [`rbfs`]: recursive best-first search (RBFS), cheapest path with an admissible
+//!   heuristic, in best-first order with memory linear in the depth.
+//!
+//! [`sma_star`] (SMA*) is A* within a fixed number of nodes: it forgets its worst leaves
+//! and regenerates them when needed, and returns the cheapest path among those that fit in
+//! memory, or [`Outcome::Cutoff`] when none does.
 //!
 //! Anytime searches report each improved solution and return an [`AnytimeResult`]:
 //!
 //! - [`ara_star`]: ARA*, Weighted A* with a falling weight schedule.
 //! - [`ana_star`]: ANA*, anytime without parameters.
+//! - [`beam_stack_search`]: beam-stack search, a beam of fixed width that backtracks over
+//!   what it pruned; optimal once complete, in memory bounded by the width per layer.
+//!
+//! [`beam_search`] is breadth-first beam search: a fixed number of states per layer, fast
+//! but incomplete ([`Outcome::Cutoff`] when the width may have pruned the goal away).
 //!
 //! Bounded-suboptimal searches return a solution within `w` times the optimum:
 //!
@@ -58,6 +71,16 @@
 //! [`RegressionGraph`]), and replay the backward actions to return a path of real states
 //! or a [`ReplayError`].
 //!
+//! Grid searches work on a [`UniformGrid`], 8-connected without corner cutting (see
+//! [`UniformGrid`]), with the exact octile cost [`Octile`]:
+//!
+//! - [`jps`]: Jump Point Search, cheapest path, expanding only jump points.
+//! - `theta_star` and `lazy_theta_star` (feature `float`): Theta* and Lazy Theta*,
+//!   any-angle paths between cell centres on a [`LineOfSight`] grid, with Euclidean
+//!   float costs; never longer than the cheapest 8-connected path (Theta*).
+//!
+//! [`EightConnected`] makes a grid a plain graph for the other searches.
+//!
 //! [`mha_star`] (shared multi-heuristic A*) combines one consistent anchor heuristic with
 //! any number of inadmissible ones, within `w1 * w2` times the optimum.
 //!
@@ -78,7 +101,9 @@
 //!
 //! ## Features
 //!
-//! - `float`: re-exports the checked float cost `NonNegF64` from `search-core`.
+//! - `float`: re-exports the checked float cost `NonNegF64` from `search-core`, and enables
+//!   the any-angle grid searches `theta_star` and `lazy_theta_star`, whose Euclidean costs
+//!   are floats.
 //!
 //! ## Example
 //!
@@ -131,6 +156,7 @@
 extern crate alloc;
 
 mod anytime;
+mod beam;
 mod best_first;
 mod bfs;
 mod bidirectional;
@@ -139,6 +165,8 @@ mod cost;
 mod depth_first;
 mod dynamic;
 mod focal;
+mod fringe;
+mod grid;
 mod indexed_heap;
 mod keyed_set;
 mod lazy;
@@ -146,11 +174,14 @@ mod mha;
 mod open_list;
 mod outcome;
 mod problem;
+mod rbfs;
+mod sma;
 mod space;
 
 pub use anytime::{
     AnytimeGraphResult, AnytimeResult, ana_star, ana_star_multi, ara_star, ara_star_multi,
 };
+pub use beam::{beam_search, beam_search_multi, beam_stack_search, beam_stack_search_multi};
 pub use best_first::{
     GraphResult, a_star, a_star_multi, dijkstra, dijkstra_multi, gbfs, gbfs_multi, weighted_a_star,
     weighted_a_star_multi,
@@ -184,10 +215,21 @@ pub use dynamic::{
     LpaStarMulti,
 };
 pub use focal::{FocalList, TieBreak};
+pub use fringe::{fringe_search, fringe_search_multi};
+#[cfg(feature = "float")]
+pub use grid::{
+    AnyAngleResult, lazy_theta_star, lazy_theta_star_multi, theta_star, theta_star_multi,
+};
+pub use grid::{
+    EightConnected, GridCell, GridStep, LineOfSight, Octile, OctileDistance, UniformGrid, jps,
+    jps_multi,
+};
 pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp, lazy_sp_multi};
 pub use mha::{MhaWeights, mha_star, mha_star_multi};
 pub use outcome::{Limits, Outcome, SearchResult, Solution, Stats};
 pub use problem::{Predecessors, Successors};
+pub use rbfs::{rbfs, rbfs_multi};
 #[cfg(feature = "float")]
 pub use search_core::NonNegF64;
 pub use search_core::{Budget, Cost, Decimal, Goal, Heuristic, HeuristicFn, Zero, heuristic_fn};
+pub use sma::{sma_star, sma_star_multi};

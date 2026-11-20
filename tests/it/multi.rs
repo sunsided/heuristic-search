@@ -4,10 +4,11 @@
 
 use heuristic_search::{
     EdgeSelector, EesEstimates, Limits, MhaWeights, SearchResult, Weight, Zero, ana_star_multi,
-    ara_star_multi, bae_star_multi, bfs, bidirectional_bfs_multi, bidirectional_dijkstra_multi,
-    depth_limited_dfs_multi, dfs_multi, dibbs_multi, dps_multi, ees_multi, focal_fn,
-    focal_search_multi, heuristic_fn, ida_star_multi, iddfs_multi, lazy_sp_multi, mha_star_multi,
-    nbs_multi,
+    ara_star_multi, bae_star_multi, beam_search_multi, beam_stack_search_multi, bfs,
+    bidirectional_bfs_multi, bidirectional_dijkstra_multi, depth_limited_dfs_multi, dfs_multi,
+    dibbs_multi, dps_multi, ees_multi, focal_fn, focal_search_multi, fringe_search_multi,
+    heuristic_fn, ida_star_multi, iddfs_multi, lazy_sp_multi, mha_star_multi, nbs_multi,
+    rbfs_multi, sma_star_multi,
 };
 use proptest::prelude::*;
 
@@ -53,6 +54,9 @@ proptest! {
         let evaluate = |from: &usize, action: &usize, _: &usize| Some(graph.edges[*from][*action].1);
 
         let results: Vec<(&str, Result)> = vec![
+            ("fringe_search", fringe_search_multi(&graph, s(), &is_goal, heuristic_fn(h), Limits::NONE)),
+            ("sma_star", sma_star_multi(&graph, s(), &is_goal, heuristic_fn(h), 20, Limits::NONE)),
+            ("rbfs", rbfs_multi(&graph, s(), &is_goal, heuristic_fn(h), Limits::NONE)),
             ("ida_star", ida_star_multi(&graph, s(), &is_goal, heuristic_fn(h), Limits::NONE)),
             ("mha_star", mha_star_multi(&graph, s(), &is_goal, heuristic_fn(h), [heuristic_fn(h)], MhaWeights::ONE, Limits::NONE)),
             ("lazy_sp", lazy_sp_multi(&graph, s(), &is_goal, heuristic_fn(h), evaluate, EdgeSelector::Forward, Limits::NONE)),
@@ -68,6 +72,8 @@ proptest! {
         for anytime in [
             ana_star_multi(&graph, s(), &is_goal, heuristic_fn(h), |_, _| {}, Limits::NONE),
             ara_star_multi(&graph, s(), &is_goal, heuristic_fn(h), [Weight::integer(2), Weight::ONE], |_, _| {}, Limits::NONE),
+            beam_stack_search_multi(&graph, s(), &is_goal, heuristic_fn(h), 1, |_| {}, Limits::NONE),
+            beam_stack_search_multi(&graph, s(), &is_goal, heuristic_fn(h), 3, |_| {}, Limits::NONE),
         ] {
             prop_assert!(anytime.complete);
             prop_assert_eq!(anytime.solution.map(|solution| solution.cost), best);
@@ -114,6 +120,14 @@ proptest! {
             .map(|solution| solution.len())
             .min();
         let nodes = graph.edges.len();
+
+        let beam = beam_search_multi(&graph, s(), &is_goal, heuristic_fn(|state: &usize| exact[*state]), 2, Limits::NONE);
+        if let Some(solution) = beam.solution() {
+            prop_assert!(starts.contains(&solution.states[0]));
+            assert_valid_path(&graph, solution.states[0], solution);
+        } else if beam.outcome == heuristic_search::Outcome::Unsolvable {
+            prop_assert_eq!(best, None);
+        }
 
         checked(&graph, &starts, &dfs_multi(&graph, s(), &is_goal, Limits::NONE), best);
         checked(&graph, &starts, &depth_limited_dfs_multi(&graph, s(), &is_goal, nodes, Limits::NONE), best);

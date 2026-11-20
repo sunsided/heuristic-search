@@ -11,6 +11,19 @@ Implemented on the `draft/initial` branch:
 - Foundational: BFS, Dijkstra, A*, greedy best-first search (GBFS); DFS, depth-limited DFS,
   iterative deepening DFS, IDA*, IDA* with a bounded transposition table; depth cutoffs
   are reported apart from budget stops (`Outcome::Cutoff`)
+- Fringe search (`fringe_search`): optimal with an admissible heuristic, threshold
+  iterations over a cache of `g` per state, no priority queue
+- RBFS (`rbfs`): recursive best-first search, optimal with an admissible heuristic in
+  memory linear in the depth, iterative so deep paths cannot overflow the stack
+- SMA* (`sma_star`): A* within a node budget, forgetting and regenerating leaves; the
+  cheapest path that fits in memory, `Cutoff` when none does
+- Beam search (`beam_search`, incomplete; `Cutoff` when the width pruned) and beam-stack
+  search (`beam_stack_search`): complete and anytime, optimal once it completes, with a
+  fixed beam width
+- Grids: Jump Point Search (`jps`) on any `UniformGrid`, 8-connected without corner
+  cutting, with the exact octile cost `Octile` (`a + b√2`, compared without rounding);
+  `EightConnected` makes a grid a graph for the other searches; any-angle Theta* and
+  Lazy Theta* (`theta_star`, `lazy_theta_star`, feature `float`) on a `LineOfSight` grid
 - Every search also from several start states (`*_multi`; the incremental planners as
   `LpaStarMulti`, `DStarLiteMulti`, `AdStarMulti` with fixed starts)
 - Weighted and anytime: Weighted A*, ARA*, ANA*

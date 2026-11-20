@@ -168,6 +168,26 @@ impl Weight {
     }
 }
 
+/// A cost or infinity, for bounds and backed-up values that must be able to exceed every
+/// cost.
+///
+/// Ordered with every [`Extended::Finite`] value below [`Extended::Infinite`]. Saturated
+/// costs are no substitute: a saturated sum ties with real costs at the maximum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Extended<C> {
+    /// A finite cost.
+    Finite(C),
+    /// Larger than every cost: no bound, or a subtree without any goal.
+    Infinite,
+}
+
+impl<C: Cost> Extended<C> {
+    /// `g + h` for an estimate `h`, where a dead end (`None`) is infinite.
+    pub(crate) fn f(g: C, h: Option<C>) -> Self {
+        h.map_or(Self::Infinite, |h| Self::Finite(g.saturating_add(h)))
+    }
+}
+
 /// Returns `true` if `cost <= weight * bound`, computed as `den * cost <= num * bound`
 /// without division.
 pub(crate) fn within<C: Cost>(cost: C, weight: Weight, bound: C) -> bool {

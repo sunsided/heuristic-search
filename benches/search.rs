@@ -1,7 +1,9 @@
 //! Benchmarks for the hot paths: A*, the anytime, bounded-suboptimal and multi-heuristic
 //! searches, `LazySP` and focal search on a grid with a wall; the focal list itself; NBS;
 //! D* Lite and AD* repairs after the wall changes; and the depth-first searches on a
-//! small open grid, where tree searches meet many transpositions.
+//! small open grid, where tree searches meet many transpositions; Jump Point Search
+//! against A* on the 8-connected version of the wall grid, and (feature `float`) Theta*
+//! and Lazy Theta* there.
 //!
 //! Run with `cargo bench`.
 
@@ -9,9 +11,10 @@ use std::hint::black_box;
 
 use criterion::Criterion;
 use heuristic_search::{
-    AdStar, DStarLite, DynamicGraph, EdgeSelector, EesEstimates, FocalList, Limits, MhaWeights,
-    Predecessors, Successors, Weight, a_star, ana_star, ara_star, dfs, dps, ees, focal_fn,
-    focal_search, heuristic_fn, ida_star, ida_star_tt, iddfs, lazy_sp, mha_star, nbs,
+    AdStar, DStarLite, DynamicGraph, EdgeSelector, EesEstimates, EightConnected, FocalList, Limits,
+    MhaWeights, OctileDistance, Predecessors, Successors, UniformGrid, Weight, a_star, ana_star,
+    ara_star, beam_search, beam_stack_search, dfs, dps, ees, focal_fn, focal_search, fringe_search,
+    heuristic_fn, ida_star, ida_star_tt, iddfs, jps, lazy_sp, mha_star, nbs, rbfs, sma_star,
 };
 
 /// Side length of the benchmark grid.
@@ -90,6 +93,25 @@ impl DynamicGraph for Grid {
     }
 }
 
+/// The same grid for the 8-connected searches; cells are `(x, y) = (column, row)`.
+impl UniformGrid for Grid {
+    fn width(&self) -> usize {
+        SIZE
+    }
+
+    fn height(&self) -> usize {
+        SIZE
+    }
+
+    fn is_passable(&self, x: usize, y: usize) -> bool {
+        !self.walls[y * SIZE + x]
+    }
+}
+
+/// Line of sight with the default walk, for the any-angle searches.
+#[cfg(feature = "float")]
+impl heuristic_search::LineOfSight for Grid {}
+
 /// The Manhattan distance between two cells.
 fn manhattan(a: &Cell, b: &Cell) -> u32 {
     u32::try_from(a.0.abs_diff(b.0) + a.1.abs_diff(b.1)).expect("the grid is small")
@@ -114,6 +136,87 @@ fn bench_a_star(c: &mut Criterion, grid: &Grid) {
                 Limits::NONE,
             ))
         });
+    });
+}
+
+/// Fringe search with the Manhattan heuristic around the wall.
+fn bench_fringe_search(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("fringe_search grid", |b| {
+        b.iter(|| {
+            black_box(fringe_search(
+                grid,
+                START,
+                &at_goal,
+                to_goal(),
+                Limits::NONE,
+            ))
+        });
+    });
+}
+
+/// Beam search with width 16, and beam-stack search with width 64 run to completion.
+///
+/// Narrow beams make beam-stack search backtrack a lot on this grid: width 16 takes about
+/// a minute to prove the optimum.
+fn bench_beam(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("beam_search grid w=16", |b| {
+        b.iter(|| {
+            black_box(beam_search(
+                grid,
+                START,
+                &at_goal,
+                to_goal(),
+                16,
+                Limits::NONE,
+            ))
+        });
+    });
+    c.bench_function("beam_stack_search grid w=64", |b| {
+        b.iter(|| {
+            black_box(beam_stack_search(
+                grid,
+                START,
+                &at_goal,
+                to_goal(),
+                64,
+                |_| {},
+                Limits::NONE,
+            ))
+        });
+    });
+}
+
+/// Jump Point Search against A* on the same 8-connected grid, around the wall.
+fn bench_jps(c: &mut Criterion, grid: &Grid) {
+    // `(x, y)`: from the top left to the bottom left, behind the wall.
+    let (start, goal) = ((0, 0), (0, SIZE - 1));
+    c.bench_function("jps grid", |b| {
+        b.iter(|| black_box(jps(grid, start, goal, Limits::NONE)));
+    });
+    c.bench_function("a_star eight-connected grid", |b| {
+        b.iter(|| {
+            black_box(a_star(
+                &EightConnected(grid),
+                start,
+                &|cell: &Cell| *cell == goal,
+                OctileDistance(goal),
+                Limits::NONE,
+            ))
+        });
+    });
+}
+
+/// Theta* and Lazy Theta* on the 8-connected grid, around the wall.
+#[cfg(feature = "float")]
+fn bench_theta_star(c: &mut Criterion, grid: &Grid) {
+    use heuristic_search::{lazy_theta_star, theta_star};
+
+    let (start, goal) = ((0, 0), (0, SIZE - 1));
+    c.bench_function("theta_star grid", |b| {
+        b.iter(|| black_box(theta_star(grid, start, goal, Limits::NONE)));
+    });
+    c.bench_function("lazy_theta_star grid", |b| {
+        b.iter(|| black_box(lazy_theta_star(grid, start, goal, Limits::NONE)));
     });
 }
 
@@ -389,6 +492,12 @@ fn bench_depth_first(c: &mut Criterion, grid: &Grid) {
     c.bench_function("ida_star_tt open 6x6 cap=256", |b| {
         b.iter(|| black_box(ida_star_tt(&Open, START, &corner, h(), 256, Limits::NONE)));
     });
+    c.bench_function("rbfs open 6x6", |b| {
+        b.iter(|| black_box(rbfs(&Open, START, &corner, h(), Limits::NONE)));
+    });
+    c.bench_function("sma_star open 6x6 mem=64", |b| {
+        b.iter(|| black_box(sma_star(&Open, START, &corner, h(), 64, Limits::NONE)));
+    });
 }
 
 /// NBS with the Manhattan heuristic in both directions.
@@ -425,6 +534,11 @@ fn main() {
     let mut c = Criterion::default().configure_from_args();
 
     bench_a_star(&mut c, &grid);
+    bench_fringe_search(&mut c, &grid);
+    bench_beam(&mut c, &grid);
+    bench_jps(&mut c, &grid);
+    #[cfg(feature = "float")]
+    bench_theta_star(&mut c, &grid);
     bench_focal_search(&mut c, &grid);
     bench_focal_list(&mut c);
     bench_focal_list_churn(&mut c);

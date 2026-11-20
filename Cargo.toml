@@ -12,7 +12,8 @@ keywords = ["search", "astar", "pathfinding", "heuristic", "planning"]
 categories = ["algorithms", "no-std"]
 
 [features]
-## The checked float cost `NonNegF64`, re-exported from `search-core`.
+## The checked float cost `NonNegF64`, re-exported from `search-core`, and the any-angle
+## grid searches Theta* and Lazy Theta*, whose Euclidean costs need it.
 float = ["search-core/float"]
 
 [dependencies]
