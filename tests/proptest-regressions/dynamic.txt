@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8bc44d1c92f56cf93f0785881eb3e7c4670d8733e5251922b4c8d1437aa4448d # shrinks to (mut graph, goal, changes) = (Edges { nodes: 2, edges: [(0, 1, 0), (1, 1, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0)] }, 1, [Add(0, 0, 0), Add(0, 0, 0), Add(0, 0, 0), Remove(8), Cost(0, 0)])
+cc 75fb6a57c0e1ec979f5b9556e94e5e9c2ee11bc04b555b4ca5b507eee5569772 # shrinks to (mut graph, goal, changes) = (Edges { nodes: 2, edges: [] }, 1, [Add(6, 5, 0), Add(2, 6, 0), Remove(14), Cost(0, 0)])

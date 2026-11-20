@@ -49,6 +49,12 @@
 //! [`lazy_sp`] (`LazySP`) finds cheapest paths when true edge costs are expensive, evaluating
 //! them through an [`EdgeEvaluator`] only on candidate paths.
 //!
+//! Incremental planners keep their search tree while edge costs of a [`DynamicGraph`]
+//! change, and repair only what the changes affect:
+//!
+//! - [`LpaStar`]: Lifelong Planning A*, fixed start and goal.
+//! - [`DStarLite`]: D* Lite, fixed goal and a moving start.
+//!
 //! Costs are generic over [`Cost`]. For planning, `u32` is the intended default: action
 //! costs are small integers and heuristics over them stay exact.
 //!
@@ -83,7 +89,7 @@
 //! ## Planned scope
 //!
 //! - Foundational: DFS, IDA*
-//! - Dynamic graphs: LPA*, D* Lite, AD*
+//! - Dynamic graphs: AD*
 //!
 //! See `docs/design.md` in the repository for the design and milestones.
 //!
@@ -104,6 +110,7 @@ mod bfs;
 mod bidirectional;
 mod bounded;
 mod cost;
+mod dynamic;
 mod focal;
 mod keyed_set;
 mod lazy;
@@ -124,6 +131,7 @@ pub use bidirectional::{
 };
 pub use bounded::{EesEstimates, FocalFn, FocalKey, dps, ees, focal_fn, focal_search};
 pub use cost::{Cost, Weight};
+pub use dynamic::{DStarLite, DynamicGraph, DynamicResult, LpaStar};
 pub use focal::{FocalList, TieBreak};
 pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp};
 pub use mha::{MhaWeights, mha_star};
