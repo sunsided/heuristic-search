@@ -26,6 +26,11 @@
 //! AD* is D* Lite with an inflated heuristic for overconsistent vertices, a `CLOSED` set
 //! per iteration and an `INCONS` list of vertices that became inconsistent after their
 //! expansion ([`Anytime`]).
+//!
+//! The core searches any [`Searched`] model; every [`DynamicGraph`] is one. A model may
+//! compute `rhs` itself ([`Searched::LOOKAHEAD`]) instead of from single edges, and a
+//! planner with its own path extraction calls [`Incremental::repair`] instead of
+//! [`Incremental::compute`].
 
 use alloc::collections::VecDeque;
 use alloc::vec;
@@ -37,7 +42,7 @@ use hashbrown::{DefaultHashBuilder, HashTable};
 use search_core::{Budget, Cost};
 
 use crate::cost::Weight;
-use crate::dynamic::{DynamicGraph, DynamicResult};
+use crate::dynamic::DynamicGraph;
 use crate::keyed_set::KeyedSet;
 use crate::outcome::{Outcome, SearchResult, Solution, Stats};
 
@@ -50,6 +55,60 @@ pub(super) trait Estimate<V, C> {
 impl<V, C, F: FnMut(&V, &V) -> C> Estimate<V, C> for F {
     fn estimate(&mut self, from: &V, to: &V) -> C {
         self(from, to)
+    }
+}
+
+/// What [`Incremental`] searches: a [`DynamicGraph`], or a model that computes `rhs` its
+/// own way (Field D*'s interpolation).
+///
+/// Every [`DynamicGraph`] is one, with `rhs` from its edges. A model that overrides
+/// [`Searched::lookahead`] still reports neighbours: [`Searched::predecessors`] (D* Lite's
+/// direction) are the vertices whose `rhs` may depend on a vertex, and they are updated
+/// whenever its `g` changes.
+pub(super) trait Searched {
+    /// A vertex. Cloned and hashed into the planner's tables.
+    type Vertex: Clone + Hash + Eq;
+    /// A strictly positive cost.
+    type Cost: Cost;
+
+    /// Calls `emit(to, cost)` for every edge leaving `vertex`.
+    fn successors(&self, vertex: &Self::Vertex, emit: impl FnMut(Self::Vertex, Self::Cost));
+
+    /// Calls `emit(from, cost)` for every edge entering `vertex`.
+    fn predecessors(&self, vertex: &Self::Vertex, emit: impl FnMut(Self::Vertex, Self::Cost));
+
+    /// Whether `rhs` comes from [`Searched::lookahead`] instead of the minimum of `c + g`
+    /// over the edges towards the source.
+    const LOOKAHEAD: bool = false;
+
+    /// `rhs(vertex)` computed by the model from the current `g` of other vertices (`None`
+    /// is infinite). Called instead of the edge minimum if [`Searched::LOOKAHEAD`] is set,
+    /// and never for the source.
+    ///
+    /// The result must exceed every `g` it depends on by a positive amount that is at
+    /// least the heuristic's change between that vertex and `vertex`, so that keys stay
+    /// ordered along dependencies as with a consistent heuristic on edges.
+    fn lookahead(
+        &self,
+        vertex: &Self::Vertex,
+        g: impl Fn(&Self::Vertex) -> Option<Self::Cost>,
+    ) -> Option<Self::Cost> {
+        let _ = (vertex, g);
+
+        None
+    }
+}
+
+impl<G: DynamicGraph> Searched for G {
+    type Vertex = G::Vertex;
+    type Cost = G::Cost;
+
+    fn successors(&self, vertex: &Self::Vertex, emit: impl FnMut(Self::Vertex, Self::Cost)) {
+        DynamicGraph::successors(self, vertex, emit);
+    }
+
+    fn predecessors(&self, vertex: &Self::Vertex, emit: impl FnMut(Self::Vertex, Self::Cost)) {
+        DynamicGraph::predecessors(self, vertex, emit);
     }
 }
 
@@ -172,11 +231,35 @@ where
 
     /// Processes inconsistent vertices until the target is consistent and no queued key
     /// is below its key, then returns the path from the target's tree.
-    pub(super) fn compute<G: DynamicGraph<Vertex = V, Cost = C>>(
+    pub(super) fn compute<G: Searched<Vertex = V, Cost = C>>(
+        &mut self,
+        graph: &G,
+        budget: impl Budget<Stats>,
+    ) -> SearchResult<V, (), C> {
+        let (settled, stats) = self.repair(graph, budget);
+        if !settled {
+            return SearchResult {
+                outcome: Outcome::LimitReached,
+                stats,
+            };
+        }
+
+        let outcome = match self.path(graph) {
+            Some(solution) => Outcome::Found(solution),
+            None => Outcome::Unsolvable,
+        };
+
+        SearchResult { outcome, stats }
+    }
+
+    /// Processes inconsistent vertices until the target is settled (`true`) or `budget`
+    /// runs out (`false`), and returns that with this call's counters, which are also
+    /// added to [`Incremental::total`]. The target's `g` is final only after `true`.
+    pub(super) fn repair<G: Searched<Vertex = V, Cost = C>>(
         &mut self,
         graph: &G,
         mut budget: impl Budget<Stats>,
-    ) -> DynamicResult<G> {
+    ) -> (bool, Stats) {
         let mut stats = Stats::default();
         self.begin_iteration();
         while let Some((&key, vertex)) = self.queue.first() {
@@ -186,10 +269,7 @@ where
 
             if budget.exhausted(&stats) {
                 self.total = self.total.plus(stats);
-                return SearchResult {
-                    outcome: Outcome::LimitReached,
-                    stats,
-                };
+                return (false, stats);
             }
 
             stats.expanded += 1;
@@ -197,16 +277,12 @@ where
         }
 
         self.total = self.total.plus(stats);
-        let outcome = match self.path(graph) {
-            Some(solution) => Outcome::Found(solution),
-            None => Outcome::Unsolvable,
-        };
 
-        SearchResult { outcome, stats }
+        (true, stats)
     }
 
     /// Updates the vertex whose `rhs` depends on the changed edge `from -> to`.
-    pub(super) fn edge_changed<G: DynamicGraph<Vertex = V, Cost = C>>(
+    pub(super) fn edge_changed<G: Searched<Vertex = V, Cost = C>>(
         &mut self,
         graph: &G,
         from: &V,
@@ -309,7 +385,7 @@ where
     /// Processes the queued vertex `vertex` with queue key `old`: re-keys it if its key
     /// grew, settles it if overconsistent, or resets it if underconsistent. Returns the
     /// number of neighbours generated.
-    fn process<G: DynamicGraph<Vertex = V, Cost = C>>(
+    fn process<G: Searched<Vertex = V, Cost = C>>(
         &mut self,
         graph: &G,
         vertex: VertexId,
@@ -352,13 +428,17 @@ where
 
     /// Recomputes `rhs(vertex)` from its neighbours towards the source and queues the
     /// vertex if it is inconsistent.
-    fn update<G: DynamicGraph<Vertex = V, Cost = C>>(&mut self, graph: &G, vertex: VertexId) {
+    fn update<G: Searched<Vertex = V, Cost = C>>(&mut self, graph: &G, vertex: VertexId) {
         if vertex != self.source {
-            self.rhs[vertex] = self
-                .towards_source(graph, vertex)
-                .into_iter()
-                .filter_map(|(id, cost)| self.g[id].map(|g| g + cost))
-                .reduce(|a, b| if b.cmp(&a).is_lt() { b } else { a });
+            self.rhs[vertex] = if G::LOOKAHEAD {
+                let g = |other: &V| self.find(other).and_then(|id| self.g[id]);
+                graph.lookahead(&self.vertices[vertex], g)
+            } else {
+                self.towards_source(graph, vertex)
+                    .into_iter()
+                    .filter_map(|(id, cost)| self.g[id].map(|g| g + cost))
+                    .reduce(|a, b| if b.cmp(&a).is_lt() { b } else { a })
+            };
         }
 
         self.requeue(vertex);
@@ -429,7 +509,7 @@ where
 
     /// The neighbours of `vertex` one step closer to the source, with edge costs:
     /// predecessors for LPA*, successors for D* Lite.
-    fn towards_source<G: DynamicGraph<Vertex = V, Cost = C>>(
+    fn towards_source<G: Searched<Vertex = V, Cost = C>>(
         &mut self,
         graph: &G,
         vertex: VertexId,
@@ -439,7 +519,7 @@ where
 
     /// The neighbours of `vertex` one step further from the source: successors for LPA*,
     /// predecessors for D* Lite.
-    fn away_from_source<G: DynamicGraph<Vertex = V, Cost = C>>(
+    fn away_from_source<G: Searched<Vertex = V, Cost = C>>(
         &mut self,
         graph: &G,
         vertex: VertexId,
@@ -453,7 +533,7 @@ where
     }
 
     /// The successors (if `successors`) or predecessors of `vertex`, interned, with costs.
-    fn neighbours<G: DynamicGraph<Vertex = V, Cost = C>>(
+    fn neighbours<G: Searched<Vertex = V, Cost = C>>(
         &mut self,
         graph: &G,
         vertex: VertexId,
@@ -479,10 +559,7 @@ where
 
     /// A cheapest path between source and target over tight edges (`g(u) = c + g(v)`),
     /// found by breadth-first search from the target, in travel direction.
-    fn path<G: DynamicGraph<Vertex = V, Cost = C>>(
-        &mut self,
-        graph: &G,
-    ) -> Option<Solution<V, (), C>> {
+    fn path<G: Searched<Vertex = V, Cost = C>>(&mut self, graph: &G) -> Option<Solution<V, (), C>> {
         self.g[self.target]?;
 
         let mut parent: Vec<Option<(VertexId, C)>> = vec![None; self.vertices.len()];
@@ -530,7 +607,7 @@ where
     /// AD*'s path when inconsistent vertices break every tight chain: from the target,
     /// repeatedly step to the unvisited neighbour towards the source with the smallest
     /// `c + g`. `None` if that gets stuck.
-    fn greedy_path<G: DynamicGraph<Vertex = V, Cost = C>>(
+    fn greedy_path<G: Searched<Vertex = V, Cost = C>>(
         &mut self,
         graph: &G,
     ) -> Option<Solution<V, (), C>> {
@@ -594,6 +671,15 @@ where
             states,
             cost,
         }
+    }
+
+    /// The id of `vertex` if it has been interned.
+    fn find(&self, vertex: &V) -> Option<VertexId> {
+        let hash = self.hasher.hash_one(vertex);
+
+        self.index
+            .find(hash, |&id| self.vertices[id] == *vertex)
+            .copied()
     }
 
     /// The id of `vertex`, interning it with infinite `g` and `rhs` if it is new.
