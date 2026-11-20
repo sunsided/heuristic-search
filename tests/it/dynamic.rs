@@ -389,3 +389,32 @@ fn ad_star_improves_while_driving() {
         expected
     );
 }
+
+/// A cheaper parallel edge that a stale, inflated `g` hides still sets the path's cost.
+#[test]
+fn ad_star_costs_parallel_edges_by_the_cheapest() {
+    let mut graph = Edges {
+        nodes: 3,
+        edges: vec![(2, 1, 4), (0, 2, 1), (2, 1, 4)],
+    };
+    let unit = |a: &usize, b: &usize| u64::from(a != b);
+    let mut planner = AdStar::new(&graph, 0, 1, unit, Weight::integer(1));
+    assert_eq!(
+        planner
+            .compute(&graph, Limits::NONE)
+            .solution()
+            .map(|s| s.cost),
+        Some(5)
+    );
+
+    graph.edges[0].2 = 3;
+    planner.edge_changed(&graph, &2, &1);
+    planner.set_weight(Weight::new(5, 2));
+    let solution = planner
+        .compute(&graph, Limits::NONE)
+        .into_solution()
+        .expect("1 is reachable");
+
+    assert_eq!(solution.states, [0, 2, 1]);
+    assert_path(&graph, &solution.states, solution.cost);
+}

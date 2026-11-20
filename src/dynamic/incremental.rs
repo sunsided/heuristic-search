@@ -464,13 +464,14 @@ where
             }
 
             let g = self.g[vertex]?;
-            for (next, cost) in self.towards_source(graph, vertex) {
+            let neighbours = self.towards_source(graph, vertex);
+            for &(next, cost) in &neighbours {
                 let tight = self
                     .g
                     .get(next)
                     .copied()
                     .flatten()
-                    .is_some_and(|g_next| (g_next + cost).cmp(&g).is_eq());
+                    .is_some_and(|g_next| g_next + cost == g);
                 if !tight || seen.get(next).copied().unwrap_or(false) {
                     continue;
                 }
@@ -481,7 +482,7 @@ where
                 }
 
                 seen[next] = true;
-                parent[next] = Some((vertex, cost));
+                parent[next] = Some((vertex, cheapest_edge(&neighbours, next)));
                 frontier.push_back(next);
             }
         }
@@ -591,4 +592,17 @@ where
 fn is_below(a: Weight, b: Weight) -> bool {
     u64::from(a.numerator()) * u64::from(b.denominator())
         < u64::from(b.numerator()) * u64::from(a.denominator())
+}
+
+/// The cheapest of the parallel edges to `target` among `neighbours`.
+///
+/// A stale `g` under AD* inflation can make a dearer parallel edge the tight one; the
+/// path's states are the same, and its cost is that of the cheapest edges between them.
+fn cheapest_edge<C: Cost>(neighbours: &[(VertexId, C)], target: VertexId) -> C {
+    neighbours
+        .iter()
+        .filter(|&&(id, _)| id == target)
+        .map(|&(_, cost)| cost)
+        .min()
+        .expect("`target` is one of the neighbours")
 }
