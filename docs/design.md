@@ -1,7 +1,7 @@
 # heuristic-search: design
 
-Status: draft on branch `draft/initial`. Every algorithm of milestones 1 to 6 is
-implemented; see [Milestones](#milestones).
+Status: draft on branch `draft/algorithms` (from `draft/initial`). Every algorithm of
+milestones 1 to 7 is implemented; see [Milestones](#milestones).
 
 ## Goal and scope
 

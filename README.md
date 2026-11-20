@@ -6,7 +6,7 @@ Explicit-state heuristic graph search: A*, weighted and anytime, bounded-subopti
 
 Pre-release; the API will change. See [docs/design.md](docs/design.md).
 
-Implemented on the `draft/initial` branch:
+Implemented on the `draft/algorithms` branch (milestones 1 to 6 on `draft/initial`):
 
 - Foundational: BFS, Dijkstra, A*, greedy best-first search (GBFS); DFS, depth-limited DFS,
   iterative deepening DFS, IDA*, IDA* with a bounded transposition table; depth cutoffs
