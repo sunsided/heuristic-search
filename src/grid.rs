@@ -312,6 +312,12 @@ impl Heuristic<GridCell, Octile> for OctileDistance {
 /// A [`UniformGrid`] as an 8-connected graph with [`Octile`] costs, for the general searches
 /// ([`a_star`](crate::a_star) and the others) on the same moves that [`jps`] uses.
 ///
+/// It implements [`Successors`] only. The searches that also need
+/// [`CostExt`](crate::CostExt) on the cost ([`ana_star`](crate::ana_star),
+/// [`dps`](crate::dps), [`dibbs`](crate::dibbs), [`bae_star`](crate::bae_star),
+/// [`bidirectional_dijkstra`](crate::bidirectional_dijkstra)) or
+/// [`Predecessors`](crate::Predecessors) do not run on it: `Octile` has no subtraction.
+///
 /// Edges follow the corner rule of [`UniformGrid`]; an edge's action is
 /// its [`GridStep`]. Blocked cells and cells off the grid have no successors.
 ///

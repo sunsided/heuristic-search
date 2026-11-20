@@ -2,7 +2,7 @@
 //! `memory - 1` edges (a bounded Bellman-Ford oracle), `Cutoff` when memory is too small
 //! and `Unsolvable` only when no goal is reachable.
 
-use heuristic_search::{Limits, Outcome, Zero, heuristic_fn, sma_star};
+use heuristic_search::{Limits, Outcome, Zero, heuristic_fn, sma_star, sma_star_multi};
 use proptest::prelude::*;
 
 use crate::fixtures::{Graph, assert_valid_path, distances_to, graph_and_goal};
@@ -142,6 +142,45 @@ proptest! {
         if memory > graph.edges.len() {
             prop_assert_eq!(result.solution().map(|s| s.cost), exact[0]);
             prop_assert_ne!(&result.outcome, &Outcome::Cutoff);
+        }
+    }
+
+    /// From several starts under tight memory, SMA* returns the cheapest path of at most
+    /// `memory - k` edges over all `k` distinct starts.
+    #[test]
+    fn sma_star_multi_matches_bounded_oracle(
+        (graph, goal) in graph_and_goal(),
+        raw in prop::collection::vec(0_usize..12, 1..4),
+        memory in 1_usize..=10,
+    ) {
+        let nodes = graph.edges.len();
+        let mut starts: Vec<usize> = raw.iter().map(|s| s % nodes).collect();
+        starts.dedup();
+        let mut distinct = starts.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        let k = distinct.len();
+        let exact = distances_to(&graph, goal);
+        let h = heuristic_fn(|s: &usize| exact[*s]);
+        let result = sma_star_multi(&graph, starts.clone(), &|s: &usize| *s == goal, h, memory, Limits::expansions(1_000_000));
+
+        let within = if distinct.contains(&goal) {
+            Some(0)
+        } else if k > memory {
+            None
+        } else {
+            distinct.iter().filter_map(|&s| cheapest_within(&graph, s, goal, memory - k)).min()
+        };
+
+        match &result.outcome {
+            Outcome::Found(solution) => {
+                prop_assert!(distinct.contains(&solution.states[0]));
+                assert_valid_path(&graph, solution.states[0], solution);
+                prop_assert_eq!(Some(solution.cost), within);
+            }
+            Outcome::Cutoff => prop_assert_eq!(within, None),
+            Outcome::Unsolvable => prop_assert!(distinct.iter().all(|&s| exact[s].is_none())),
+            Outcome::LimitReached => prop_assert!(false, "SMA* did not terminate"),
         }
     }
 }

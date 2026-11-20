@@ -89,9 +89,10 @@ pub enum Outcome<S, A, C> {
     Unsolvable,
     /// The [`Budget`] stopped the search before it could decide.
     LimitReached,
-    /// A search with its own bound, such as the depth limit of
-    /// [`depth_limited_dfs`](crate::depth_limited_dfs), cut states off and found no goal
-    /// within the bound. A goal may lie beyond it; a larger bound may find it.
+    /// A search with its own bound cut states off and found no goal within the bound: the
+    /// depth limit of [`depth_limited_dfs`](crate::depth_limited_dfs), the beam width of
+    /// [`beam_search`](crate::beam_search), or the memory of
+    /// [`sma_star`](crate::sma_star). A goal may lie beyond it; a larger bound may find it.
     Cutoff,
 }
 

@@ -55,6 +55,11 @@ use crate::problem::{Successors, collect_successors};
 /// is a depth-first branch and bound; very wide beams approach breadth-first branch and
 /// bound.
 ///
+/// Narrow beams can take very long to *complete*, because every backtracking step
+/// regenerates a layer: on a 64 x 64 grid with a wall, width 64 proves the optimum in
+/// under a millisecond and width 16 takes about a minute. Pass a [`Budget`] when the width
+/// is small compared with the layers, and use the anytime solutions.
+///
 /// # Panics
 ///
 /// Panics if `width` is zero.

@@ -343,9 +343,12 @@ Per-algorithm notes:
   no reopening, the closed set never misses a cheaper grid path). Lazy Theta* breaks that
   bound on some maps (found by the property test), so its docs do not claim it. On the
   benchmark grid: Theta* 1.8 ms, Lazy Theta* 0.71 ms.
-- Field D* is not implemented: it interpolates costs along cell edges over a node lattice
-  at cell corners and is an incremental (D* Lite) planner, so it shares neither the cost
-  model nor the machinery of Theta*.
+- Field D* is not implemented yet. It is an incremental planner on D* Lite's machinery
+  (the `dynamic` module) over a different model: a node lattice at cell corners, per-cell
+  traversal costs, and costs interpolated along cell edges, with path extraction through
+  points inside edges (so its states are not cells). It shares nothing with Theta* beyond
+  the grid trait, and the `dynamic` module was being reworked on another branch when the
+  grid searches were added, so it is left for after that work lands.
 - Grids: `UniformGrid` (width, height, `is_passable(x, y)`), cells `(x, y)`, 8-connected
   **without corner cutting** (a diagonal move needs both orthogonal neighbours open).
   Costs are `Octile { straight, diagonal }`, the exact value `straight + diagonal * √2`:

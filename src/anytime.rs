@@ -27,7 +27,8 @@ pub struct AnytimeResult<S, A, C> {
     /// `true` if the search finished on its own rather than being stopped by its budget.
     ///
     /// Then [`AnytimeResult::solution`] carries the algorithm's final guarantee (optimal for
-    /// [`ana_star`], within the last weight of the schedule for [`ara_star`]), and `None`
+    /// [`ana_star`] and [`beam_stack_search`](crate::beam_stack_search), within the last
+    /// weight of the schedule for [`ara_star`]), and `None`
     /// means no goal is reachable.
     pub complete: bool,
     /// Counters collected over all iterations.
