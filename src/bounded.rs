@@ -22,11 +22,13 @@ pub use ees::{EesEstimates, ees};
 use alloc::vec::Vec;
 use core::hash::Hash;
 
+use search_core::{Budget, Goal, Heuristic};
+
 use crate::best_first::GraphResult;
 use crate::cost::Weight;
 use crate::focal::FocalList;
-use crate::outcome::{Budget, Outcome, SearchResult, Stats};
-use crate::problem::{Goal, Heuristic, Successors, collect_successors};
+use crate::outcome::{Outcome, SearchResult, Stats};
+use crate::problem::{Successors, collect_successors};
 use crate::space::{NodeId, Reach, SearchSpace};
 
 /// The focal key of a search node, computed along the path that reaches it.
@@ -161,7 +163,7 @@ pub fn focal_search<G, T, H, F>(
     heuristic: H,
     focal: F,
     weight: Weight,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,
@@ -230,7 +232,7 @@ where
     fn run<T: Goal<G::State> + ?Sized>(
         mut self,
         goal: &T,
-        mut budget: impl Budget,
+        mut budget: impl Budget<Stats>,
     ) -> GraphResult<G> {
         for start in 0..self.space.len() {
             self.add_node(start);

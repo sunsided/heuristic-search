@@ -1,7 +1,9 @@
 //! What a search returns: [`SearchResult`] with an [`Outcome`] and [`Stats`], and the
-//! [`Budget`] that can stop it early.
+//! [`Limits`], the counter [`Budget`] that stops it early.
 
 use alloc::vec::Vec;
+
+use search_core::Budget;
 
 /// Counters collected during one search run.
 ///
@@ -118,23 +120,6 @@ impl<S, A, C> SearchResult<S, A, C> {
     }
 }
 
-/// Decides when a search must stop before it finishes.
-///
-/// Asked before every expansion, with the counters so far, so a search stopped by
-/// [`Limits::max_expansions`] `= n` has expanded exactly `n` states.
-/// Implemented for [`Limits`] and for every `FnMut(&Stats) -> bool`, which lets callers with
-/// a clock (this crate is `no_std`) add a time limit.
-pub trait Budget {
-    /// Returns `true` if the search must stop now, given the counters so far.
-    fn exhausted(&mut self, stats: &Stats) -> bool;
-}
-
-impl<F: FnMut(&Stats) -> bool> Budget for F {
-    fn exhausted(&mut self, stats: &Stats) -> bool {
-        self(stats)
-    }
-}
-
 /// Simple counter limits. The default is unlimited.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Limits {
@@ -157,7 +142,11 @@ impl Limits {
     }
 }
 
-impl Budget for Limits {
+/// Asked before every expansion, with the counters so far, so a search stopped by
+/// [`Limits::max_expansions`] `= n` has expanded exactly `n` states. Closures
+/// `FnMut(&Stats) -> bool` are budgets too, which lets callers with a clock (this crate is
+/// `no_std`) add a time limit; annotate the argument (`|stats: &Stats| ...`).
+impl Budget<Stats> for Limits {
     fn exhausted(&mut self, stats: &Stats) -> bool {
         self.max_expansions.is_some_and(|max| stats.expanded >= max)
     }

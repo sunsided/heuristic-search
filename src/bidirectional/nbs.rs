@@ -5,12 +5,14 @@ use core::hash::Hash;
 
 use alloc::vec::Vec;
 
+use search_core::{Budget, Cost, Heuristic};
+
 use crate::best_first::GraphResult;
 use crate::bidirectional::{BidirectionalGraph, Core, Direction};
-use crate::cost::{Cost, Ordered};
+use crate::cost::Ordered;
 use crate::keyed_set::KeyedSet;
-use crate::outcome::Budget;
-use crate::problem::{Heuristic, Successors};
+use crate::outcome::Stats;
+use crate::problem::Successors;
 use crate::space::NodeId;
 
 /// Near-Optimal Bidirectional Search (NBS): expands pairs of states, one per side, and
@@ -80,7 +82,7 @@ pub fn nbs<G, HF, HB>(
     goals: impl IntoIterator<Item = G::State>,
     forward: HF,
     backward: HB,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: BidirectionalGraph,
@@ -137,7 +139,7 @@ where
 
     /// Expands pairs until `CLB` reaches the best meet, a side runs empty or the budget is
     /// used up.
-    fn run(mut self, mut budget: impl Budget) -> GraphResult<G> {
+    fn run(mut self, mut budget: impl Budget<Stats>) -> GraphResult<G> {
         let mut touched = Vec::new();
         while !self.side_exhausted() && !self.core.proven(self.clb) {
             self.promote(Direction::Forward);
@@ -174,7 +176,7 @@ where
     fn promote(&mut self, direction: Direction) {
         let side = direction.index();
         while let Some((&(Ordered(f), Reverse(Ordered(g))), id)) = self.waiting[side].first() {
-            if f.cmp_cost(&self.clb).is_gt() {
+            if f.cmp(&self.clb).is_gt() {
                 break;
             }
 
@@ -189,7 +191,7 @@ where
         let (backward, v) = self.ready[1].first()?;
 
         (forward.0.0 + backward.0.0)
-            .cmp_cost(&self.clb)
+            .cmp(&self.clb)
             .is_le()
             .then_some((u, v))
     }
@@ -208,9 +210,9 @@ where
 
         let next = waiting
             .chain(ready)
-            .reduce(|a, b| if b.cmp_cost(&a).is_lt() { b } else { a })
+            .reduce(|a, b| if b.cmp(&a).is_lt() { b } else { a })
             .expect("both sides have open states");
-        debug_assert!(next.cmp_cost(&self.clb).is_gt(), "CLB must grow");
+        debug_assert!(next.cmp(&self.clb).is_gt(), "CLB must grow");
 
         self.clb = next;
     }

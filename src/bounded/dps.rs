@@ -4,11 +4,14 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use core::hash::Hash;
 
+use search_core::{Budget, Goal, Heuristic};
+
 use crate::best_first::GraphResult;
-use crate::cost::{Cost, Ordered, Weight, within};
+use crate::cost::CostExt;
+use crate::cost::{Ordered, Weight, within};
 use crate::keyed_set::KeyedSet;
-use crate::outcome::{Budget, Outcome, SearchResult, Stats};
-use crate::problem::{Goal, Heuristic, Successors, collect_successors};
+use crate::outcome::{Outcome, SearchResult, Stats};
+use crate::problem::{Successors, collect_successors};
 use crate::space::{NodeId, Reach, SearchSpace};
 
 /// Dynamic Potential Search (DPS): bounded suboptimal search without a second estimate,
@@ -23,7 +26,7 @@ use crate::space::{NodeId, Reach, SearchSpace};
 /// The potential changes whenever `f_min` does, so open states are grouped by their
 /// `(g, h)` pair, as in the paper, and every expansion scans the groups. That is cheap when
 /// costs are small integers and few distinct pairs exist, and linear in the open list in
-/// the worst case. Potentials are compared in `f64` (see [`Cost::to_f64`]); the bound is
+/// the worst case. Potentials are compared in `f64` (see [`CostExt::to_f64`](crate::CostExt::to_f64)); the bound is
 /// checked exactly. Ties go to larger `g`.
 ///
 /// # Panics
@@ -60,12 +63,13 @@ pub fn dps<G, T, H>(
     goal: &T,
     heuristic: H,
     weight: Weight,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,
     G::State: Clone + Hash + Eq,
     G::Action: Clone,
+    G::Cost: CostExt,
     T: Goal<G::State> + ?Sized,
     H: Heuristic<G::State, G::Cost>,
 {
@@ -129,13 +133,14 @@ where
     G: Successors,
     G::State: Clone + Hash + Eq,
     G::Action: Clone,
+    G::Cost: CostExt,
     H: Heuristic<G::State, G::Cost>,
 {
     /// Expands until a goal is expanded, nothing is open or the budget is used up.
     fn run<T: Goal<G::State> + ?Sized>(
         mut self,
         goal: &T,
-        mut budget: impl Budget,
+        mut budget: impl Budget<Stats>,
     ) -> GraphResult<G> {
         for start in 0..self.space.len() {
             self.add_node(start);
@@ -258,7 +263,7 @@ where
 }
 
 /// The potential `(budget - g) / h` of a group; infinite for `h = 0`.
-fn potential<C: Cost>(budget: f64, g: C, h: C) -> f64 {
+fn potential<C: CostExt>(budget: f64, g: C, h: C) -> f64 {
     let h = h.to_f64();
     if h > 0.0 {
         (budget - g.to_f64()) / h

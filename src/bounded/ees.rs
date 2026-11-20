@@ -4,12 +4,14 @@ use alloc::vec::Vec;
 use core::cmp::Reverse;
 use core::hash::Hash;
 
+use search_core::{Budget, Cost, Goal, Heuristic};
+
 use crate::best_first::GraphResult;
-use crate::cost::{Cost, Ordered, Weight, within};
+use crate::cost::{Ordered, Weight, within};
 use crate::focal::FocalList;
 use crate::keyed_set::KeyedSet;
-use crate::outcome::{Budget, Outcome, SearchResult, Stats};
-use crate::problem::{Goal, Heuristic, Successors, collect_successors};
+use crate::outcome::{Outcome, SearchResult, Stats};
+use crate::problem::{Successors, collect_successors};
 use crate::space::{NodeId, Reach, SearchSpace};
 
 /// The three estimates [`ees`] combines.
@@ -79,7 +81,7 @@ pub fn ees<G, T, H, Hh, D, Dc>(
     goal: &T,
     estimates: EesEstimates<H, Hh, D>,
     weight: Weight,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,
@@ -157,7 +159,7 @@ where
     fn run<T: Goal<G::State> + ?Sized>(
         mut self,
         goal: &T,
-        mut budget: impl Budget,
+        mut budget: impl Budget<Stats>,
     ) -> GraphResult<G> {
         for start in 0..self.space.len() {
             self.add_node(start);

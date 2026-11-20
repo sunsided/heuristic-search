@@ -34,10 +34,12 @@ use core::hash::{BuildHasher, Hash};
 
 use hashbrown::{DefaultHashBuilder, HashTable};
 
-use crate::cost::{Cost, Ordered, Weight};
+use search_core::{Budget, Cost};
+
+use crate::cost::{Ordered, Weight};
 use crate::dynamic::{DynamicGraph, DynamicResult};
 use crate::keyed_set::KeyedSet;
-use crate::outcome::{Budget, Outcome, SearchResult, Solution, Stats};
+use crate::outcome::{Outcome, SearchResult, Solution, Stats};
 
 /// A queue key `[min(g, rhs) + h + km, min(g, rhs)]`, compared lexicographically.
 type Key<C> = (Ordered<C>, Ordered<C>);
@@ -141,7 +143,7 @@ where
     pub(super) fn compute<G: DynamicGraph<Vertex = V, Cost = C>>(
         &mut self,
         graph: &G,
-        mut budget: impl Budget,
+        mut budget: impl Budget<Stats>,
     ) -> DynamicResult<G> {
         let mut stats = Stats::default();
         self.begin_iteration();
@@ -253,7 +255,7 @@ where
 
         let overconsistent = match (self.g[vertex], self.rhs[vertex]) {
             (None, _) => true,
-            (Some(g), Some(rhs)) => g.cmp_cost(&rhs).is_gt(),
+            (Some(g), Some(rhs)) => g.cmp(&rhs).is_gt(),
             (Some(_), None) => false,
         };
 
@@ -285,7 +287,7 @@ where
                 .towards_source(graph, vertex)
                 .into_iter()
                 .filter_map(|(id, cost)| self.g[id].map(|g| g + cost))
-                .reduce(|a, b| if b.cmp_cost(&a).is_lt() { b } else { a });
+                .reduce(|a, b| if b.cmp(&a).is_lt() { b } else { a });
         }
 
         self.requeue(vertex);
@@ -318,7 +320,7 @@ where
     fn key(&mut self, vertex: VertexId) -> Option<Key<C>> {
         let (g, rhs) = (self.g[vertex], self.rhs[vertex]);
         let overconsistent = match (g, rhs) {
-            (Some(g), Some(rhs)) => rhs.cmp_cost(&g).is_lt(),
+            (Some(g), Some(rhs)) => rhs.cmp(&g).is_lt(),
             (None, rhs) => rhs.is_some(),
             (Some(_), None) => false,
         };
@@ -332,8 +334,8 @@ where
             weight.denominator()
         };
         let first = (best + self.km)
-            .times(weight.denominator())
-            .saturating_add(h.times(inflation));
+            .saturating_times(weight.denominator())
+            .saturating_add(h.saturating_times(inflation));
 
         Some((Ordered(first), Ordered(best)))
     }
@@ -423,7 +425,7 @@ where
                     .get(next)
                     .copied()
                     .flatten()
-                    .is_some_and(|g_next| (g_next + cost).cmp_cost(&g).is_eq());
+                    .is_some_and(|g_next| (g_next + cost).cmp(&g).is_eq());
                 if !tight || seen.get(next).copied().unwrap_or(false) {
                     continue;
                 }
@@ -465,7 +467,7 @@ where
                 .into_iter()
                 .filter(|&(id, _)| !seen.get(id).copied().unwrap_or(false))
                 .filter_map(|(id, cost)| self.g[id].map(|g| (id, cost, g + cost)))
-                .reduce(|a, b| if b.2.cmp_cost(&a.2).is_lt() { b } else { a })
+                .reduce(|a, b| if b.2.cmp(&a.2).is_lt() { b } else { a })
                 .map(|(id, cost, _)| (id, cost))?;
 
             if seen.len() <= next {

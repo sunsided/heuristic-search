@@ -1,13 +1,16 @@
 //! Anytime Nonparametric A* ([`ana_star`], van den Berg, Shah, Huang and Goldberg 2011).
 
 use alloc::vec::Vec;
+use core::cmp::Ordering;
 use core::hash::Hash;
 
+use search_core::{Budget, Cost, Goal, Heuristic};
+
 use crate::anytime::{AnytimeGraphResult, AnytimeResult};
-use crate::cost::Cost;
+use crate::cost::CostExt;
 use crate::open_list::OpenList;
-use crate::outcome::{Budget, Solution, Stats};
-use crate::problem::{Goal, Heuristic, Successors, collect_successors};
+use crate::outcome::{Solution, Stats};
+use crate::problem::{Successors, collect_successors};
 use crate::space::{NodeId, Reach, SearchSpace};
 
 /// Anytime Nonparametric A* (ANA*): anytime search without a weight schedule.
@@ -21,7 +24,7 @@ use crate::space::{NodeId, Reach, SearchSpace};
 ///
 /// Closed states are reopened when a cheaper path to them turns up, so the final solution
 /// is optimal for any admissible `heuristic`, consistent or not. Goals are tested when they
-/// are expanded. The priority is computed in `f64` (see [`Cost::to_f64`]); rounding only
+/// are expanded. The priority is computed in `f64` (see [`CostExt::to_f64`](crate::CostExt::to_f64)); rounding only
 /// changes the expansion order, never the returned cost.
 ///
 /// # Examples
@@ -64,12 +67,13 @@ pub fn ana_star<G, T, H>(
     goal: &T,
     heuristic: H,
     on_solution: impl FnMut(&Solution<G::State, G::Action, G::Cost>, G::Cost),
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> AnytimeGraphResult<G>
 where
     G: Successors,
     G::State: Clone + Hash + Eq,
     G::Action: Clone,
+    G::Cost: CostExt,
     T: Goal<G::State> + ?Sized,
     H: Heuristic<G::State, G::Cost>,
 {
@@ -115,7 +119,7 @@ struct Ana<'a, G: Successors, T: ?Sized, H> {
     /// Whether each node is on the open list.
     open_flag: Vec<bool>,
     /// The open list, keyed by `-e` (or by `h` before the first solution).
-    open: OpenList<f64, G::Cost>,
+    open: OpenList<Priority, G::Cost>,
     /// The cheapest goal node found so far.
     incumbent: Option<NodeId>,
     /// `G`, the cost of the incumbent when it was found.
@@ -132,6 +136,7 @@ where
     G: Successors,
     G::State: Clone + Hash + Eq,
     G::Action: Clone,
+    G::Cost: CostExt,
     T: Goal<G::State> + ?Sized,
     H: Heuristic<G::State, G::Cost>,
 {
@@ -139,7 +144,7 @@ where
     fn run(
         mut self,
         mut on_solution: impl FnMut(&Solution<G::State, G::Action, G::Cost>, G::Cost),
-        mut budget: impl Budget,
+        mut budget: impl Budget<Stats>,
     ) -> AnytimeGraphResult<G> {
         for start in 0..self.space.len() {
             self.add_node(start);
@@ -167,7 +172,7 @@ where
     /// Pops the open node with the best priority.
     fn pop(&mut self) -> Option<NodeId> {
         let (space, open_flag) = (&self.space, &self.open_flag);
-        let live = |node: NodeId, g: G::Cost| open_flag[node] && g.cmp_cost(&space.g(node)).is_eq();
+        let live = |node: NodeId, g: G::Cost| open_flag[node] && g.cmp(&space.g(node)).is_eq();
         let (node, _) = self.open.pop_where(live)?;
         self.open_flag[node] = false;
 
@@ -219,25 +224,25 @@ where
 
     /// The open-list key of `id`, or `None` if it must stay closed: a dead end, or a node
     /// with `g + h >= G`.
-    fn key(&self, id: NodeId) -> Option<f64> {
+    fn key(&self, id: NodeId) -> Option<Priority> {
         let h = self.h[id]?;
         let g = self.space.g(id);
         let Some(incumbent) = self.best else {
-            return Some(h.to_f64());
+            return Some(Priority(h.to_f64()));
         };
 
-        if (g + h).cmp_cost(&incumbent).is_ge() {
+        if (g + h).cmp(&incumbent).is_ge() {
             return None;
         }
 
         let slack = incumbent.saturating_sub(g).to_f64();
         let h = h.to_f64();
 
-        Some(if h > 0.0 {
+        Some(Priority(if h > 0.0 {
             -slack / h
         } else {
             f64::NEG_INFINITY
-        })
+        }))
     }
 
     /// Re-keys the open list for the new incumbent and drops nodes that cannot beat it.
@@ -262,9 +267,12 @@ where
         (0..self.space.len())
             .filter(|&id| self.open_flag[id])
             .filter_map(|id| self.h[id].map(|h| self.space.g(id) + h))
-            .fold(incumbent, |bound, f| {
-                if f.cmp_cost(&bound).is_lt() { f } else { bound }
-            })
+            .fold(
+                incumbent,
+                |bound, f| {
+                    if f.cmp(&bound).is_lt() { f } else { bound }
+                },
+            )
     }
 
     /// Wraps up the run.
@@ -274,5 +282,33 @@ where
             complete,
             stats: self.stats,
         }
+    }
+}
+
+/// An open-list key of ANA*: `h` before the first solution, `-e` after it.
+///
+/// Ordered by [`f64::total_cmp`]. The keys are never NaN (`h > 0` guards the division and
+/// costs are not NaN), but may be `-inf` for `h = 0`, so the `NonNegF64` cost type
+/// cannot hold them.
+#[derive(Debug, Clone, Copy)]
+struct Priority(f64);
+
+impl PartialEq for Priority {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+
+impl Eq for Priority {}
+
+impl PartialOrd for Priority {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Priority {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.total_cmp(&other.0)
     }
 }

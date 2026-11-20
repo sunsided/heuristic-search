@@ -4,11 +4,12 @@ use core::hash::Hash;
 
 use alloc::vec::Vec;
 
+use search_core::{Budget, Cost, Heuristic, Zero};
+
 use crate::best_first::GraphResult;
 use crate::bidirectional::{BidirectionalGraph, Core, Direction};
-use crate::cost::Cost;
-use crate::outcome::{Budget, Outcome, SearchResult, Solution};
-use crate::problem::{Heuristic, Predecessors, Successors, Zero};
+use crate::outcome::{Outcome, SearchResult, Solution, Stats};
+use crate::problem::{Predecessors, Successors};
 use crate::space::NodeId;
 
 /// Bidirectional breadth-first search: the path with the fewest edges.
@@ -63,7 +64,7 @@ pub fn bidirectional_bfs<G>(
     graph: &G,
     start: G::State,
     goals: impl IntoIterator<Item = G::State>,
-    mut budget: impl Budget,
+    mut budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: BidirectionalGraph,
@@ -101,7 +102,7 @@ fn expand_layer<G, HF, HB>(
     core: &mut Core<'_, G, HF, HB>,
     direction: Direction,
     layer: &[NodeId],
-    budget: &mut impl Budget,
+    budget: &mut impl Budget<Stats>,
 ) -> Option<Vec<NodeId>>
 where
     G: BidirectionalGraph,

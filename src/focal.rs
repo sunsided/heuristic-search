@@ -10,7 +10,9 @@
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
-use crate::cost::{Cost, Ordered, Weight, within};
+use search_core::Cost;
+
+use crate::cost::{Ordered, Weight, within};
 use crate::keyed_set::KeyedSet;
 
 /// How equal keys are ordered, after the primary and (for the focal sublist) the focal key.
@@ -30,8 +32,8 @@ impl TieBreak {
     /// Compares two path costs; [`Ordering::Less`] means `a` goes first.
     fn cmp_g<C: Cost>(self, a: C, b: C) -> Ordering {
         match self {
-            Self::LargerG => b.cmp_cost(&a),
-            Self::SmallerG => a.cmp_cost(&b),
+            Self::LargerG => b.cmp(&a),
+            Self::SmallerG => a.cmp(&b),
         }
     }
 }

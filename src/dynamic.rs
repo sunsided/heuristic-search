@@ -24,8 +24,10 @@ mod incremental;
 
 use core::hash::Hash;
 
-use crate::cost::{Cost, Weight};
-use crate::outcome::{Budget, SearchResult, Stats};
+use search_core::{Budget, Cost};
+
+use crate::cost::Weight;
+use crate::outcome::{SearchResult, Stats};
 use incremental::Incremental;
 
 /// A graph with stable vertices whose edge costs may change between searches.
@@ -126,7 +128,7 @@ where
     pub fn compute<G: DynamicGraph<Vertex = V, Cost = C>>(
         &mut self,
         graph: &G,
-        budget: impl Budget,
+        budget: impl Budget<Stats>,
     ) -> DynamicResult<G> {
         self.core.compute(graph, budget)
     }
@@ -223,7 +225,7 @@ where
     pub fn compute<G: DynamicGraph<Vertex = V, Cost = C>>(
         &mut self,
         graph: &G,
-        budget: impl Budget,
+        budget: impl Budget<Stats>,
     ) -> DynamicResult<G> {
         self.core.compute(graph, budget)
     }
@@ -341,7 +343,7 @@ where
     pub fn compute<G: DynamicGraph<Vertex = V, Cost = C>>(
         &mut self,
         graph: &G,
-        budget: impl Budget,
+        budget: impl Budget<Stats>,
     ) -> DynamicResult<G> {
         self.core.compute(graph, budget)
     }

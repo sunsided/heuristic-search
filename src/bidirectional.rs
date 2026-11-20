@@ -31,12 +31,11 @@ pub use nbs::nbs;
 use alloc::vec::Vec;
 use core::hash::Hash;
 
+use search_core::Heuristic;
+
 use crate::best_first::GraphResult;
-use crate::cost::Cost;
 use crate::outcome::{Outcome, SearchResult, Solution, Stats};
-use crate::problem::{
-    Heuristic, Predecessors, Successors, collect_predecessors, collect_successors,
-};
+use crate::problem::{Predecessors, Successors, collect_predecessors, collect_successors};
 use crate::space::{NodeId, Reach, SearchSpace};
 
 /// A graph that can be searched in both directions over the same states.
@@ -207,7 +206,7 @@ where
     /// Returns `true` if a meet exists and `bound` (a lower bound on every path not found
     /// yet) has reached it.
     fn proven(&self, bound: <G as Successors>::Cost) -> bool {
-        self.mu().is_some_and(|mu| bound.cmp_cost(&mu).is_ge())
+        self.mu().is_some_and(|mu| bound.cmp(&mu).is_ge())
     }
 
     /// Expands `node` on `direction`'s side and appends the new and improved live nodes to
@@ -285,7 +284,7 @@ where
         };
 
         let cost = self.g(direction, id) + self.g(other, other_id);
-        if self.mu().is_some_and(|mu| cost.cmp_cost(&mu).is_ge()) {
+        if self.mu().is_some_and(|mu| cost.cmp(&mu).is_ge()) {
             return;
         }
 

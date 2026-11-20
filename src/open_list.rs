@@ -4,7 +4,6 @@
 use alloc::collections::BinaryHeap;
 use core::cmp::Ordering;
 
-use crate::cost::Cost;
 use crate::space::NodeId;
 
 /// One open-list entry.
@@ -24,32 +23,32 @@ struct Entry<K, C> {
     node: NodeId,
 }
 
-impl<K: Cost, C: Cost> Entry<K, C> {
+impl<K: Ord, C: Ord> Entry<K, C> {
     /// Ordering where the entry to pop first is the *greatest*, as [`BinaryHeap`] wants.
     fn priority_cmp(&self, other: &Self) -> Ordering {
         other
             .key
-            .cmp_cost(&self.key)
-            .then_with(|| self.g.cmp_cost(&other.g))
+            .cmp(&self.key)
+            .then_with(|| self.g.cmp(&other.g))
             .then_with(|| other.seq.cmp(&self.seq))
     }
 }
 
-impl<K: Cost, C: Cost> PartialEq for Entry<K, C> {
+impl<K: Ord, C: Ord> PartialEq for Entry<K, C> {
     fn eq(&self, other: &Self) -> bool {
         self.priority_cmp(other).is_eq()
     }
 }
 
-impl<K: Cost, C: Cost> Eq for Entry<K, C> {}
+impl<K: Ord, C: Ord> Eq for Entry<K, C> {}
 
-impl<K: Cost, C: Cost> PartialOrd for Entry<K, C> {
+impl<K: Ord, C: Ord> PartialOrd for Entry<K, C> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<K: Cost, C: Cost> Ord for Entry<K, C> {
+impl<K: Ord, C: Ord> Ord for Entry<K, C> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.priority_cmp(other)
     }
@@ -67,7 +66,7 @@ pub(crate) struct OpenList<K, C = K> {
     pushes: u64,
 }
 
-impl<K: Cost, C: Cost> OpenList<K, C> {
+impl<K: Ord + Copy, C: Ord + Copy> OpenList<K, C> {
     /// Creates an empty open list.
     pub(crate) fn new() -> Self {
         Self {
@@ -91,7 +90,7 @@ impl<K: Cost, C: Cost> OpenList<K, C> {
     ///
     /// Outdated entries are dropped on the way. Returns `None` once the heap is empty.
     pub(crate) fn pop_live(&mut self, current_g: impl Fn(NodeId) -> C) -> Option<NodeId> {
-        self.pop_where(|node, g| g.cmp_cost(&current_g(node)).is_eq())
+        self.pop_where(|node, g| g.cmp(&current_g(node)).is_eq())
             .map(|(node, _)| node)
     }
 

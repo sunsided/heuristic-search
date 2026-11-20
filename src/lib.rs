@@ -64,7 +64,13 @@
 //! - [`AdStar`]: Anytime D*, D* Lite with an inflated heuristic the caller lowers.
 //!
 //! Costs are generic over [`Cost`]. For planning, `u32` is the intended default: action
-//! costs are small integers and heuristics over them stay exact.
+//! costs are small integers and heuristics over them stay exact. [`Cost`], [`Heuristic`],
+//! [`Goal`] and [`Budget`] come from `search-core` and are re-exported here; [`CostExt`]
+//! adds the subtraction and float conversion a few searches need.
+//!
+//! ## Features
+//!
+//! - `float`: re-exports the checked float cost `NonNegF64` from `search-core`.
 //!
 //! ## Example
 //!
@@ -134,11 +140,14 @@ pub use bidirectional::{
     BidirectionalGraph, bae_star, bidirectional_bfs, bidirectional_dijkstra, dibbs, nbs,
 };
 pub use bounded::{EesEstimates, FocalFn, FocalKey, dps, ees, focal_fn, focal_search};
-pub use cost::{Cost, Weight};
+pub use cost::{CostExt, Weight};
 pub use depth_first::{depth_limited_dfs, dfs, ida_star, iddfs};
 pub use dynamic::{AdStar, DStarLite, DynamicGraph, DynamicResult, LpaStar};
 pub use focal::{FocalList, TieBreak};
 pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp};
 pub use mha::{MhaWeights, mha_star};
-pub use outcome::{Budget, Limits, Outcome, SearchResult, Solution, Stats};
-pub use problem::{Goal, Heuristic, HeuristicFn, Predecessors, Successors, Zero, heuristic_fn};
+pub use outcome::{Limits, Outcome, SearchResult, Solution, Stats};
+pub use problem::{Predecessors, Successors};
+#[cfg(feature = "float")]
+pub use search_core::NonNegF64;
+pub use search_core::{Budget, Cost, Decimal, Goal, Heuristic, HeuristicFn, Zero, heuristic_fn};

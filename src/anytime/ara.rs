@@ -4,11 +4,13 @@ use alloc::vec::Vec;
 use core::hash::Hash;
 use core::iter::Peekable;
 
+use search_core::{Budget, Cost, Goal, Heuristic};
+
 use crate::anytime::{AnytimeGraphResult, AnytimeResult};
-use crate::cost::{Cost, Weight};
+use crate::cost::Weight;
 use crate::open_list::OpenList;
-use crate::outcome::{Budget, Solution, Stats};
-use crate::problem::{Goal, Heuristic, Successors, collect_successors};
+use crate::outcome::{Solution, Stats};
+use crate::problem::{Successors, collect_successors};
 use crate::space::{NodeId, Reach, SearchSpace};
 
 /// Anytime Repairing A* (ARA*): a series of Weighted A* searches with falling weights that
@@ -74,7 +76,7 @@ pub fn ara_star<G, T, H>(
     heuristic: H,
     weights: impl IntoIterator<Item = Weight>,
     on_solution: impl FnMut(&Solution<G::State, G::Action, G::Cost>, G::Cost),
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> AnytimeGraphResult<G>
 where
     G: Successors,
@@ -161,7 +163,7 @@ where
         mut self,
         mut weights: Peekable<I>,
         mut on_solution: impl FnMut(&Solution<G::State, G::Action, G::Cost>, G::Cost),
-        mut budget: impl Budget,
+        mut budget: impl Budget<Stats>,
     ) -> AnytimeGraphResult<G> {
         for start in 0..self.space.len() {
             self.add_node(start);
@@ -181,12 +183,12 @@ where
 
             if let Some(cost) = self.incumbent_cost() {
                 let lower_bound = self.lower_bound(cost);
-                if reported.is_none_or(|old| cost.cmp_cost(&old).is_lt()) {
+                if reported.is_none_or(|old| cost.cmp(&old).is_lt()) {
                     reported = Some(cost);
                     on_solution(&self.incumbent_solution(), lower_bound);
                 }
 
-                if lower_bound.cmp_cost(&cost).is_ge() {
+                if lower_bound.cmp(&cost).is_ge() {
                     return self.finish(true);
                 }
             }
@@ -215,18 +217,24 @@ where
     }
 
     /// Expands until the incumbent is within `weight` of the smallest open key.
-    fn improve_path(&mut self, weight: Weight, last: bool, budget: &mut impl Budget) -> Iteration {
+    fn improve_path(
+        &mut self,
+        weight: Weight,
+        last: bool,
+        budget: &mut impl Budget<Stats>,
+    ) -> Iteration {
         loop {
             let (space, open_flag) = (&self.space, &self.open_flag);
-            let live =
-                |node: NodeId, g: G::Cost| open_flag[node] && g.cmp_cost(&space.g(node)).is_eq();
+            let live = |node: NodeId, g: G::Cost| open_flag[node] && g.cmp(&space.g(node)).is_eq();
             let Some((node, key)) = self.open.peek_where(live) else {
                 return Iteration::Done;
             };
 
-            let done = self
-                .incumbent_cost()
-                .is_some_and(|cost| cost.times(weight.denominator()).cmp_cost(&key).is_le());
+            let done = self.incumbent_cost().is_some_and(|cost| {
+                cost.saturating_times(weight.denominator())
+                    .cmp(&key)
+                    .is_le()
+            });
             if done {
                 return Iteration::Done;
             }
@@ -313,7 +321,7 @@ where
     fn offer_incumbent(&mut self, id: NodeId) {
         let cheaper = self
             .incumbent_cost()
-            .is_none_or(|cost| self.space.g(id).cmp_cost(&cost).is_lt());
+            .is_none_or(|cost| self.space.g(id).cmp(&cost).is_lt());
         if cheaper {
             self.incumbent = Some(id);
         }
@@ -324,8 +332,8 @@ where
         let h = self.h[id].expect("only live nodes are opened");
         let g = self.space.g(id);
         let key = g
-            .times(weight.denominator())
-            .saturating_add(h.times(weight.numerator()));
+            .saturating_times(weight.denominator())
+            .saturating_add(h.saturating_times(weight.numerator()));
 
         self.open.push(id, key, g);
     }
@@ -345,7 +353,7 @@ where
             .filter_map(|id| self.h[id].map(|h| self.space.g(id) + h))
             .fold(
                 cost,
-                |bound, f| if f.cmp_cost(&bound).is_lt() { f } else { bound },
+                |bound, f| if f.cmp(&bound).is_lt() { f } else { bound },
             )
     }
 

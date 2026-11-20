@@ -16,6 +16,10 @@ Implemented on the `draft/initial` branch:
 - Multiple heuristics: shared MHA*
 - Expensive edge evaluation: LazySP
 - Dynamic graphs: LPA*, D* Lite, AD*
+- Shared traits: `Cost`, `Heuristic`, `Goal` and `Budget<Stats>` come from `search-core`
+  and are re-exported from the crate root. Costs are the unsigned integers, `Decimal<K>`
+  and (feature `float`) `NonNegF64`; signed and raw `f64` costs were dropped. The design document lists
+  the breaking changes under "Cross-crate needs".
 
 ## License
 

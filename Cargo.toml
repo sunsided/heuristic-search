@@ -11,13 +11,22 @@ readme = "README.md"
 keywords = ["search", "astar", "pathfinding", "heuristic", "planning"]
 categories = ["algorithms", "no-std"]
 
+[features]
+## The checked float cost `NonNegF64`, re-exported from `search-core`.
+float = ["search-core/float"]
+
 [dependencies]
 # Hash table for duplicate detection under no_std; see docs/design.md.
 hashbrown = { version = "0.16", default-features = false, features = ["default-hasher"] }
+# Shared Cost, Heuristic, Goal and Budget traits; re-exported from the crate root.
+search-core = { path = "../search-core", version = "0.0.0" }
 
 [dev-dependencies]
 criterion = { version = "0.7", default-features = false }
 proptest = "1.12"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [lints.rust]
 missing_docs = "warn"

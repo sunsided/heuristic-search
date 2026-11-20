@@ -4,9 +4,11 @@ use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::hash::Hash;
 
+use search_core::{Budget, Goal};
+
 use crate::best_first::GraphResult;
-use crate::outcome::{Budget, Outcome, SearchResult, Stats};
-use crate::problem::{Goal, Successors, collect_successors};
+use crate::outcome::{Outcome, SearchResult, Stats};
+use crate::problem::{Successors, collect_successors};
 use crate::space::{NodeId, Reach, SearchSpace};
 
 /// Breadth-first search from `start` to the goal with the fewest edges.
@@ -44,7 +46,7 @@ use crate::space::{NodeId, Reach, SearchSpace};
 /// assert_eq!(solution.actions, ['b', 'a', 'b']);
 /// assert_eq!(solution.cost, 5);
 /// ```
-pub fn bfs<G, T>(graph: &G, start: G::State, goal: &T, budget: impl Budget) -> GraphResult<G>
+pub fn bfs<G, T>(graph: &G, start: G::State, goal: &T, budget: impl Budget<Stats>) -> GraphResult<G>
 where
     G: Successors,
     G::State: Clone + Hash + Eq,
@@ -88,7 +90,7 @@ pub fn bfs_multi<G, T>(
     graph: &G,
     starts: impl IntoIterator<Item = G::State>,
     goal: &T,
-    mut budget: impl Budget,
+    mut budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,

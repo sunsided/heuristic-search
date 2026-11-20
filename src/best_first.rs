@@ -27,10 +27,12 @@
 use alloc::vec::Vec;
 use core::hash::Hash;
 
-use crate::cost::{Cost, Weight};
+use search_core::{Budget, Cost, Goal, Heuristic, Zero};
+
+use crate::cost::Weight;
 use crate::open_list::OpenList;
-use crate::outcome::{Budget, Outcome, SearchResult, Stats};
-use crate::problem::{Goal, Heuristic, Successors, Zero, collect_successors};
+use crate::outcome::{Outcome, SearchResult, Stats};
+use crate::problem::{Successors, collect_successors};
 use crate::space::{NodeId, Reach, SearchSpace};
 
 /// The result type of searches over graph `G`.
@@ -75,7 +77,7 @@ pub fn astar<G, T, H>(
     start: G::State,
     goal: &T,
     heuristic: H,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,
@@ -120,7 +122,12 @@ where
 /// assert_eq!(solution.actions, ['*', '*', '+', '*']);
 /// assert_eq!(solution.cost, 6);
 /// ```
-pub fn dijkstra<G, T>(graph: &G, start: G::State, goal: &T, budget: impl Budget) -> GraphResult<G>
+pub fn dijkstra<G, T>(
+    graph: &G,
+    start: G::State,
+    goal: &T,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
 where
     G: Successors,
     G::State: Clone + Hash + Eq,
@@ -166,7 +173,7 @@ pub fn weighted_astar<G, T, H>(
     goal: &T,
     heuristic: H,
     weight: Weight,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,
@@ -218,7 +225,7 @@ pub fn gbfs<G, T, H>(
     start: G::State,
     goal: &T,
     heuristic: H,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,
@@ -267,7 +274,7 @@ pub fn astar_multi<G, T, H>(
     starts: impl IntoIterator<Item = G::State>,
     goal: &T,
     heuristic: H,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,
@@ -288,7 +295,7 @@ pub fn dijkstra_multi<G, T>(
     graph: &G,
     starts: impl IntoIterator<Item = G::State>,
     goal: &T,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,
@@ -309,7 +316,7 @@ pub fn weighted_astar_multi<G, T, H>(
     goal: &T,
     heuristic: H,
     weight: Weight,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,
@@ -329,7 +336,7 @@ pub fn gbfs_multi<G, T, H>(
     starts: impl IntoIterator<Item = G::State>,
     goal: &T,
     heuristic: H,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,
@@ -361,8 +368,8 @@ impl Order {
         match self {
             Self::G => g,
             Self::Weighted(weight) => g
-                .times(weight.denominator())
-                .saturating_add(h.times(weight.numerator())),
+                .saturating_times(weight.denominator())
+                .saturating_add(h.saturating_times(weight.numerator())),
             Self::H => h,
         }
     }
@@ -421,7 +428,7 @@ where
     fn run(
         mut self,
         starts: impl IntoIterator<Item = G::State>,
-        mut budget: impl Budget,
+        mut budget: impl Budget<Stats>,
     ) -> GraphResult<G> {
         let (mut space, start_goal) = SearchSpace::seed(starts, self.goal);
         if let Some(found) = start_goal {

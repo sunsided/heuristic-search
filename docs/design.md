@@ -83,23 +83,43 @@ the same wrapper on every goal closure for no gain.
 
 ### Cost
 
+`Cost`, `Heuristic`, `Goal`, `Budget<Stats>`, `heuristic_fn` and `Zero` come from
+`search-core` and are re-exported from the crate root, so `use heuristic_search::Cost` keeps
+working. The shared trait:
+
 ```rust
-pub trait Cost: Copy + Add<Output = Self> {
+pub trait Cost: Copy + Ord + Add<Output = Self> {
     const ZERO: Self;
-    fn cmp_cost(&self, other: &Self) -> Ordering; // total order
-    fn times(self, factor: u32) -> Self;          // for weights
-    fn saturating_add(self, other: Self) -> Self; // for priority keys
+    fn saturating_add(self, other: Self) -> Self;      // for priority keys
+    fn saturating_times(self, factor: u32) -> Self;    // for weights
+}
+```
+
+Implemented by `search-core` for `u8`, `u16`, `u32`, `u64`, `u128`, `usize`, the fixed-point
+`Decimal<K>` and, behind the `float` feature, the checked float `NonNegF64` (never NaN,
+never negative). Signed and raw float costs are not costs any more: a negative edge voids
+the optimality guarantees, and raw `f64` is not `Ord`.
+
+Two operations that only some searches need stay local, in the extension trait `CostExt`:
+
+```rust
+pub trait CostExt: Cost {
     fn saturating_sub(self, other: Self) -> Self; // DIBBS/BAE* keys, ANA* slack
     fn to_f64(self) -> f64;                       // ANA* and DPS ratios, priorities only
 }
 ```
 
-Implemented for `u32`, `u64`, `usize`, `i64` and `f64`. Floats compare with `total_cmp`,
-so a NaN cost does not panic the heap. Weights are rational (`Weight::new(num, den)`), and
+It is implemented for every `search-core` cost type and bounds only `ana_star`, `dps`,
+`dibbs`, `bae_star` and `bidirectional_dijkstra` (which shares their loop). `NonNegF64`
+subtraction clamps at zero (`inf - inf` is zero). `Decimal<K>::to_f64` returns the raw unit
+count; the common factor `10^K` cancels in the ratios. ANA* keys its open list by a private
+`f64` wrapper ordered with `total_cmp`, since its keys can be `-inf`.
+
+Weights are rational (`Weight::new(num, den)`), and
 Weighted A* orders by `den * g + num * h`, which sorts like `g + w * h` without division, so
 integer costs stay exact.
 
-The key is computed with `times` and `saturating_add`, both saturating for integers, so
+The key is computed with `saturating_times` and `saturating_add`, both saturating for integers, so
 heuristic values near `u32::MAX` cannot panic. Keys that saturate tie, which only changes
 the expansion order among them. Path costs `g` themselves use plain `+`: a path whose true
 cost overflows the cost type is a caller error.
@@ -212,13 +232,13 @@ needed.
 ## Budgets
 
 ```rust
-pub trait Budget { fn exhausted(&mut self, stats: &Stats) -> bool; } // + impl for FnMut(&Stats) -> bool
+pub trait Budget<T> { fn exhausted(&mut self, stats: &T) -> bool; } // search-core; + impl for FnMut(&T) -> bool
 pub struct Limits { pub max_expansions: Option<u64> }
 ```
 
 Asked before every expansion. `Limits::expansions(n)` stops after exactly `n` expansions.
 A closure gives `std` callers a time limit or cancellation flag without the crate needing a
-clock.
+clock; annotate its argument (`|stats: &Stats| ...`). Searches take `impl Budget<Stats>`.
 
 ## Engine internals
 
@@ -248,7 +268,7 @@ The four best-first algorithms share one engine and differ only in the key (`g`,
 `den * g + num * h`, `h`) and the reopen flag. BFS uses the same search space with a FIFO
 queue and goal tests on generation.
 
-The lazy heap is generic over the key type (`OpenList<K, C>`, `f64` keys for ANA*) and has
+The lazy heap is generic over the key type (`OpenList<K, C>`, `total_cmp`-ordered `f64` keys for ANA*) and has
 `peek_where`/`pop_where` with a custom liveness predicate (ARA*, ANA* and MHA* also check
 an open flag). It serves A*, WA*, GBFS, Dijkstra, ARA*, ANA* and MHA*.
 
@@ -298,6 +318,8 @@ Per-algorithm notes:
   store each state once. Feature `default-hasher` (foldhash) only; no `std`, no
   `allocator-api2`. A `BTreeMap` would avoid the dependency but force `Ord` states and
   `O(log n)` lookups.
+- `search-core` (runtime, default features, path dependency): the shared `Cost`,
+  `Heuristic`, `Goal` and `Budget` traits. Feature `float` forwards to its `float`.
 - `proptest` (dev only).
 - `criterion` (dev only, default features off) for `benches/search.rs`.
 
@@ -338,7 +360,8 @@ Behaviour changes miniplan will see:
 
 ### Cross-crate needs
 
-Things other repos would need to change or provide. None of these are done here.
+Things other repos would need to change or provide. None of these are done here, except
+the move to `search-core`.
 
 - miniplan: forward `Successors` adapter and `u32` heuristic adapter with `ceil` rounding
   (above).
@@ -361,11 +384,15 @@ Things other repos would need to change or provide. None of these are done here.
   copies of these definitions and need the same change, or the move to `search-core`.
 - `mapf-search` (planned): can reuse `FocalList`, `TieBreak` and `focal_search` with a
   path-dependent `FocalKey` for ECBS-style conflict counts.
-- `search-core` (candidate): `Heuristic`, `Cost`, `Goal` and `Budget` are candidates to move
-  into a shared `search-core` crate. Three crates now need the same definitions:
-  `planning-heuristics` (its own copy), `mapf-search` (re-exports from this crate) and
-  `stochastic-search` (its own copy). Under the architecture rule ("create `search-core`
-  only when two independent crates need the same public trait") the threshold is met.
+- `search-core` (adopted): `Heuristic`, `Cost`, `Goal` and `Budget` moved into
+  `search-core`, as `MIGRATION.md` there describes. Breaking changes for users:
+  - `Cost for i64` and `Cost for f64` are gone; use `u64`, or `NonNegF64` (feature
+    `float`, edge costs wrapped with `NonNegF64::new`).
+  - `Cost::cmp_cost` is `Ord::cmp`; `Cost::times` is `Cost::saturating_times`.
+  - `Cost::saturating_sub` and `Cost::to_f64` moved to `CostExt`, which `ana_star`, `dps`,
+    `dibbs`, `bae_star` and `bidirectional_dijkstra` now require of the cost type.
+  - `Budget` is `Budget<Stats>`: write `impl Budget<Stats>` in bounds and impls.
+  - `Heuristic<S, C>` defaults `C = u32`; `Zero` derives `Hash`.
   `Successors` follows if `width-search` or `multiobjective-search` need it.
 
 ## Testing strategy

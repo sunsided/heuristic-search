@@ -6,9 +6,11 @@ use core::hash::{BuildHasher, Hash};
 
 use hashbrown::{DefaultHashBuilder, HashTable};
 
+use search_core::{Budget, Goal, Heuristic};
+
 use crate::best_first::{GraphResult, astar};
-use crate::outcome::{Budget, Outcome, SearchResult, Solution, Stats};
-use crate::problem::{Goal, Heuristic, Successors};
+use crate::outcome::{Outcome, SearchResult, Solution, Stats};
+use crate::problem::Successors;
 
 /// Computes the true cost of an edge, which is expensive (a collision check, a
 /// simulation).
@@ -101,7 +103,7 @@ pub fn lazy_sp<G, T, H, E>(
     mut heuristic: H,
     mut evaluator: E,
     selector: EdgeSelector,
-    mut budget: impl Budget,
+    mut budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,

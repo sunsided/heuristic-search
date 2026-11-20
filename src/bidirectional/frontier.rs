@@ -6,12 +6,15 @@ use core::hash::Hash;
 
 use alloc::vec::Vec;
 
+use search_core::{Budget, Cost, Heuristic, Zero};
+
 use crate::best_first::GraphResult;
 use crate::bidirectional::{BidirectionalGraph, Core, Direction};
-use crate::cost::{Cost, Ordered};
+use crate::cost::CostExt;
+use crate::cost::Ordered;
 use crate::keyed_set::KeyedSet;
-use crate::outcome::Budget;
-use crate::problem::{Heuristic, Successors, Zero};
+use crate::outcome::Stats;
+use crate::problem::Successors;
 use crate::space::NodeId;
 
 /// Bidirectional Dijkstra: uniform-cost search from both ends, cheapest path.
@@ -59,12 +62,13 @@ pub fn bidirectional_dijkstra<G>(
     graph: &G,
     start: G::State,
     goals: impl IntoIterator<Item = G::State>,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: BidirectionalGraph,
     G::State: Clone + Hash + Eq,
     <G as Successors>::Action: Clone,
+    <G as Successors>::Cost: CostExt,
 {
     let core = Core::new(graph, start, goals, Zero, Zero);
 
@@ -121,12 +125,13 @@ pub fn dibbs<G, HF, HB>(
     goals: impl IntoIterator<Item = G::State>,
     forward: HF,
     backward: HB,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: BidirectionalGraph,
     G::State: Clone + Hash + Eq,
     <G as Successors>::Action: Clone,
+    <G as Successors>::Cost: CostExt,
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
 {
@@ -182,12 +187,13 @@ pub fn bae_star<G, HF, HB>(
     goals: impl IntoIterator<Item = G::State>,
     forward: HF,
     backward: HB,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: BidirectionalGraph,
     G::State: Clone + Hash + Eq,
     <G as Successors>::Action: Clone,
+    <G as Successors>::Cost: CostExt,
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
 {
@@ -225,6 +231,7 @@ where
     G: BidirectionalGraph,
     G::State: Clone + Hash + Eq,
     <G as Successors>::Action: Clone,
+    <G as Successors>::Cost: CostExt,
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
 {
@@ -246,7 +253,7 @@ where
     }
 
     /// Expands until the stopping rule holds, a side runs empty or the budget is used up.
-    fn run(mut self, mut budget: impl Budget) -> GraphResult<G> {
+    fn run(mut self, mut budget: impl Budget<Stats>) -> GraphResult<G> {
         let mut touched = Vec::new();
         loop {
             let (Some(forward), Some(backward)) = (
@@ -290,7 +297,7 @@ where
             Rule::Dibbs | Rule::Bae => self
                 .core
                 .mu()
-                .is_some_and(|mu| sum.cmp_cost(&mu.times(2)).is_ge()),
+                .is_some_and(|mu| sum.cmp(&mu.saturating_times(2)).is_ge()),
         }
     }
 
@@ -301,7 +308,7 @@ where
         backward: <G as Successors>::Cost,
     ) -> Direction {
         let forward_first = match self.rule {
-            Rule::Dijkstra | Rule::Dibbs => forward.cmp_cost(&backward).is_le(),
+            Rule::Dijkstra | Rule::Dibbs => forward.cmp(&backward).is_le(),
             Rule::Bae => self.open[0].len() <= self.open[1].len(),
         };
 

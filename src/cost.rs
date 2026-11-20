@@ -1,37 +1,35 @@
-//! Edge and path costs ([`Cost`]) and heuristic weights ([`Weight`]).
+//! Priority arithmetic on costs ([`CostExt`]) and heuristic weights ([`Weight`]).
+//!
+//! The [`Cost`] trait itself comes from `search-core`.
 
 use core::cmp::Ordering;
-use core::ops::Add;
 
-/// A non-negative edge or path cost.
+use search_core::{Cost, Decimal};
+
+/// Priority arithmetic that [`Cost`] lacks: subtraction and conversion to `f64`.
 ///
-/// Searches add costs along a path and compare them. Integers compare with [`Ord`], floats
-/// with [`f64::total_cmp`], so a NaN cost never panics but orders after every number.
+/// A few searches order nodes by priorities that subtract or divide costs, such as the
+/// `(G - g) / h` order of [`ana_star`](crate::ana_star), the `2g + h - h_opposite` key of
+/// [`dibbs`](crate::dibbs) and [`bae_star`](crate::bae_star), and the potential of
+/// [`dps`](crate::dps). Only those searches (and [`bidirectional_dijkstra`], which shares the
+/// bidirectional loop) require this trait; every other search needs [`Cost`] alone.
 ///
-/// Implemented for `u32`, `u64`, `usize`, `i64` and `f64`. Integer additions follow the
-/// usual overflow rules (panic in debug builds), so pick a type wide enough for the
-/// longest path.
-pub trait Cost: Copy + Add<Output = Self> {
-    /// The cost of the empty path.
-    const ZERO: Self;
-
-    /// Total order on costs; smaller is cheaper.
-    fn cmp_cost(&self, other: &Self) -> Ordering;
-
-    /// Multiplies the cost by a small integer factor.
-    ///
-    /// Used by [`weighted_astar`](crate::weighted_astar) to compare `den * g + num * h`
-    /// without division. Integer implementations saturate instead of overflowing.
-    #[must_use]
-    fn times(self, factor: u32) -> Self;
-
-    /// Adds two costs, saturating at the maximum instead of overflowing for integers.
-    ///
-    /// Used where a sum only serves as a priority, such as the Weighted A* key.
-    #[must_use]
-    fn saturating_add(self, other: Self) -> Self;
-
-    /// Subtracts `other`, saturating at the minimum (zero for unsigned integers).
+/// Implemented for every [`Cost`] type of `search-core`: `u8`, `u16`, `u32`, `u64`, `u128`,
+/// `usize`, [`Decimal`] and (feature `float`) `NonNegF64`. A
+/// user-defined cost type implements it next to [`Cost`].
+///
+/// [`bidirectional_dijkstra`]: crate::bidirectional_dijkstra
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::CostExt;
+///
+/// assert_eq!(3_u32.saturating_sub(5), 0);
+/// assert_eq!(7_u64.to_f64(), 7.0);
+/// ```
+pub trait CostExt: Cost {
+    /// Subtracts `other`, saturating at [`Cost::ZERO`].
     ///
     /// Used for priorities that subtract one estimate from another, such as the `G - g`
     /// slack of [`ana_star`](crate::ana_star).
@@ -41,31 +39,16 @@ pub trait Cost: Copy + Add<Output = Self> {
     /// The cost as a float, possibly rounded.
     ///
     /// Used only for priorities that divide costs, such as the `(G - g) / h` order of
-    /// [`ana_star`](crate::ana_star). Rounding can
-    /// change the expansion order among nearly equal priorities but never a returned cost.
+    /// [`ana_star`](crate::ana_star). Rounding can change the expansion order among nearly
+    /// equal priorities but never a returned cost.
     fn to_f64(self) -> f64;
 }
 
-/// Implements [`Cost`] for unsigned and signed integer types that `u32` converts into
-/// losslessly, each with its conversion to `f64`.
-macro_rules! integer_cost {
+/// Implements [`CostExt`] for unsigned integer types, each with its conversion to `f64`.
+macro_rules! integer_cost_ext {
     ($($ty:ty => $to_f64:path),*) => {
         $(
-            impl Cost for $ty {
-                const ZERO: Self = 0;
-
-                fn cmp_cost(&self, other: &Self) -> Ordering {
-                    self.cmp(other)
-                }
-
-                fn times(self, factor: u32) -> Self {
-                    self.saturating_mul(<$ty>::from(factor))
-                }
-
-                fn saturating_add(self, other: Self) -> Self {
-                    <$ty>::saturating_add(self, other)
-                }
-
+            impl CostExt for $ty {
                 fn saturating_sub(self, other: Self) -> Self {
                     <$ty>::saturating_sub(self, other)
                 }
@@ -78,7 +61,14 @@ macro_rules! integer_cost {
     };
 }
 
-integer_cost!(u32 => f64::from, u64 => u64_to_f64, i64 => i64_to_f64);
+integer_cost_ext!(
+    u8 => f64::from,
+    u16 => f64::from,
+    u32 => f64::from,
+    u64 => u64_to_f64,
+    u128 => u128_to_f64,
+    usize => usize_to_f64
+);
 
 /// Converts a `u64` cost to the nearest float, for priorities only.
 #[expect(clippy::cast_precision_loss, reason = "only used for priorities")]
@@ -86,58 +76,42 @@ fn u64_to_f64(cost: u64) -> f64 {
     cost as f64
 }
 
-/// Converts an `i64` cost to the nearest float, for priorities only.
+/// Converts a `u128` cost to the nearest float, for priorities only.
 #[expect(clippy::cast_precision_loss, reason = "only used for priorities")]
-fn i64_to_f64(cost: i64) -> f64 {
+fn u128_to_f64(cost: u128) -> f64 {
     cost as f64
 }
 
-impl Cost for usize {
-    const ZERO: Self = 0;
+/// Converts a `usize` cost to the nearest float, for priorities only.
+#[expect(clippy::cast_precision_loss, reason = "only used for priorities")]
+fn usize_to_f64(cost: usize) -> f64 {
+    cost as f64
+}
 
-    fn cmp_cost(&self, other: &Self) -> Ordering {
-        self.cmp(other)
-    }
-
-    fn times(self, factor: u32) -> Self {
-        usize::try_from(factor).map_or(usize::MAX, |factor| self.saturating_mul(factor))
-    }
-
-    fn saturating_add(self, other: Self) -> Self {
-        usize::saturating_add(self, other)
-    }
-
+impl<const K: u32> CostExt for Decimal<K> {
     fn saturating_sub(self, other: Self) -> Self {
-        usize::saturating_sub(self, other)
+        Self::from_raw(self.raw().saturating_sub(other.raw()))
     }
 
-    #[expect(clippy::cast_precision_loss, reason = "only used for priorities")]
+    /// The raw unit count as a float: the value scaled by `10^K`.
+    ///
+    /// Priorities only compare quotients and differences of costs of one type, so the common
+    /// factor `10^K` cancels and dividing it out would only add rounding.
     fn to_f64(self) -> f64 {
-        self as f64
+        u64_to_f64(self.raw())
     }
 }
 
-impl Cost for f64 {
-    const ZERO: Self = 0.0;
-
-    fn cmp_cost(&self, other: &Self) -> Ordering {
-        self.total_cmp(other)
-    }
-
-    fn times(self, factor: u32) -> Self {
-        self * f64::from(factor)
-    }
-
-    fn saturating_add(self, other: Self) -> Self {
-        self + other
-    }
-
+#[cfg(feature = "float")]
+impl CostExt for search_core::NonNegF64 {
+    /// Subtracts `other`, clamping at zero; `inf - inf` is zero.
     fn saturating_sub(self, other: Self) -> Self {
-        self - other
+        // `f64::max` returns `0.0` for a NaN difference, which only `inf - inf` produces.
+        Self::new((self.get() - other.get()).max(0.0)).unwrap_or(Self::ZERO)
     }
 
     fn to_f64(self) -> f64 {
-        self
+        self.get()
     }
 }
 
@@ -196,13 +170,13 @@ impl Weight {
     }
 }
 
-/// A [`Cost`] with a total [`Ord`] from [`Cost::cmp_cost`], for ordered collections.
+/// A [`Cost`] in an ordered collection; orders like the cost itself.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Ordered<C>(pub(crate) C);
 
 impl<C: Cost> PartialEq for Ordered<C> {
     fn eq(&self, other: &Self) -> bool {
-        self.0.cmp_cost(&other.0).is_eq()
+        self.0 == other.0
     }
 }
 
@@ -216,14 +190,64 @@ impl<C: Cost> PartialOrd for Ordered<C> {
 
 impl<C: Cost> Ord for Ordered<C> {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.0.cmp_cost(&other.0)
+        self.0.cmp(&other.0)
     }
 }
 
 /// Returns `true` if `cost <= weight * bound`, computed as `den * cost <= num * bound`
 /// without division.
 pub(crate) fn within<C: Cost>(cost: C, weight: Weight, bound: C) -> bool {
-    cost.times(weight.denominator())
-        .cmp_cost(&bound.times(weight.numerator()))
-        .is_le()
+    cost.saturating_times(weight.denominator()) <= bound.saturating_times(weight.numerator())
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for the [`CostExt`] implementations.
+
+    use search_core::Decimal;
+
+    use super::CostExt;
+
+    /// Integer subtraction saturates at zero and converts exactly for small values.
+    #[test]
+    fn integers_saturate_and_convert() {
+        assert_eq!(CostExt::saturating_sub(2_u8, 5), 0);
+        assert_eq!(CostExt::saturating_sub(9_u128, 4), 5);
+        assert_eq!(CostExt::saturating_sub(7_usize, 7), 0);
+        assert!((CostExt::to_f64(3_u16) - 3.0).abs() < f64::EPSILON);
+        assert!((CostExt::to_f64(u64::from(u32::MAX)) - f64::from(u32::MAX)).abs() < 1.0);
+    }
+
+    /// Decimals subtract on raw units and convert to the raw unit count.
+    #[test]
+    fn decimals_use_raw_units() {
+        let a = Decimal::<2>::from_raw(150);
+        let b = Decimal::<2>::from_raw(25);
+
+        assert_eq!(a.saturating_sub(b), Decimal::from_raw(125));
+        assert_eq!(b.saturating_sub(a), Decimal::from_raw(0));
+        assert!((a.to_f64() - 150.0).abs() < f64::EPSILON);
+    }
+
+    /// Float subtraction clamps at zero, also for `inf - inf`.
+    #[cfg(feature = "float")]
+    #[test]
+    fn floats_clamp_at_zero() {
+        use search_core::{Cost, NonNegF64};
+
+        let half = NonNegF64::new(0.5).expect("non-negative");
+        let two = NonNegF64::new(2.0).expect("non-negative");
+
+        assert_eq!(
+            two.saturating_sub(half),
+            NonNegF64::new(1.5).expect("non-negative")
+        );
+        assert_eq!(half.saturating_sub(two), NonNegF64::ZERO);
+        assert_eq!(
+            NonNegF64::INFINITY.saturating_sub(NonNegF64::INFINITY),
+            NonNegF64::ZERO
+        );
+        assert_eq!(NonNegF64::INFINITY.saturating_sub(two), NonNegF64::INFINITY);
+        assert!((two.to_f64() - 2.0).abs() < f64::EPSILON);
+    }
 }

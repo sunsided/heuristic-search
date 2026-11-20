@@ -15,10 +15,11 @@
 use alloc::vec::Vec;
 use core::hash::Hash;
 
+use search_core::{Budget, Cost, Goal, Heuristic};
+
 use crate::best_first::GraphResult;
-use crate::cost::Cost;
-use crate::outcome::{Budget, Outcome, SearchResult, Solution, Stats};
-use crate::problem::{Goal, Heuristic, Successors, collect_successors};
+use crate::outcome::{Outcome, SearchResult, Solution, Stats};
+use crate::problem::{Successors, collect_successors};
 use crate::space::{Reach, SearchSpace};
 
 /// Graph depth-first search: follows the newest successor first and finds some path, not
@@ -51,7 +52,12 @@ use crate::space::{Reach, SearchSpace};
 ///
 /// assert_eq!(result.solution().map(|s| s.states.clone()), Some(vec![0, 1, 2, 3, 4]));
 /// ```
-pub fn dfs<G, T>(graph: &G, start: G::State, goal: &T, mut budget: impl Budget) -> GraphResult<G>
+pub fn dfs<G, T>(
+    graph: &G,
+    start: G::State,
+    goal: &T,
+    mut budget: impl Budget<Stats>,
+) -> GraphResult<G>
 where
     G: Successors,
     G::State: Clone + Hash + Eq,
@@ -129,7 +135,7 @@ pub fn depth_limited_dfs<G, T>(
     start: G::State,
     goal: &T,
     limit: usize,
-    mut budget: impl Budget,
+    mut budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,
@@ -198,7 +204,12 @@ where
     clippy::needless_pass_by_value,
     reason = "takes the start by value like every other search; cloned once per iteration"
 )]
-pub fn iddfs<G, T>(graph: &G, start: G::State, goal: &T, mut budget: impl Budget) -> GraphResult<G>
+pub fn iddfs<G, T>(
+    graph: &G,
+    start: G::State,
+    goal: &T,
+    mut budget: impl Budget<Stats>,
+) -> GraphResult<G>
 where
     G: Successors,
     G::State: Clone + Eq,
@@ -276,7 +287,7 @@ pub fn ida_star<G, T, H>(
     start: G::State,
     goal: &T,
     mut heuristic: H,
-    mut budget: impl Budget,
+    mut budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,
@@ -309,7 +320,7 @@ where
             &mut budget,
             |state, g, _| match heuristic.estimate(state) {
                 None => Bound::Dead,
-                Some(h) if (g + h).cmp_cost(&threshold).is_gt() => Bound::Prune(g + h),
+                Some(h) if (g + h).cmp(&threshold).is_gt() => Bound::Prune(g + h),
                 Some(_) => Bound::Open,
             },
         );
@@ -370,7 +381,7 @@ fn probe<G, T>(
     origin: G::State,
     goal: &T,
     stats: &mut Stats,
-    budget: &mut impl Budget,
+    budget: &mut impl Budget<Stats>,
     mut bound: impl FnMut(&G::State, G::Cost, usize) -> Bound<G::Cost>,
 ) -> Probe<G::State, G::Action, G::Cost>
 where
@@ -381,13 +392,12 @@ where
 {
     let mut pruned: Option<G::Cost> = None;
     let mut keep = |value: G::Cost| {
-        pruned = Some(pruned.map_or(value, |old| {
-            if value.cmp_cost(&old).is_lt() {
-                value
-            } else {
-                old
-            }
-        }));
+        pruned = Some(pruned.map_or(
+            value,
+            |old| {
+                if value.cmp(&old).is_lt() { value } else { old }
+            },
+        ));
     };
 
     let root = Frame {

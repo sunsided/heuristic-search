@@ -5,11 +5,13 @@
 use alloc::vec::Vec;
 use core::hash::Hash;
 
+use search_core::{Budget, Cost, Goal, Heuristic};
+
 use crate::best_first::GraphResult;
-use crate::cost::{Cost, Weight, within};
+use crate::cost::{Weight, within};
 use crate::open_list::OpenList;
-use crate::outcome::{Budget, Outcome, SearchResult, Stats};
-use crate::problem::{Goal, Heuristic, Successors, collect_successors};
+use crate::outcome::{Outcome, SearchResult, Stats};
+use crate::problem::{Successors, collect_successors};
 use crate::space::{NodeId, Reach, SearchSpace};
 
 /// The two weights of [`mha_star`]. The solution costs at most `heuristic * anchor` times
@@ -81,7 +83,7 @@ pub fn mha_star<G, T, H0, H>(
     anchor: H0,
     heuristics: impl IntoIterator<Item = H>,
     weights: MhaWeights,
-    budget: impl Budget,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: Successors,
@@ -177,7 +179,7 @@ where
 {
     /// Runs rounds over the inadmissible queues until the incumbent is within the bound,
     /// the anchor queue runs empty or the budget is used up.
-    fn run(mut self, mut budget: impl Budget) -> GraphResult<G> {
+    fn run(mut self, mut budget: impl Budget<Stats>) -> GraphResult<G> {
         for start in 0..self.space.len() {
             self.add_node(start);
         }
@@ -215,8 +217,8 @@ where
             let g = self
                 .space
                 .g(goal)
-                .times(self.weights.heuristic.denominator());
-            g.cmp_cost(&key).is_le()
+                .saturating_times(self.weights.heuristic.denominator());
+            g.cmp(&key).is_le()
         });
 
         Some(if done {
@@ -236,7 +238,7 @@ where
 
         self.queues
             .get_mut(queue)?
-            .peek_where(|node, g| flags[node] && g.cmp_cost(&space.g(node)).is_eq())
+            .peek_where(|node, g| flags[node] && g.cmp(&space.g(node)).is_eq())
     }
 
     /// Expands `node` from `queue`: takes it out of every queue, marks it closed for that
@@ -287,9 +289,9 @@ where
     /// has not been expanded yet.
     fn improved(&mut self, id: NodeId) {
         if self.goal.is_goal(self.space.state(id)) {
-            let cheaper = self.incumbent.is_none_or(|goal| {
-                goal == id || self.space.g(id).cmp_cost(&self.space.g(goal)).is_lt()
-            });
+            let cheaper = self
+                .incumbent
+                .is_none_or(|goal| goal == id || self.space.g(id).cmp(&self.space.g(goal)).is_lt());
             if cheaper {
                 self.incumbent = Some(id);
             }
@@ -336,8 +338,8 @@ where
         Some(
             self.space
                 .g(id)
-                .times(weight.denominator())
-                .saturating_add(h.times(weight.numerator())),
+                .saturating_times(weight.denominator())
+                .saturating_add(h.saturating_times(weight.numerator())),
         )
     }
 

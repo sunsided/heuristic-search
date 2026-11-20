@@ -6,9 +6,9 @@ use core::hash::{BuildHasher, Hash};
 
 use hashbrown::{DefaultHashBuilder, HashTable};
 
-use crate::cost::Cost;
+use search_core::{Cost, Goal};
+
 use crate::outcome::Solution;
-use crate::problem::Goal;
 
 /// Index of a node in a [`SearchSpace`]. Stable for the lifetime of the space.
 pub(crate) type NodeId = usize;
@@ -123,7 +123,7 @@ impl<S: Hash + Eq, A, C: Cost> SearchSpace<S, A, C> {
         };
 
         let node = &mut self.nodes[id];
-        if !improve || g.cmp_cost(&node.g).is_ge() {
+        if !improve || g.cmp(&node.g).is_ge() {
             return Reach::Stale;
         }
 

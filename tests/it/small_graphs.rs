@@ -221,26 +221,32 @@ fn gbfs_follows_the_heuristic() {
     assert_eq!(solution.cost, 10);
 }
 
-/// `f64` costs work like integer costs.
+/// Float costs (`NonNegF64`) work like integer costs.
+#[cfg(feature = "float")]
 #[test]
 fn float_costs_work() {
-    use heuristic_search::Successors;
+    use heuristic_search::{NonNegF64, Successors};
 
     /// Two routes from 0 to 2 with fractional costs.
     struct Floats;
 
+    /// Wraps a literal edge cost; every literal here is non-negative.
+    fn cost(value: f64) -> NonNegF64 {
+        NonNegF64::new(value).expect("non-negative")
+    }
+
     impl Successors for Floats {
         type State = u8;
         type Action = u8;
-        type Cost = f64;
+        type Cost = NonNegF64;
 
-        fn successors(&self, state: &u8, mut emit: impl FnMut(u8, u8, f64)) {
+        fn successors(&self, state: &u8, mut emit: impl FnMut(u8, u8, NonNegF64)) {
             match state {
                 0 => {
-                    emit(1, 1, 0.5);
-                    emit(2, 2, 1.25);
+                    emit(1, 1, cost(0.5));
+                    emit(2, 2, cost(1.25));
                 }
-                1 => emit(2, 2, 0.5),
+                1 => emit(2, 2, cost(0.5)),
                 _ => {}
             }
         }
@@ -251,7 +257,7 @@ fn float_costs_work() {
         .expect("2 is reachable");
 
     assert_eq!(solution.states, [0, 1, 2]);
-    assert!((solution.cost - 1.0).abs() < f64::EPSILON);
+    assert!((solution.cost.get() - 1.0).abs() < f64::EPSILON);
 }
 
 /// An empty set of start states is unsolvable for every algorithm.
