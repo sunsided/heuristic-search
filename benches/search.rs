@@ -151,6 +151,33 @@ fn bench_focal_list(c: &mut Criterion) {
     });
 }
 
+/// Pushes 10 000 items, re-pushes every item with a lower `f` (decrease-key), and pops
+/// every second step, as a best-first search with reopening does.
+fn bench_focal_list_churn(c: &mut Criterion) {
+    c.bench_function("FocalList churn 10k", |b| {
+        b.iter(|| {
+            let mut list = FocalList::new(Weight::new(3, 2));
+            let mut x: u32 = 54_321;
+            for item in 0..10_000 {
+                x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                list.push(item, 200 + (x >> 20) % 100, 0, (x >> 8) % 16);
+            }
+
+            for item in 0..10_000 {
+                x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                list.push(item, 100 + (x >> 20) % 150, 1, (x >> 8) % 16);
+                if item % 2 == 0 {
+                    black_box(list.pop());
+                }
+            }
+
+            while let Some(item) = list.pop() {
+                black_box(item);
+            }
+        });
+    });
+}
+
 /// NBS with the Manhattan heuristic in both directions.
 fn bench_nbs(c: &mut Criterion, grid: &Grid) {
     c.bench_function("nbs grid", |b| {
@@ -199,6 +226,7 @@ fn main() {
     bench_astar(&mut c, &grid);
     bench_focal_search(&mut c, &grid);
     bench_focal_list(&mut c);
+    bench_focal_list_churn(&mut c);
     bench_nbs(&mut c, &grid);
     bench_d_star_lite(&mut c);
 
