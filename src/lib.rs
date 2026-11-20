@@ -65,6 +65,13 @@
 //! meet by a [`MeetRelation`] instead, such as a state satisfying a subgoal for regression
 //! over partial states, and replay the backward actions to return a path of real states.
 //!
+//! Grid searches work on a [`UniformGrid`], 8-connected without corner cutting (see
+//! [`UniformGrid`]), with the exact octile cost [`Octile`]:
+//!
+//! - [`jps`]: Jump Point Search, cheapest path, expanding only jump points.
+//!
+//! [`EightConnected`] makes a grid a plain graph for the other searches.
+//!
 //! [`mha_star`] (shared multi-heuristic A*) combines one consistent anchor heuristic with
 //! any number of inadmissible ones, within `w1 * w2` times the optimum.
 //!
@@ -148,6 +155,7 @@ mod depth_first;
 mod dynamic;
 mod focal;
 mod fringe;
+mod grid;
 mod indexed_heap;
 mod keyed_set;
 mod lazy;
@@ -192,6 +200,9 @@ pub use depth_first::{
 pub use dynamic::{AdStar, DStarLite, DynamicGraph, DynamicResult, LpaStar};
 pub use focal::{FocalList, TieBreak};
 pub use fringe::{fringe_search, fringe_search_multi};
+pub use grid::{
+    EightConnected, GridCell, GridStep, Octile, OctileDistance, UniformGrid, jps, jps_multi,
+};
 pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp, lazy_sp_multi};
 pub use mha::{MhaWeights, mha_star, mha_star_multi};
 pub use outcome::{Limits, Outcome, SearchResult, Solution, Stats};

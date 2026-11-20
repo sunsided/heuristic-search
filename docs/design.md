@@ -13,6 +13,7 @@ In scope, in milestone order (see [Milestones](#milestones)):
 
 - foundational: BFS, DFS, Dijkstra, greedy best-first (GBFS), A*, IDA*;
 - linear- and bounded-memory: fringe search, RBFS, beam search, beam-stack search;
+- uniform-cost grids: Jump Point Search (JPS);
 - weighted and anytime: Weighted A* (WA*), ARA*, ANA*;
 - bounded-suboptimal: EES, DPS;
 - multiple heuristics: MHA*;
@@ -309,6 +310,27 @@ the same machine: `FocalList push+pop 10k` 9.8 ms to 3.5 ms, `FocalList churn 10
 
 Per-algorithm notes:
 
+- Grids: `UniformGrid` (width, height, `is_passable(x, y)`), cells `(x, y)`, 8-connected
+  **without corner cutting** (a diagonal move needs both orthogonal neighbours open).
+  Costs are `Octile { straight, diagonal }`, the exact value `straight + diagonal * √2`:
+  `Ord` compares `a + b√2` with `c + d√2` by the signs of the differences and, when they
+  differ, `(a - c)²` against `2 (d - b)²` in `i128`, so there is no rounding and no
+  overflow, and `Eq` agrees with `Ord` because `√2` is irrational. Scaled integers (10 and
+  14) were rejected: they are approximate, so ties and optimality would be off. `Octile`
+  implements `Cost` (saturating per count) but not `CostExt` (subtraction leaves the
+  non-negative counts). `EightConnected(grid)` is the plain graph for every other search.
+- JPS runs `a_star` on a private jump graph whose nodes are `(cell, arrival direction)`
+  pairs, so it reuses the engine and a cell is opened at most once per direction (eight
+  times) instead of once; a cell-keyed variant would need parent directions inside the
+  engine. Pruning and forced neighbours follow the no-corner-cutting rules (straight:
+  natural, both sides and both forward diagonals where legal, stop where a side cell is
+  open but the one behind it blocked; diagonal: both components and the diagonal, stop
+  where a straight jump stops). Jumps are loops, not recursion. Solutions are sparse (jump
+  points, with one unit step per segment). Property tests compare against Dijkstra on an
+  independently written 8-connected graph over random maps with up to 45 % obstacles,
+  replaying every segment move by move; a 200 000-case stress run on maps up to 30 x 30
+  found no difference. On the 64 x 64 benchmark grid JPS takes 33 µs against 0.97 ms for
+  A* on `EightConnected`.
 - Beam search keeps every generated state (kept or pruned) in a `SearchSpace` and never
   generates it again from a later layer; within a layer the cheapest path wins. It reports
   `Cutoff` instead of `Unsolvable` once the width has pruned anything.
@@ -530,7 +552,7 @@ the move to `search-core`.
 5. **Expensive edges**: done: `EdgeEvaluator`, LazySP.
 6. **Dynamic graphs**: done: `DynamicGraph`, LPA*, D* Lite, AD*.
 7. **More algorithms** (branch `draft/algorithms`): fringe search, RBFS, beam search,
-   beam-stack search.
+   beam-stack search, JPS (with `UniformGrid`, `Octile`, `EightConnected`).
 8. **0.1.0**: API review, benchmarks, release.
 
 ## Open questions
@@ -553,6 +575,8 @@ the move to `search-core`.
   Mathematik 1, 1959.
 - R. Zhou, E. A. Hansen. Beam-stack search: integrating backtracking with beam search.
   ICAPS 2005.
+- D. Harabor, A. Grastien. Online graph pruning for pathfinding on grid maps. AAAI 2011.
+  (JPS)
 - Y. Björnsson, M. Enzenberger, R. C. Holte, J. Schaeffer. Fringe search: beating A* at
   pathfinding on game maps. IEEE CIG 2005.
 - P. E. Hart, N. J. Nilsson, B. Raphael. A formal basis for the heuristic determination of

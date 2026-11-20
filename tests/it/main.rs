@@ -10,6 +10,7 @@ mod dynamic;
 mod fixtures;
 mod fringe;
 mod grid;
+mod jps;
 mod lazy;
 mod meet;
 mod mha;

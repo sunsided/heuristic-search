@@ -18,6 +18,9 @@ Implemented on the `draft/initial` branch:
 - Beam search (`beam_search`, incomplete; `Cutoff` when the width pruned) and beam-stack
   search (`beam_stack_search`): complete and anytime, optimal once it completes, with a
   fixed beam width
+- Grids: Jump Point Search (`jps`) on any `UniformGrid`, 8-connected without corner
+  cutting, with the exact octile cost `Octile` (`a + b√2`, compared without rounding);
+  `EightConnected` makes a grid a graph for the other searches
 - Every search except the incremental planners also from several start states
   (`*_multi`)
 - Weighted and anytime: Weighted A*, ARA*, ANA*
