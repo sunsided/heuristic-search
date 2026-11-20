@@ -226,9 +226,20 @@ Multi-start search is what backward search from a set of goal states needs, and 
 `Stats` is `#[non_exhaustive]`; later algorithms may add counters (heuristic evaluations,
 meet count for bidirectional search).
 
-Only the milestone-1 searches have `*_multi` variants. The later ones take a single start
-(bidirectional ones a set of goal states); multi-start versions are cheap to add where
-needed.
+Every search except the incremental planners has a `*_multi` variant with these
+semantics. Per family:
+
+- best-first, anytime, bounded and MHA*: all starts seed one search space;
+- `lazy_sp_multi`: each round runs `astar_multi` from all starts;
+- bidirectional: all starts seed the forward side, as the goals seed the backward side.
+  The backward heuristic must then estimate the cost back to the nearest start;
+- `dfs_multi`: starts are searched in order with one shared closed set;
+- depth-limited, IDDFS and IDA*: each iteration probes the starts in order under one
+  bound, as if they hung below a virtual root; IDA*'s first threshold is the smallest
+  start `h`. Starts are deduplicated by equality (quadratic, no `Hash` needed).
+
+The incremental planners keep a single start: it is part of their repaired state (D* Lite
+moves it), so a set of starts would be a different planner.
 
 ## Budgets
 
@@ -457,7 +468,6 @@ the move to `search-core`.
   DIBBS only in side selection (cardinality). Confirm against the paper.
 - Naming: `astar` but `ara_star`, `ana_star`, `mha_star`, `bae_star` (snake case of the
   star); incremental planners are types (`LpaStar`, `DStarLite`, `AdStar`).
-- `*_multi` variants for the later searches, if callers need them.
 - `depth_limited_dfs` overloads `LimitReached` for both a budget stop and a depth cutoff.
   A separate `Outcome::Cutoff` would tell them apart but changes a public enum.
 - IDA* has no transposition table, so graphs with many paths to the same state blow up;

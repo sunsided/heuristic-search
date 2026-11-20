@@ -90,7 +90,67 @@ where
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
 {
-    let core = Core::new(graph, start, goals, forward, backward);
+    nbs_multi(graph, [start], goals, forward, backward, budget)
+}
+
+/// [`nbs`] from several start states at once.
+///
+/// Every start has path cost zero on the forward side, just as every goal has on the
+/// backward side. Repeated starts count once, an empty set of starts finds nothing, and a
+/// start that is a goal is returned as a zero-cost path. The backward heuristic must estimate
+/// the cost back to the nearest start, which a heuristic towards one start overestimates.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Predecessors, Successors, Zero, heuristic_fn, nbs_multi};
+///
+/// /// Counting up by one at cost 1, and back down for the backward search.
+/// struct Up;
+///
+/// impl Successors for Up {
+///     type State = u32;
+///     type Action = ();
+///     type Cost = u32;
+///
+///     fn successors(&self, n: &u32, mut emit: impl FnMut((), u32, u32)) {
+///         emit((), n + 1, 1);
+///     }
+/// }
+///
+/// impl Predecessors for Up {
+///     type Node = u32;
+///     type Action = ();
+///     type Cost = u32;
+///
+///     fn predecessors(&self, n: &u32, mut emit: impl FnMut((), u32, u32)) {
+///         if let Some(previous) = n.checked_sub(1) {
+///             emit((), previous, 1);
+///         }
+///     }
+/// }
+///
+/// let h = heuristic_fn(|n: &u32| 8_u32.checked_sub(*n));
+/// let result = nbs_multi(&Up, [0, 6, 3], [8], h, Zero, Limits::NONE);
+///
+/// assert_eq!(result.solution().map(|s| s.cost), Some(2));
+/// ```
+pub fn nbs_multi<G, HF, HB>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goals: impl IntoIterator<Item = G::State>,
+    forward: HF,
+    backward: HB,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: BidirectionalGraph,
+    G::State: Clone + Hash + Eq,
+    <G as Successors>::Action: Clone,
+    HF: Heuristic<G::State, <G as Successors>::Cost>,
+    HB: Heuristic<G::State, <G as Successors>::Cost>,
+{
+    let core = Core::new(graph, starts, goals, forward, backward);
 
     Nbs::new(core).run(budget)
 }

@@ -52,9 +52,55 @@ use crate::space::{Reach, SearchSpace};
 ///
 /// assert_eq!(result.solution().map(|s| s.states.clone()), Some(vec![0, 1, 2, 3, 4]));
 /// ```
-pub fn dfs<G, T>(
+pub fn dfs<G, T>(graph: &G, start: G::State, goal: &T, budget: impl Budget<Stats>) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+{
+    dfs_multi(graph, [start], goal, budget)
+}
+
+/// [`dfs`] from several start states at once.
+///
+/// Searches the starts in order, sharing one closed set: a start reached from an earlier
+/// start is not searched again.
+///
+/// Repeated starts count once, an empty set of starts finds nothing, and a start that is a
+/// goal is returned as a zero-cost path.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, dfs_multi};
+///
+/// /// Counting up by one, at cost 1.
+/// struct Up;
+///
+/// impl Successors for Up {
+///     type State = u32;
+///     type Action = ();
+///     type Cost = u32;
+///
+///     fn successors(&self, n: &u32, mut emit: impl FnMut((), u32, u32)) {
+///         if *n < 8 {
+///             emit((), n + 1, 1);
+///         }
+///     }
+/// }
+///
+/// let result = dfs_multi(&Up, [9, 6, 3], &|n: &u32| *n == 8, Limits::NONE);
+///
+/// assert_eq!(result.solution().map(|s| s.states.clone()), Some(vec![6, 7, 8]));
+/// ```
+#[expect(
+    clippy::similar_names,
+    reason = "`starts` is the parameter name of every `*_multi` search"
+)]
+pub fn dfs_multi<G, T>(
     graph: &G,
-    start: G::State,
+    starts: impl IntoIterator<Item = G::State>,
     goal: &T,
     mut budget: impl Budget<Stats>,
 ) -> GraphResult<G>
@@ -64,14 +110,14 @@ where
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
 {
-    let (mut space, start_goal) = SearchSpace::seed([start], goal);
+    let (mut space, start_goal) = SearchSpace::seed(starts, goal);
     let mut stats = Stats::default();
     let finish = |outcome, stats| SearchResult { outcome, stats };
     if let Some(found) = start_goal {
         return finish(Outcome::Found(space.solution(found)), stats);
     }
 
-    let mut stack = alloc::vec![0];
+    let mut stack: Vec<_> = (0..space.len()).rev().collect();
     let mut buffer = Vec::new();
     while let Some(node) = stack.pop() {
         if budget.exhausted(&stats) {
@@ -135,6 +181,57 @@ pub fn depth_limited_dfs<G, T>(
     start: G::State,
     goal: &T,
     limit: usize,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+{
+    depth_limited_dfs_multi(graph, [start], goal, limit, budget)
+}
+
+/// [`depth_limited_dfs`] from several start states at once.
+///
+/// Probes the starts in order, each to the same depth limit.
+///
+/// Repeated starts count once, an empty set of starts finds nothing, and a start that is a
+/// goal is returned as a zero-cost path.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, depth_limited_dfs_multi};
+///
+/// /// Counting up by one, at cost 1.
+/// struct Up;
+///
+/// impl Successors for Up {
+///     type State = u32;
+///     type Action = ();
+///     type Cost = u32;
+///
+///     fn successors(&self, n: &u32, mut emit: impl FnMut((), u32, u32)) {
+///         if *n < 8 {
+///             emit((), n + 1, 1);
+///         }
+///     }
+/// }
+///
+/// let result = depth_limited_dfs_multi(&Up, [0, 6, 3], &|n: &u32| *n == 8, 2, Limits::NONE);
+///
+/// assert_eq!(result.solution().map(|s| s.cost), Some(2));
+/// ```
+#[expect(
+    clippy::similar_names,
+    reason = "`starts` is the parameter name of every `*_multi` search"
+)]
+pub fn depth_limited_dfs_multi<G, T>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goal: &T,
+    limit: usize,
     mut budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
@@ -143,10 +240,18 @@ where
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
 {
+    let roots = distinct(starts);
     let mut stats = Stats::default();
-    let probe = probe(
+    if let Some(solution) = goal_root(&roots, goal) {
+        return SearchResult {
+            outcome: Outcome::Found(solution),
+            stats,
+        };
+    }
+
+    let probe = probe_roots(
         graph,
-        start,
+        &roots,
         goal,
         &mut stats,
         &mut budget,
@@ -200,13 +305,60 @@ where
 ///
 /// assert_eq!(result.solution().map(|s| s.len()), Some(5));
 /// ```
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "takes the start by value like every other search; cloned once per iteration"
-)]
 pub fn iddfs<G, T>(
     graph: &G,
     start: G::State,
+    goal: &T,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+{
+    iddfs_multi(graph, [start], goal, budget)
+}
+
+/// [`iddfs`] from several start states at once.
+///
+/// Each iteration probes every start, in order, to the same depth limit, so the solution
+/// has the fewest edges from any start.
+///
+/// Repeated starts count once, an empty set of starts finds nothing, and a start that is a
+/// goal is returned as a zero-cost path.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, iddfs_multi};
+///
+/// /// Counting up by one, at cost 1.
+/// struct Up;
+///
+/// impl Successors for Up {
+///     type State = u32;
+///     type Action = ();
+///     type Cost = u32;
+///
+///     fn successors(&self, n: &u32, mut emit: impl FnMut((), u32, u32)) {
+///         if *n < 8 {
+///             emit((), n + 1, 1);
+///         }
+///     }
+/// }
+///
+/// let result = iddfs_multi(&Up, [0, 6, 3], &|n: &u32| *n == 8, Limits::NONE);
+///
+/// assert_eq!(result.solution().map(|s| s.states.clone()), Some(vec![6, 7, 8]));
+/// ```
+#[expect(
+    clippy::similar_names,
+    reason = "`starts` is the parameter name of every `*_multi` search"
+)]
+pub fn iddfs_multi<G, T>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
     goal: &T,
     mut budget: impl Budget<Stats>,
 ) -> GraphResult<G>
@@ -216,11 +368,19 @@ where
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
 {
+    let roots = distinct(starts);
     let mut stats = Stats::default();
+    if let Some(solution) = goal_root(&roots, goal) {
+        return SearchResult {
+            outcome: Outcome::Found(solution),
+            stats,
+        };
+    }
+
     for limit in 0.. {
-        let probe = probe(
+        let probe = probe_roots(
             graph,
-            start.clone(),
+            &roots,
             goal,
             &mut stats,
             &mut budget,
@@ -286,6 +446,61 @@ pub fn ida_star<G, T, H>(
     graph: &G,
     start: G::State,
     goal: &T,
+    heuristic: H,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
+{
+    ida_star_multi(graph, [start], goal, heuristic, budget)
+}
+
+/// [`ida_star`] from several start states at once.
+///
+/// Each iteration probes every start, in order, under one threshold, which starts at the
+/// smallest `h` of any start, so the solution is optimal over all starts for an admissible
+/// heuristic.
+///
+/// Repeated starts count once, an empty set of starts finds nothing, and a start that is a
+/// goal is returned as a zero-cost path.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, heuristic_fn, ida_star_multi};
+///
+/// /// Counting up by one, at cost 1.
+/// struct Up;
+///
+/// impl Successors for Up {
+///     type State = u32;
+///     type Action = ();
+///     type Cost = u32;
+///
+///     fn successors(&self, n: &u32, mut emit: impl FnMut((), u32, u32)) {
+///         if *n < 8 {
+///             emit((), n + 1, 1);
+///         }
+///     }
+/// }
+///
+/// let h = heuristic_fn(|n: &u32| 8_u32.checked_sub(*n));
+/// let result = ida_star_multi(&Up, [0, 6, 3], &|n: &u32| *n == 8, h, Limits::NONE);
+///
+/// assert_eq!(result.solution().map(|s| s.cost), Some(2));
+/// ```
+#[expect(
+    clippy::similar_names,
+    reason = "`starts` is the parameter name of every `*_multi` search"
+)]
+pub fn ida_star_multi<G, T, H>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goal: &T,
     mut heuristic: H,
     mut budget: impl Budget<Stats>,
 ) -> GraphResult<G>
@@ -296,25 +511,30 @@ where
     T: Goal<G::State> + ?Sized,
     H: Heuristic<G::State, G::Cost>,
 {
+    let roots = distinct(starts);
     let mut stats = Stats::default();
-    let Some(mut threshold) = heuristic.estimate(&start) else {
-        let outcome = if goal.is_goal(&start) {
-            Outcome::Found(Solution {
-                states: alloc::vec![start],
-                actions: Vec::new(),
-                cost: G::Cost::ZERO,
-            })
-        } else {
-            Outcome::Unsolvable
+    if let Some(solution) = goal_root(&roots, goal) {
+        return SearchResult {
+            outcome: Outcome::Found(solution),
+            stats,
         };
+    }
 
-        return SearchResult { outcome, stats };
+    let Some(mut threshold) = roots
+        .iter()
+        .filter_map(|root| heuristic.estimate(root))
+        .min()
+    else {
+        return SearchResult {
+            outcome: Outcome::Unsolvable,
+            stats,
+        };
     };
 
     loop {
-        let probe = probe(
+        let probe = probe_roots(
             graph,
-            start.clone(),
+            &roots,
             goal,
             &mut stats,
             &mut budget,
@@ -337,6 +557,63 @@ where
 
         return SearchResult { outcome, stats };
     }
+}
+
+/// The starts without repeats, in order of first appearance.
+///
+/// Compares by equality only, since tree searches do not require `Hash`: quadratic in the
+/// number of starts, which is small in practice.
+fn distinct<S: Eq>(starts: impl IntoIterator<Item = S>) -> Vec<S> {
+    let mut roots: Vec<S> = Vec::new();
+    for start in starts {
+        if !roots.contains(&start) {
+            roots.push(start);
+        }
+    }
+
+    roots
+}
+
+/// The zero-cost solution at the first root that is a goal, if any.
+fn goal_root<S: Clone, A, C: Cost, T: Goal<S> + ?Sized>(
+    roots: &[S],
+    goal: &T,
+) -> Option<Solution<S, A, C>> {
+    let root = roots.iter().find(|root| goal.is_goal(root))?;
+
+    Some(Solution {
+        states: alloc::vec![root.clone()],
+        actions: Vec::new(),
+        cost: C::ZERO,
+    })
+}
+
+/// Probes from every root in order under one bound, as if they hung below a virtual root:
+/// stops at the first goal or budget stop, and otherwise reports the smallest pruned
+/// value over all roots.
+fn probe_roots<G, T>(
+    graph: &G,
+    roots: &[G::State],
+    goal: &T,
+    stats: &mut Stats,
+    budget: &mut impl Budget<Stats>,
+    mut bound: impl FnMut(&G::State, G::Cost, usize) -> Bound<G::Cost>,
+) -> Probe<G::State, G::Action, G::Cost>
+where
+    G: Successors,
+    G::State: Clone + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+{
+    let mut pruned: Option<G::Cost> = None;
+    for root in roots {
+        match probe(graph, root.clone(), goal, stats, budget, &mut bound) {
+            Probe::Exhausted(value) => pruned = pruned.into_iter().chain(value).min(),
+            ended => return ended,
+        }
+    }
+
+    Probe::Exhausted(pruned)
 }
 
 /// What a depth-first probe does with a state.

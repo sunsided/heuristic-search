@@ -8,7 +8,7 @@ use hashbrown::{DefaultHashBuilder, HashTable};
 
 use search_core::{Budget, Goal, Heuristic};
 
-use crate::best_first::{GraphResult, astar};
+use crate::best_first::{GraphResult, astar_multi};
 use crate::outcome::{Outcome, SearchResult, Solution, Stats};
 use crate::problem::Successors;
 
@@ -92,13 +92,66 @@ pub enum EdgeSelector {
 /// assert_eq!(result.solution().map(|s| s.states.clone()), Some(vec![0, 2, 3]));
 /// assert_eq!(result.stats.evaluations, 3);
 /// ```
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "takes the start by value like every other search; cloned once per round"
-)]
 pub fn lazy_sp<G, T, H, E>(
     graph: &G,
     start: G::State,
+    goal: &T,
+    heuristic: H,
+    evaluator: E,
+    selector: EdgeSelector,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone + Hash + Eq,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
+    E: EdgeEvaluator<G::State, G::Action, G::Cost>,
+{
+    lazy_sp_multi(graph, [start], goal, heuristic, evaluator, selector, budget)
+}
+
+/// [`lazy_sp`] from several start states at once.
+///
+/// Every start has path cost zero; each round runs [`astar_multi`](crate::astar_multi) from
+/// all of them over the lazily evaluated graph. Repeated starts count once, an empty set of
+/// starts finds nothing, and a start that is a goal is returned without any evaluation.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, Zero, lazy_sp_multi, EdgeSelector};
+///
+/// /// Counting up by one or two; lazily every edge costs 1.
+/// struct Up;
+///
+/// impl Successors for Up {
+///     type State = u32;
+///     type Action = u32;
+///     type Cost = u32;
+///
+///     fn successors(&self, n: &u32, mut emit: impl FnMut(u32, u32, u32)) {
+///         emit(1, n + 1, 1);
+///         emit(2, n + 2, 1);
+///     }
+/// }
+///
+/// // Every edge out of 6 truly costs 10; the others cost 1. Start 6 looks closest, but
+/// // the cheapest path starts at 3 and jumps over 6.
+/// let evaluate = |from: &u32, _: &u32, _: &u32| Some(if *from == 6 { 10 } else { 1 });
+/// let result = lazy_sp_multi(&Up, [6, 3], &|n: &u32| *n == 8, Zero, evaluate, EdgeSelector::All, Limits::NONE);
+///
+/// assert_eq!(result.solution().map(|s| s.cost), Some(3));
+/// assert_eq!(result.solution().map(|s| s.states[0]), Some(3));
+/// ```
+#[expect(
+    clippy::similar_names,
+    reason = "`starts` is the parameter name of every `*_multi` search"
+)]
+pub fn lazy_sp_multi<G, T, H, E>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
     goal: &T,
     mut heuristic: H,
     mut evaluator: E,
@@ -113,6 +166,7 @@ where
     H: Heuristic<G::State, G::Cost>,
     E: EdgeEvaluator<G::State, G::Action, G::Cost>,
 {
+    let starts: Vec<G::State> = starts.into_iter().collect();
     let mut view = Evaluated {
         graph,
         edges: HashTable::new(),
@@ -121,9 +175,9 @@ where
     let mut stats = Stats::default();
 
     for round in 0_usize.. {
-        let inner = astar(
+        let inner = astar_multi(
             &view,
-            start.clone(),
+            starts.iter().cloned(),
             goal,
             &mut heuristic,
             |inner: &Stats| budget.exhausted(&stats.plus(*inner)),

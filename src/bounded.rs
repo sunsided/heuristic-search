@@ -16,8 +16,8 @@
 mod dps;
 mod ees;
 
-pub use dps::dps;
-pub use ees::{EesEstimates, ees};
+pub use dps::{dps, dps_multi};
+pub use ees::{EesEstimates, ees, ees_multi};
 
 use alloc::vec::Vec;
 use core::hash::Hash;
@@ -173,7 +173,63 @@ where
     H: Heuristic<G::State, G::Cost>,
     F: FocalKey<G::State, G::Action, G::Cost>,
 {
-    let (space, start_goal) = SearchSpace::seed([start], goal);
+    focal_search_multi(graph, [start], goal, heuristic, focal, weight, budget)
+}
+
+/// [`focal_search`] from several start states at once.
+///
+/// Every start has path cost zero. Repeated starts count once, an empty set of starts finds
+/// nothing, and a start that is a goal is returned as a zero-cost path without expanding
+/// anything. The heuristics estimate the distance to the goal, so they need no change for
+/// several starts. The focal key of
+/// each start comes from [`FocalKey::start`].
+///
+/// # Panics
+///
+/// Panics if `weight` is below `1`.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, Weight, focal_fn, focal_search_multi, heuristic_fn};
+///
+/// /// Counting up by one, at cost 1.
+/// struct Up;
+///
+/// impl Successors for Up {
+///     type State = u32;
+///     type Action = ();
+///     type Cost = u32;
+///
+///     fn successors(&self, n: &u32, mut emit: impl FnMut((), u32, u32)) {
+///         emit((), n + 1, 1);
+///     }
+/// }
+///
+/// let h = heuristic_fn(|n: &u32| 8_u32.checked_sub(*n));
+/// let key = focal_fn(|n: &u32| 8_u32.saturating_sub(*n));
+/// let result = focal_search_multi(&Up, [0, 6, 3], &|n: &u32| *n == 8, h, key, Weight::integer(2), Limits::NONE);
+///
+/// assert_eq!(result.solution().map(|s| s.cost), Some(2));
+/// ```
+pub fn focal_search_multi<G, T, H, F>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goal: &T,
+    heuristic: H,
+    focal: F,
+    weight: Weight,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
+    F: FocalKey<G::State, G::Action, G::Cost>,
+{
+    let (space, start_goal) = SearchSpace::seed(starts, goal);
     let search = FocalSearch {
         graph,
         heuristic,

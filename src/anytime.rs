@@ -12,8 +12,8 @@
 mod ana;
 mod ara;
 
-pub use ana::ana_star;
-pub use ara::ara_star;
+pub use ana::{ana_star, ana_star_multi};
+pub use ara::{ara_star, ara_star_multi};
 
 use crate::outcome::{Solution, Stats};
 use crate::problem::Successors;

@@ -77,7 +77,56 @@ where
     T: Goal<G::State> + ?Sized,
     H: Heuristic<G::State, G::Cost>,
 {
-    let (space, start_goal) = SearchSpace::seed([start], goal);
+    ana_star_multi(graph, [start], goal, heuristic, on_solution, budget)
+}
+
+/// [`ana_star`] from several start states at once.
+///
+/// Every start has path cost zero. Repeated starts count once, an empty set of starts finds
+/// nothing, and a start that is a goal is returned as a zero-cost path without expanding
+/// anything. The heuristics estimate the distance to the goal, so they need no change for
+/// several starts.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Successors, ana_star_multi, heuristic_fn};
+///
+/// /// Counting up by one, at cost 1.
+/// struct Up;
+///
+/// impl Successors for Up {
+///     type State = u32;
+///     type Action = ();
+///     type Cost = u32;
+///
+///     fn successors(&self, n: &u32, mut emit: impl FnMut((), u32, u32)) {
+///         emit((), n + 1, 1);
+///     }
+/// }
+///
+/// let h = heuristic_fn(|n: &u32| 8_u32.checked_sub(*n));
+/// let result = ana_star_multi(&Up, [0, 6, 3], &|n: &u32| *n == 8, h, |_, _| {}, Limits::NONE);
+///
+/// assert_eq!(result.solution.map(|s| s.cost), Some(2));
+/// ```
+pub fn ana_star_multi<G, T, H>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goal: &T,
+    heuristic: H,
+    on_solution: impl FnMut(&Solution<G::State, G::Action, G::Cost>, G::Cost),
+    budget: impl Budget<Stats>,
+) -> AnytimeGraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    G::Cost: CostExt,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
+{
+    let (space, start_goal) = SearchSpace::seed(starts, goal);
     let ana = Ana {
         graph,
         goal,

@@ -93,7 +93,57 @@ where
     H0: Heuristic<G::State, G::Cost>,
     H: Heuristic<G::State, G::Cost>,
 {
-    let (space, start_goal) = SearchSpace::seed([start], goal);
+    mha_star_multi(graph, [start], goal, anchor, heuristics, weights, budget)
+}
+
+/// [`mha_star`] from several start states at once.
+///
+/// Every start has path cost zero. Repeated starts count once, an empty set of starts finds
+/// nothing, and a start that is a goal is returned as a zero-cost path without expanding
+/// anything. The heuristics estimate the distance to the goal, so they need no change for
+/// several starts.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, MhaWeights, Successors, heuristic_fn, mha_star_multi};
+///
+/// /// Counting up by one, at cost 1.
+/// struct Up;
+///
+/// impl Successors for Up {
+///     type State = u32;
+///     type Action = ();
+///     type Cost = u32;
+///
+///     fn successors(&self, n: &u32, mut emit: impl FnMut((), u32, u32)) {
+///         emit((), n + 1, 1);
+///     }
+/// }
+///
+/// let h = heuristic_fn(|n: &u32| 8_u32.checked_sub(*n));
+/// let result = mha_star_multi(&Up, [0, 6, 3], &|n: &u32| *n == 8, h, [h], MhaWeights::ONE, Limits::NONE);
+///
+/// assert_eq!(result.solution().map(|s| s.cost), Some(2));
+/// ```
+pub fn mha_star_multi<G, T, H0, H>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goal: &T,
+    anchor: H0,
+    heuristics: impl IntoIterator<Item = H>,
+    weights: MhaWeights,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+    H0: Heuristic<G::State, G::Cost>,
+    H: Heuristic<G::State, G::Cost>,
+{
+    let (space, start_goal) = SearchSpace::seed(starts, goal);
     let heuristics: Vec<H> = heuristics.into_iter().collect();
     let queues = (0..=heuristics.len()).map(|_| OpenList::new()).collect();
     let search = Mha {

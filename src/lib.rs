@@ -22,7 +22,8 @@
 //! - [`gbfs`]: greedy best-first search, fast and unbounded.
 //!
 //! Each has a `*_multi` variant ([`astar_multi`] and so on) that searches from several
-//! start states at once.
+//! start states at once. So does every other search below except the incremental
+//! planners, whose start is part of their state.
 //!
 //! Depth-first searches need memory only for the current path (except [`dfs`]):
 //!
@@ -131,22 +132,31 @@ mod outcome;
 mod problem;
 mod space;
 
-pub use anytime::{AnytimeGraphResult, AnytimeResult, ana_star, ara_star};
+pub use anytime::{
+    AnytimeGraphResult, AnytimeResult, ana_star, ana_star_multi, ara_star, ara_star_multi,
+};
 pub use best_first::{
     GraphResult, astar, astar_multi, dijkstra, dijkstra_multi, gbfs, gbfs_multi, weighted_astar,
     weighted_astar_multi,
 };
 pub use bfs::{bfs, bfs_multi};
 pub use bidirectional::{
-    BidirectionalGraph, bae_star, bidirectional_bfs, bidirectional_dijkstra, dibbs, nbs,
+    BidirectionalGraph, bae_star, bae_star_multi, bidirectional_bfs, bidirectional_bfs_multi,
+    bidirectional_dijkstra, bidirectional_dijkstra_multi, dibbs, dibbs_multi, nbs, nbs_multi,
 };
-pub use bounded::{EesEstimates, FocalFn, FocalKey, dps, ees, focal_fn, focal_search};
+pub use bounded::{
+    EesEstimates, FocalFn, FocalKey, dps, dps_multi, ees, ees_multi, focal_fn, focal_search,
+    focal_search_multi,
+};
 pub use cost::{CostExt, Weight};
-pub use depth_first::{depth_limited_dfs, dfs, ida_star, iddfs};
+pub use depth_first::{
+    depth_limited_dfs, depth_limited_dfs_multi, dfs, dfs_multi, ida_star, ida_star_multi, iddfs,
+    iddfs_multi,
+};
 pub use dynamic::{AdStar, DStarLite, DynamicGraph, DynamicResult, LpaStar};
 pub use focal::{FocalList, TieBreak};
-pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp};
-pub use mha::{MhaWeights, mha_star};
+pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp, lazy_sp_multi};
+pub use mha::{MhaWeights, mha_star, mha_star_multi};
 pub use outcome::{Limits, Outcome, SearchResult, Solution, Stats};
 pub use problem::{Predecessors, Successors};
 #[cfg(feature = "float")]

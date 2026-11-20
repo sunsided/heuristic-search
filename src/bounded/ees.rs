@@ -93,7 +93,63 @@ where
     D: Heuristic<G::State, Dc>,
     Dc: Cost,
 {
-    let (space, start_goal) = SearchSpace::seed([start], goal);
+    ees_multi(graph, [start], goal, estimates, weight, budget)
+}
+
+/// [`ees`] from several start states at once.
+///
+/// Every start has path cost zero. Repeated starts count once, an empty set of starts finds
+/// nothing, and a start that is a goal is returned as a zero-cost path without expanding
+/// anything. The heuristics estimate the distance to the goal, so they need no change for
+/// several starts.
+///
+/// # Panics
+///
+/// Panics if `weight` is below `1`.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{EesEstimates, Limits, Successors, Weight, ees_multi, heuristic_fn};
+///
+/// /// Counting up by one, at cost 1.
+/// struct Up;
+///
+/// impl Successors for Up {
+///     type State = u32;
+///     type Action = ();
+///     type Cost = u32;
+///
+///     fn successors(&self, n: &u32, mut emit: impl FnMut((), u32, u32)) {
+///         emit((), n + 1, 1);
+///     }
+/// }
+///
+/// let h = heuristic_fn(|n: &u32| 8_u32.checked_sub(*n));
+/// let estimates = EesEstimates { admissible: h, cost_to_go: h, distance_to_go: h };
+/// let result = ees_multi(&Up, [0, 6, 3], &|n: &u32| *n == 8, estimates, Weight::integer(2), Limits::NONE);
+///
+/// assert_eq!(result.solution().map(|s| s.cost), Some(2));
+/// ```
+pub fn ees_multi<G, T, H, Hh, D, Dc>(
+    graph: &G,
+    starts: impl IntoIterator<Item = G::State>,
+    goal: &T,
+    estimates: EesEstimates<H, Hh, D>,
+    weight: Weight,
+    budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
+    Hh: Heuristic<G::State, G::Cost>,
+    D: Heuristic<G::State, Dc>,
+    Dc: Cost,
+{
+    let (space, start_goal) = SearchSpace::seed(starts, goal);
     let search = Ees {
         graph,
         estimates,

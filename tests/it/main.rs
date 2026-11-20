@@ -10,5 +10,6 @@ mod fixtures;
 mod grid;
 mod lazy;
 mod mha;
+mod multi;
 mod properties;
 mod small_graphs;

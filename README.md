@@ -8,8 +8,10 @@ Pre-release; the API will change. See [docs/design.md](docs/design.md).
 
 Implemented on the `draft/initial` branch:
 
-- Foundational: BFS, Dijkstra, A*, greedy best-first search (GBFS), each also from several
-  start states; DFS, depth-limited DFS, iterative deepening DFS, IDA*
+- Foundational: BFS, Dijkstra, A*, greedy best-first search (GBFS); DFS, depth-limited DFS,
+  iterative deepening DFS, IDA*
+- Every search except the incremental planners also from several start states
+  (`*_multi`)
 - Weighted and anytime: Weighted A*, ARA*, ANA*
 - Bounded-suboptimal: focal search (with a public focal list and tie-breaking), EES, DPS
 - Bidirectional: bidirectional BFS and Dijkstra, NBS, DIBBS, BAE*

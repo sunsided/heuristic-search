@@ -24,9 +24,12 @@ mod bfs;
 mod frontier;
 mod nbs;
 
-pub use bfs::bidirectional_bfs;
-pub use frontier::{bae_star, bidirectional_dijkstra, dibbs};
-pub use nbs::nbs;
+pub use bfs::{bidirectional_bfs, bidirectional_bfs_multi};
+pub use frontier::{
+    bae_star, bae_star_multi, bidirectional_dijkstra, bidirectional_dijkstra_multi, dibbs,
+    dibbs_multi,
+};
+pub use nbs::{nbs, nbs_multi};
 
 use alloc::vec::Vec;
 use core::hash::Hash;
@@ -136,11 +139,11 @@ where
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
 {
-    /// Seeds the forward side with `start` and the backward side with `goals`, evaluates
-    /// them, and records a meet if the start is a goal.
+    /// Seeds the forward side with `starts` and the backward side with `goals`, evaluates
+    /// them, and records a meet if a start is a goal.
     fn new(
         graph: &'a G,
-        start: G::State,
+        starts: impl IntoIterator<Item = G::State>,
         goals: impl IntoIterator<Item = G::State>,
         forward_h: HF,
         backward_h: HB,
@@ -157,7 +160,7 @@ where
             forward_h,
             backward_h,
             sides: [
-                side(SearchSpace::seed([start], &never).0),
+                side(SearchSpace::seed(starts, &never).0),
                 side(SearchSpace::seed(goals, &never).0),
             ],
             stats: Stats::default(),
