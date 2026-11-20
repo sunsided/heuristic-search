@@ -158,6 +158,26 @@ proptest! {
         for &(cost, bound) in &reports {
             prop_assert!(bound <= exact[0].unwrap() && exact[0].unwrap() <= cost);
         }
+        if let Some(&(first, _)) = reports.first() {
+            prop_assert!(first <= 3 * exact[0].unwrap(), "first iteration within weight 3");
+        }
+    }
+
+    /// ARA* with an admissible but inconsistent heuristic still ends optimal, because the
+    /// last iteration reopens.
+    #[test]
+    fn ara_star_inconsistent_ends_optimal(
+        (graph, goal) in graph_and_goal(),
+        scales in prop::collection::vec(0_u64..=4, 12),
+    ) {
+        let exact = distances_to(&graph, goal);
+        let h = heuristic_fn(|state: &usize| exact[*state].map(|d| d * scales[*state] / 4));
+        let is_goal = |state: &usize| *state == goal;
+
+        let result = ara_star(&graph, 0, &is_goal, h, schedule(), |_, _| {}, Limits::NONE);
+
+        prop_assert!(result.complete);
+        prop_assert_eq!(result.solution.as_ref().map(|s| s.cost), exact[0]);
     }
 
     /// ANA* with an admissible but inconsistent heuristic ends optimal.
@@ -167,7 +187,8 @@ proptest! {
         scales in prop::collection::vec(0_u64..=4, 12),
     ) {
         let exact = distances_to(&graph, goal);
-        let h = heuristic_fn(|state: &usize| Some(exact[*state].map_or(0, |d| d * scales[*state] / 4)));
+        // `None` where the goal is unreachable: a true dead end.
+        let h = heuristic_fn(|state: &usize| exact[*state].map(|d| d * scales[*state] / 4));
         let is_goal = |state: &usize| *state == goal;
         let mut reports = Vec::new();
 

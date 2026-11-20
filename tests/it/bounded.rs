@@ -185,7 +185,8 @@ proptest! {
     ) {
         let weight = Weight::new(numerator, 2);
         let exact = distances_to(&graph, goal);
-        let h = |state: &usize| Some(exact[*state].map_or(0, |d| d * scales[*state] / 4));
+        // `None` where the goal is unreachable: a true dead end.
+        let h = |state: &usize| exact[*state].map(|d| d * scales[*state] / 4);
         let h_hat = |state: &usize| Some(exact[*state].map_or(0, |d| d * hat_scales[*state] / 4));
         let is_goal = |state: &usize| *state == goal;
 

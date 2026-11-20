@@ -320,7 +320,7 @@ mod tests {
 
     use proptest::prelude::*;
 
-    use super::FocalList;
+    use super::{FocalList, TieBreak};
     use crate::cost::{Weight, within};
 
     /// One operation on the list: push `(item, f, g, key)`, remove an item, or pop.
@@ -348,12 +348,13 @@ mod tests {
 
     proptest! {
         /// After every operation, the popped item and the focal size match the model:
-        /// smallest key among items with `f <= w * f_min`, ties by `f`, larger `g`, then
-        /// push order.
+        /// smallest key among items with `f <= w * f_min`, ties by `f`, then larger or
+        /// smaller `g` per tie-break rule, then push order.
         #[test]
-        fn matches_naive_model(ops in ops(), numerator in 2_u32..6) {
+        fn matches_naive_model(ops in ops(), numerator in 2_u32..6, larger_g in any::<bool>()) {
             let weight = Weight::new(numerator, 2);
-            let mut list = FocalList::new(weight);
+            let tie = if larger_g { TieBreak::LargerG } else { TieBreak::SmallerG };
+            let mut list = FocalList::with_tie_break(weight, tie);
             // (item, f, g, key, seq)
             let mut model: Vec<(usize, u32, u32, u8, usize)> = Vec::new();
 
@@ -363,7 +364,7 @@ mod tests {
                     model
                         .iter()
                         .filter(|e| within(e.1, weight, min_f))
-                        .min_by_key(|e| (e.3, e.1, core::cmp::Reverse(e.2), e.4))
+                        .min_by_key(|e| (e.3, e.1, if larger_g { u32::MAX - e.2 } else { e.2 }, e.4))
                         .map(|e| e.0)
                 });
 

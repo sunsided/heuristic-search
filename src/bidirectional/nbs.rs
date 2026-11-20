@@ -137,11 +137,12 @@ where
                 continue;
             };
 
-            if budget.exhausted(&self.core.stats) {
-                return self.core.finish(false);
-            }
-
             for (direction, node) in [(Direction::Forward, u), (Direction::Backward, v)] {
+                // Asked before each of the two expansions, so a limit of `n` stops at `n`.
+                if budget.exhausted(&self.core.stats) {
+                    return self.core.finish(false);
+                }
+
                 self.ready[direction.index()].remove(node);
                 self.core.expand(direction, node, true, &mut touched);
                 for id in touched.drain(..) {

@@ -66,7 +66,8 @@ proptest! {
         w2 in 2_u32..6,
     ) {
         let exact = distances_to(&graph, goal);
-        let anchor = |s: &usize| Some(exact[*s].map_or(0, |d| d * scale / 4));
+        // `None` where the goal is unreachable: a true dead end.
+        let anchor = |s: &usize| exact[*s].map(|d| d * scale / 4);
         let guides = || -> Vec<Boxed<'_>> {
             vec![
                 Box::new(heuristic_fn(|s: &usize| Some(noise[*s]))),

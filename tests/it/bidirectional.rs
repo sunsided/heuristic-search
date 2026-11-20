@@ -102,8 +102,9 @@ proptest! {
         let unit_cost = nearest(&graph.unit(), &goals)[0];
 
         let scaled = |d: &Vec<Option<u64>>, s: usize, k: u64| d[s].map_or(0, |d| d * k / 4);
-        let forward = |s: &usize| Some(scaled(&to_goal, *s, scales[*s]));
-        let backward = |s: &usize| Some(scaled(&from_start, *s, scales[(*s + 5) % 12]));
+        // NBS gets `None` where a state cannot be on any start-goal path: true dead ends.
+        let forward = |s: &usize| to_goal[*s].map(|d| d * scales[*s] / 4);
+        let backward = |s: &usize| from_start[*s].map(|d| d * scales[(*s + 5) % 12] / 4);
         let forward_c = |s: &usize| Some(scaled(&to_goal, *s, scale));
         let backward_c = |s: &usize| Some(scaled(&from_start, *s, scale));
         let goals_iter = || goals.iter().copied();
