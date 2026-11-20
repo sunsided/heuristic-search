@@ -1,5 +1,5 @@
-//! Capability traits that describe a search problem: [`Successors`], [`Goal`] and
-//! [`Heuristic`].
+//! Capability traits that describe a search problem: [`Successors`], [`Predecessors`],
+//! [`Goal`] and [`Heuristic`].
 //!
 //! There is no single "search problem" trait. Each algorithm asks for the capabilities it
 //! needs, and the goal test and heuristic are separate values, so one graph can be searched
@@ -33,6 +33,33 @@ pub trait Successors {
         &self,
         state: &Self::State,
         emit: impl FnMut(Self::Action, Self::State, Self::Cost),
+    );
+}
+
+/// A graph that can enumerate the predecessors of a node, for backward and bidirectional
+/// search.
+///
+/// The backward node type may differ from the forward state type: planning regresses over
+/// partial states (subgoals), not full states. The bidirectional searches in this crate
+/// need `Node = State`, the same `Action` and `Cost` as [`Successors`], and detect a meeting
+/// of the two frontiers by state equality.
+pub trait Predecessors {
+    /// A node of the backward search graph.
+    type Node;
+    /// The label of an edge, the same as the forward label of that edge.
+    type Action;
+    /// The cost of an edge. Must be non-negative.
+    type Cost: Cost;
+
+    /// Calls `emit(action, predecessor, cost)` once for every edge
+    /// `predecessor --action--> node`.
+    ///
+    /// Must agree with the forward edges: `p` is reported as a predecessor of `n` with
+    /// `action` and `cost` exactly when `n` is a successor of `p` with them.
+    fn predecessors(
+        &self,
+        node: &Self::Node,
+        emit: impl FnMut(Self::Action, Self::Node, Self::Cost),
     );
 }
 
@@ -124,6 +151,20 @@ impl<S, C: Cost> Heuristic<S, C> for Zero {
     fn estimate(&mut self, _state: &S) -> Option<C> {
         Some(C::ZERO)
     }
+}
+
+/// Appends the predecessors of `node` to `buffer` and returns how many there were.
+pub(crate) fn collect_predecessors<G: Predecessors>(
+    graph: &G,
+    node: &G::Node,
+    buffer: &mut Vec<(G::Action, G::Node, G::Cost)>,
+) -> u64 {
+    let before = buffer.len();
+    graph.predecessors(node, |action, previous, cost| {
+        buffer.push((action, previous, cost));
+    });
+
+    (buffer.len() - before) as u64
 }
 
 /// Appends the successors of `state` to `buffer` and returns how many there were.

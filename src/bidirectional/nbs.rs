@@ -1,0 +1,218 @@
+//! Near-Optimal Bidirectional Search ([`nbs`], Chen, Holte, Zilles and Sturtevant 2017).
+
+use core::cmp::Reverse;
+use core::hash::Hash;
+
+use alloc::vec::Vec;
+
+use crate::best_first::GraphResult;
+use crate::bidirectional::{BidirectionalGraph, Core, Direction};
+use crate::cost::{Cost, Ordered};
+use crate::keyed_set::KeyedSet;
+use crate::outcome::Budget;
+use crate::problem::{Heuristic, Successors};
+use crate::space::NodeId;
+
+/// Near-Optimal Bidirectional Search (NBS): expands pairs of states, one per side, and
+/// never expands more than twice the states any admissible front-to-end bidirectional
+/// search must.
+///
+/// The lower bound of a pair `(u, v)` is `lb(u, v) = max(f_F(u), f_B(v), g_F(u) + g_B(v))`.
+/// NBS keeps a current lower bound `CLB` and expands both states of a pair with
+/// `lb <= CLB`, choosing the smallest `g` among the states with `f <= CLB` on each side
+/// (the paper's waiting and ready queues). When no such pair is left it raises `CLB`
+/// to the smallest bound any pair can have, and it stops once `CLB` reaches the cheapest
+/// meet. `forward` estimates the cost to the nearest goal and `backward` the cost from the
+/// start; with admissible estimates the solution is optimal.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Predecessors, Successors, heuristic_fn, nbs};
+///
+/// /// A line of integers; each step moves one to the left or right at cost 1.
+/// struct Line;
+///
+/// impl Successors for Line {
+///     type State = i32;
+///     type Action = i32;
+///     type Cost = u32;
+///
+///     fn successors(&self, state: &i32, mut emit: impl FnMut(i32, i32, u32)) {
+///         emit(-1, state - 1, 1);
+///         emit(1, state + 1, 1);
+///     }
+/// }
+///
+/// impl Predecessors for Line {
+///     type Node = i32;
+///     type Action = i32;
+///     type Cost = u32;
+///
+///     fn predecessors(&self, state: &i32, mut emit: impl FnMut(i32, i32, u32)) {
+///         emit(1, state - 1, 1);
+///         emit(-1, state + 1, 1);
+///     }
+/// }
+///
+/// let to_goal = heuristic_fn(|s: &i32| Some(9_i32.abs_diff(*s)));
+/// let from_start = heuristic_fn(|s: &i32| Some(0_i32.abs_diff(*s)));
+/// let result = nbs(&Line, 0, [9], to_goal, from_start, Limits::NONE);
+/// let solution = result.into_solution().expect("9 is reachable");
+///
+/// assert_eq!(solution.cost, 9);
+/// assert_eq!(solution.actions, [1; 9]);
+/// ```
+pub fn nbs<G, HF, HB>(
+    graph: &G,
+    start: G::State,
+    goals: impl IntoIterator<Item = G::State>,
+    forward: HF,
+    backward: HB,
+    budget: impl Budget,
+) -> GraphResult<G>
+where
+    G: BidirectionalGraph,
+    G::State: Clone + Hash + Eq,
+    <G as Successors>::Action: Clone,
+    HF: Heuristic<G::State, <G as Successors>::Cost>,
+    HB: Heuristic<G::State, <G as Successors>::Cost>,
+{
+    let core = Core::new(graph, start, goals, forward, backward);
+
+    Nbs::new(core).run(budget)
+}
+
+/// A queue order: smallest primary value, then the secondary value reversed, then node id.
+type Key<C> = (Ordered<C>, Reverse<Ordered<C>>);
+
+/// The state of one NBS run.
+struct Nbs<'a, G: BidirectionalGraph, HF, HB> {
+    /// Both sides, the heuristics, the counters and the best meet.
+    core: Core<'a, G, HF, HB>,
+    /// Per side, open states with `f > CLB`, by `f` (ties: larger `g`).
+    waiting: [KeyedSet<Key<<G as Successors>::Cost>>; 2],
+    /// Per side, open states with `f <= CLB`, by `g` (ties: larger `f`).
+    ready: [KeyedSet<Key<<G as Successors>::Cost>>; 2],
+    /// The current lower bound on the cost of any path not found yet.
+    clb: <G as Successors>::Cost,
+}
+
+impl<'a, G, HF, HB> Nbs<'a, G, HF, HB>
+where
+    G: BidirectionalGraph,
+    G::State: Clone + Hash + Eq,
+    <G as Successors>::Action: Clone,
+    HF: Heuristic<G::State, <G as Successors>::Cost>,
+    HB: Heuristic<G::State, <G as Successors>::Cost>,
+{
+    /// Queues the live seeds of both sides.
+    fn new(core: Core<'a, G, HF, HB>) -> Self {
+        let mut search = Self {
+            core,
+            waiting: [KeyedSet::new(), KeyedSet::new()],
+            ready: [KeyedSet::new(), KeyedSet::new()],
+            clb: <G as Successors>::Cost::ZERO,
+        };
+
+        for direction in [Direction::Forward, Direction::Backward] {
+            for id in 0..search.core.side(direction).space.len() {
+                search.queue(direction, id);
+            }
+        }
+
+        search
+    }
+
+    /// Expands pairs until `CLB` reaches the best meet, a side runs empty or the budget is
+    /// used up.
+    fn run(mut self, mut budget: impl Budget) -> GraphResult<G> {
+        let mut touched = Vec::new();
+        while !self.side_exhausted() && !self.core.proven(self.clb) {
+            self.promote(Direction::Forward);
+            self.promote(Direction::Backward);
+
+            let Some((u, v)) = self.ready_pair() else {
+                self.raise_clb();
+                continue;
+            };
+
+            if budget.exhausted(&self.core.stats) {
+                return self.core.finish(false);
+            }
+
+            for (direction, node) in [(Direction::Forward, u), (Direction::Backward, v)] {
+                self.ready[direction.index()].remove(node);
+                self.core.expand(direction, node, true, &mut touched);
+                for id in touched.drain(..) {
+                    self.queue(direction, id);
+                }
+            }
+        }
+
+        self.core.finish(true)
+    }
+
+    /// Returns `true` if either side has nothing open.
+    fn side_exhausted(&self) -> bool {
+        (0..2).any(|side| self.waiting[side].is_empty() && self.ready[side].is_empty())
+    }
+
+    /// Moves every waiting state with `f <= CLB` on `direction`'s side to the ready queue.
+    fn promote(&mut self, direction: Direction) {
+        let side = direction.index();
+        while let Some((&(Ordered(f), Reverse(Ordered(g))), id)) = self.waiting[side].first() {
+            if f.cmp_cost(&self.clb).is_gt() {
+                break;
+            }
+
+            self.waiting[side].remove(id);
+            self.ready[side].insert(id, (Ordered(g), Reverse(Ordered(f))));
+        }
+    }
+
+    /// The ready pair of smallest `g` on each side, if their `g` sum is within `CLB`.
+    fn ready_pair(&self) -> Option<(NodeId, NodeId)> {
+        let (forward, u) = self.ready[0].first()?;
+        let (backward, v) = self.ready[1].first()?;
+
+        (forward.0.0 + backward.0.0)
+            .cmp_cost(&self.clb)
+            .is_le()
+            .then_some((u, v))
+    }
+
+    /// Raises `CLB` to the smallest lower bound any pair can have now: the smallest waiting
+    /// `f` of either side, or the smallest ready `g` sum.
+    fn raise_clb(&mut self) {
+        let waiting = self
+            .waiting
+            .iter()
+            .filter_map(|queue| queue.first().map(|(key, _)| key.0.0));
+        let ready = match (self.ready[0].first(), self.ready[1].first()) {
+            (Some((forward, _)), Some((backward, _))) => Some(forward.0.0 + backward.0.0),
+            _ => None,
+        };
+
+        let next = waiting
+            .chain(ready)
+            .reduce(|a, b| if b.cmp_cost(&a).is_lt() { b } else { a })
+            .expect("both sides have open states");
+        debug_assert!(next.cmp_cost(&self.clb).is_gt(), "CLB must grow");
+
+        self.clb = next;
+    }
+
+    /// Queues the live node `id` on `direction`'s side as waiting, replacing any earlier
+    /// entry; [`Nbs::promote`] moves it on if `f <= CLB`.
+    fn queue(&mut self, direction: Direction, id: NodeId) {
+        let Some((h, _)) = self.core.h(direction, id) else {
+            return;
+        };
+
+        let g = self.core.g(direction, id);
+        let side = direction.index();
+        self.ready[side].remove(id);
+        self.waiting[side].insert(id, (Ordered(g + h), Reverse(Ordered(g))));
+    }
+}

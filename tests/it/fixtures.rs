@@ -1,7 +1,7 @@
 //! Test graphs: a weighted adjacency-list [`Graph`] and a 4-connected [`Grid`], random graphs,
 //! a Bellman-Ford distance oracle, and a checker that a [`Solution`] is a real path.
 
-use heuristic_search::{Solution, Successors};
+use heuristic_search::{Predecessors, Solution, Successors};
 use proptest::prelude::*;
 
 /// A directed graph as adjacency lists of `(target, cost)` pairs. States are node indices;
@@ -21,6 +21,18 @@ impl Graph {
         }
 
         Self { edges: adjacency }
+    }
+
+    /// The same graph with every edge reversed. An edge keeps its cost.
+    pub fn reversed(&self) -> Self {
+        let mut edges = vec![Vec::new(); self.edges.len()];
+        for (from, targets) in self.edges.iter().enumerate() {
+            for &(to, cost) in targets {
+                edges[to].push((from, cost));
+            }
+        }
+
+        Self { edges }
     }
 
     /// The same graph with every edge cost set to `1`.
@@ -79,6 +91,31 @@ pub fn graph_and_goal() -> impl Strategy<Value = (Graph, usize)> {
 
         (edges, 0..nodes).prop_map(move |(edges, goal)| (Graph::new(nodes, &edges), goal))
     })
+}
+
+/// Exact cost from `start` to every node, or `None` where a node is unreachable.
+///
+/// [`distances_to`] on the reversed graph.
+pub fn distances_from(graph: &Graph, start: usize) -> Vec<Option<u64>> {
+    distances_to(&graph.reversed(), start)
+}
+
+/// Predecessors by scanning every adjacency list; the action is the edge's index in its
+/// source's list, as for [`Successors`].
+impl Predecessors for Graph {
+    type Node = usize;
+    type Action = usize;
+    type Cost = u64;
+
+    fn predecessors(&self, node: &usize, mut emit: impl FnMut(usize, usize, u64)) {
+        for (from, edges) in self.edges.iter().enumerate() {
+            for (index, &(to, cost)) in edges.iter().enumerate() {
+                if to == *node {
+                    emit(index, from, cost);
+                }
+            }
+        }
+    }
 }
 
 /// Asserts that `solution` is a path in `graph` from `start` whose cost is the sum of its

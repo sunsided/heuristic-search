@@ -12,12 +12,12 @@ Implemented on the `draft/initial` branch:
   start states
 - Weighted and anytime: Weighted A*, ARA*, ANA*
 - Bounded-suboptimal: focal search (with a public focal list and tie-breaking), EES, DPS
+- Bidirectional: bidirectional BFS and Dijkstra, NBS, DIBBS, BAE*
 
 Planned:
 
 - Foundational: DFS, IDA*
 - Multiple heuristics: MHA*
-- Bidirectional: bidirectional BFS and Dijkstra, NBS, DIBBS, BAE*
 - Expensive edge evaluation: LazySP
 - Dynamic graphs: LPA*, D* Lite, AD*
 

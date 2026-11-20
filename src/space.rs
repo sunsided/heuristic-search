@@ -163,10 +163,24 @@ impl<S: Clone, A: Clone, C: Cost> SearchSpace<S, A, C> {
     /// The cost is summed along the links rather than read from the goal's `g`: with
     /// reopening, an ancestor may have been improved after the goal was reached.
     pub(crate) fn solution(&self, goal: NodeId) -> Solution<S, A, C> {
+        let mut path = self.walk_to_root(goal);
+        path.states.reverse();
+        path.actions.reverse();
+
+        path
+    }
+
+    /// The parent links from node `from` to its root, in walking order: `states[0]` is
+    /// `from`, and `actions[i]` is the label of the link from `states[i]` to
+    /// `states[i + 1]`. The cost is summed along the links.
+    ///
+    /// In a backward search, whose links point towards the goal, this is the forward path
+    /// from `from` to the goal.
+    pub(crate) fn walk_to_root(&self, from: NodeId) -> Solution<S, A, C> {
         let mut states = Vec::new();
         let mut actions = Vec::new();
         let mut cost = C::ZERO;
-        let mut current = goal;
+        let mut current = from;
 
         states.push(self.nodes[current].state.clone());
         while let Some((parent, action, edge_cost)) = &self.nodes[current].parent {
@@ -175,9 +189,6 @@ impl<S: Clone, A: Clone, C: Cost> SearchSpace<S, A, C> {
             states.push(self.nodes[*parent].state.clone());
             current = *parent;
         }
-
-        states.reverse();
-        actions.reverse();
 
         Solution {
             states,

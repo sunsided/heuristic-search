@@ -36,6 +36,13 @@
 //! - [`ees`]: Explicit Estimation Search, guided by inadmissible estimates.
 //! - [`dps`]: Dynamic Potential Search, needs only `h`.
 //!
+//! Bidirectional searches need [`Predecessors`] as well (a [`BidirectionalGraph`]) and
+//! explicit goal states:
+//!
+//! - [`bidirectional_bfs`] and [`bidirectional_dijkstra`]: blind baselines.
+//! - [`nbs`]: Near-Optimal Bidirectional Search, pairs of expansions.
+//! - [`dibbs`] and [`bae_star`]: DIBBS and BAE*, ordered by `2g + h - h_opposite`.
+//!
 //! Costs are generic over [`Cost`]. For planning, `u32` is the intended default: action
 //! costs are small integers and heuristics over them stay exact.
 //!
@@ -71,7 +78,6 @@
 //!
 //! - Foundational: DFS, IDA*
 //! - Multiple heuristics: MHA*
-//! - Bidirectional: NBS, BAE*, DIBBS
 //! - Expensive edge evaluation: `LazySP`
 //! - Dynamic graphs: LPA*, D* Lite, AD*
 //!
@@ -91,6 +97,7 @@ extern crate alloc;
 mod anytime;
 mod best_first;
 mod bfs;
+mod bidirectional;
 mod bounded;
 mod cost;
 mod focal;
@@ -106,8 +113,11 @@ pub use best_first::{
     weighted_astar_multi,
 };
 pub use bfs::{bfs, bfs_multi};
+pub use bidirectional::{
+    BidirectionalGraph, bae_star, bidirectional_bfs, bidirectional_dijkstra, dibbs, nbs,
+};
 pub use bounded::{EesEstimates, FocalFn, FocalKey, dps, ees, focal_fn, focal_search};
 pub use cost::{Cost, Weight};
 pub use focal::{FocalList, TieBreak};
 pub use outcome::{Budget, Limits, Outcome, SearchResult, Solution, Stats};
-pub use problem::{Goal, Heuristic, HeuristicFn, Successors, Zero, heuristic_fn};
+pub use problem::{Goal, Heuristic, HeuristicFn, Predecessors, Successors, Zero, heuristic_fn};
