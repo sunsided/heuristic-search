@@ -342,9 +342,11 @@ Per-algorithm notes:
   unit-cost view whose actions carry the costs. Backward nodes still share the forward
   state type; a separate `Node` type would need a second search-space type.
 - LPA*, D* Lite and AD* share one core: LPA* is D* Lite run from the start. AD* adds
-  inflation for overconsistent keys, `CLOSED`/`INCONS`, and re-keys everything at the
-  start of each `compute` instead of using `km`. Paths are read off tight edges by BFS
-  from the target, with a greedy fallback for AD*.
+  inflation for overconsistent keys and `CLOSED`/`INCONS` (reset from lists, not scans).
+  Target moves raise `km` by `numerator * h(old, new)` in scaled key units, which keeps
+  plain and inflated keys lower bounds, so AD* re-keys everything only when the weight
+  drops below one a queued key used. Paths are read off tight edges by BFS from the
+  target, each step charged its cheapest parallel edge, with a greedy fallback for AD*.
 
 ## Dependencies
 
