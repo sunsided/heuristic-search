@@ -33,7 +33,9 @@ Implemented on the `draft/initial` branch:
   as subgoals), with path replay or a typed `ReplayError`
 - Multiple heuristics: shared MHA*
 - Expensive edge evaluation: LazySP
-- Dynamic graphs: LPA*, D* Lite, AD* (start moves keyed by D* Lite's `km`)
+- Dynamic graphs: LPA*, D* Lite, AD* (start moves keyed by D* Lite's `km`); Field D*
+  (`FieldDStar`, feature `float`) over the corners of a `CostGrid` with per-cell costs,
+  interpolated any-angle paths through cell edges, cell-change repair and a moving start
 - Naming: every A* variant is `*_star` (`a_star`, `weighted_a_star`, ...); `astar` and
   `weighted_astar` remain as aliases
 - Shared traits: `Cost`, `Heuristic`, `Goal` and `Budget<Stats>` come from `search-core`

@@ -19,7 +19,7 @@ In scope, in milestone order (see [Milestones](#milestones)):
 - multiple heuristics: MHA*;
 - bidirectional: NBS, BAE*, DIBBS (plus bidirectional BFS and Dijkstra as baselines);
 - expensive edge evaluation: LazySP;
-- dynamic graphs: LPA*, D* Lite, AD*.
+- dynamic graphs: LPA*, D* Lite, AD*; Field D* on grids with per-cell costs.
 
 Out of scope: symbolic (BDD) search, multi-objective search, width/novelty search,
 stochastic search, factored (decoupled) search. Those have their own crates in the
@@ -333,8 +333,9 @@ Per-algorithm notes:
   must come in a stable order, since forgotten children are found again by position.
 - Theta* and Lazy Theta* need the `float` feature: path lengths are sums of square roots,
   which no exact cost type here represents, so costs are `NonNegF64`. `f64::sqrt` is not in
-  `core` at the MSRV, so a private Newton iteration (exponent-halving guess, six steps)
-  computes it; tests agree with `std` to 4 ulp. Line of sight (`LineOfSight`, with a
+  `core` at the MSRV, so a private Newton iteration (exponent-halving guess, iterated until
+  it stops falling, shared with Field D*) computes it; tests agree with `std` to 4 ulp and
+  check exact squares and subnormal inputs. Line of sight (`LineOfSight`, with a
   default method) means the closed segment between cell centres touches no blocked closed
   cell square, which for a unit diagonal is the no-corner-cutting rule, so every
   8-connected move has line of sight and "Theta* <= 8-connected optimum" holds. The
@@ -347,12 +348,45 @@ Per-algorithm notes:
   no reopening, the closed set never misses a cheaper grid path). Lazy Theta* breaks that
   bound on some maps (found by the property test), so its docs do not claim it. On the
   benchmark grid: Theta* 1.8 ms, Lazy Theta* 0.71 ms.
-- Field D* is not implemented yet. It is an incremental planner on D* Lite's machinery
-  (the `dynamic` module) over a different model: a node lattice at cell corners, per-cell
-  traversal costs, and costs interpolated along cell edges, with path extraction through
-  points inside edges (so its states are not cells). It shares nothing with Theta* beyond
-  the grid trait, so it does not fall out of the any-angle work; it would be a planner of
-  its own on the incremental core.
+- Field D* (`FieldDStar`, feature `float`) is D* Lite's core over a different model:
+  nodes are cell corners, `CostGrid` (a `UniformGrid` plus `cell_cost`, default `1`) gives
+  per-cell costs, and `rhs(s)` is the minimum over the eight pairs of consecutive
+  neighbours `(s1, s2)` of the papers' closed form for the cheapest path through the edge
+  `s1 s2` with `g` interpolated along it (straight along `s s1` at the cheaper bordering
+  cell, across the cell to a point on `s1 s2`, or along `s s1` and then across to `s2`).
+  The core got a crate-private model trait, `Searched`, implemented for every
+  `DynamicGraph`; its `LOOKAHEAD` flag makes `update` call the model's `rhs` with a
+  non-interning `g` lookup, and `compute` is split into `repair` and path extraction. The
+  edge branch is unchanged, so interning order and LPA*/D* Lite/AD* results are too. Keys
+  use `min_cost / √2` times the Euclidean distance (`min_cost` a lower bound on every cell
+  cost, for the planner's lifetime): every case of the closed form exceeds each `g` it
+  depends on by at least `min_cost / √2` per unit of corner distance (the tightest case is
+  the unclamped crossing, `rhs - g(s1) = √(c² - f²) >= c / √2`), so keys stay ordered
+  along dependencies. A changed cell updates its four corners: every pair a corner uses
+  lies in the four cells around it. There is no corner rule: paths follow obstacle
+  borders and pass corners where blocked cells touch diagonally.
+  Paths are walked from the start: at a corner the candidates are each pair's closed-form
+  choice plus the plain straight and diagonal moves; at an edge point, the moves along
+  the edge and the best point (closed-form convex minimum) on each other edge of both
+  bordering cells. Each step must strictly lower the interpolated value (corners then
+  have falling `g`, so the walk terminates; an edge point without such a step falls back
+  to the lower end of its edge), and steps are ranked by cost plus remainder, the
+  remainder at an edge point being its own best step's total. Ranking by the plain
+  interpolated value instead let paths run onto edges whose far side is blocked, up to
+  21 % above the 8-connected optimum on random grids; the lookahead brought that to
+  about 2 %. The reported cost is the path's true cost (segments times their cell's
+  cost, or the cheaper cell along an edge); `interpolated_cost()` returns `g(start)`.
+  Properties tested: `g(start)` equals an independent fixed-point sweep of the closed
+  form and is at most Dijkstra over the 8-connected corner lattice; the path's cost equals
+  its recomputation from geometry, is at least the straight line times the cheapest cost,
+  and is within 1.05 of the 8-connected optimum (observed 1.023 over 20 000 grids); on
+  uniform grids it is within 1.02 of Theta* run over the corners (observed 1.011; Theta*
+  there may only use corners whose four cells are free, so Field D* is often shorter);
+  incremental repair after random cell changes and start moves matches fresh runs in
+  `g(start)`. The path's cost is not guaranteed to be at most the 8-connected optimum;
+  only `g` is. On the benchmark grid (65 x 65 corners), a plan plus a repair after the
+  gap moves: 9.1 ms, against 1.8 ms for 4-connected D* Lite; each expansion updates eight
+  neighbours whose `rhs` reads eight `g` values from the hash index.
 - Grids: `UniformGrid` (width, height, `is_passable(x, y)`), cells `(x, y)`, 8-connected
   **without corner cutting** (a diagonal move needs both orthogonal neighbours open).
   Costs are `Octile { straight, diagonal }`, the exact value `straight + diagonal * √2`:
@@ -466,7 +500,7 @@ were renamed and stay as aliases). Non-A* searches keep their usual names (`bfs`
 `focal_search`). Suffixes compose in a fixed order: `_tt` for an algorithm variant,
 `_multi` for several starts, `_meet` for a meet relation (which always takes several
 starts, so there is no `_meet_multi`). Incremental planners keep state between calls and
-are types: `LpaStar`, `DStarLite`, `AdStar`. Renaming them to `*_star`-style functions was
+are types: `LpaStar`, `DStarLite`, `AdStar`, `FieldDStar`. Renaming them to `*_star`-style functions was
 rejected: they are not one-shot searches.
 
 ## Dependencies
@@ -595,7 +629,8 @@ the move to `search-core`.
 4. **Bounded-suboptimal and multi-heuristic**: done: focal list, focal search, EES, DPS,
    shared MHA*.
 5. **Expensive edges**: done: `EdgeEvaluator`, LazySP.
-6. **Dynamic graphs**: done: `DynamicGraph`, LPA*, D* Lite, AD*.
+6. **Dynamic graphs**: done: `DynamicGraph`, LPA*, D* Lite, AD*; Field D* (`FieldDStar`,
+   feature `float`) over grid corners.
 7. **More algorithms**: fringe search, RBFS, beam search,
    beam-stack search, JPS (with `UniformGrid`, `Octile`, `EightConnected`), Theta* and
    Lazy Theta* (with `LineOfSight`, feature `float`), SMA*.
@@ -663,3 +698,8 @@ the move to `search-core`.
 - S. Koenig, M. Likhachev. D* Lite. AAAI 2002.
 - M. Likhachev, D. Ferguson, G. Gordon, A. Stentz, S. Thrun. Anytime dynamic A*: an
   anytime, replanning algorithm. ICAPS 2005. (AD*)
+- D. Ferguson, A. Stentz. The Field D* algorithm for improved path planning and
+  replanning in uniform and non-uniform cost environments. Technical report
+  CMU-RI-TR-05-19, Carnegie Mellon University, 2005. (Field D*)
+- D. Ferguson, A. Stentz. Using interpolation to improve path planning: the Field D*
+  algorithm. Journal of Field Robotics 23(2), 2006.

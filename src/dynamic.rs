@@ -16,6 +16,10 @@
 //! weight the caller lowers over time. [`LpaStarMulti`], [`DStarLiteMulti`] and
 //! [`AdStarMulti`] take several fixed starts, through a virtual super-start.
 //!
+//! `FieldDStar` (feature `float`) is D* Lite over the corners of a grid with per-cell costs
+//! rather than over a [`DynamicGraph`]: its `rhs` interpolates along cell edges, and its
+//! paths run through points on them.
+//!
 //! Both need strictly positive edge costs, as in the papers: a zero-cost cycle can keep
 //! supporting its own stale distances after the edge that made them real disappears. And
 //! both need a consistent heuristic `h(a, b)` that estimates the cost from `a` to `b`, for

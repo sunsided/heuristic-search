@@ -93,6 +93,9 @@
 //! - [`LpaStar`]: Lifelong Planning A*, fixed start and goal.
 //! - [`DStarLite`]: D* Lite, fixed goal and a moving start.
 //! - [`AdStar`]: Anytime D*, D* Lite with an inflated heuristic the caller lowers.
+//! - `FieldDStar` (feature `float`): Field D*, D* Lite over the corners of a `CostGrid`
+//!   with per-cell costs, whose paths cross cells at any angle through points on cell
+//!   edges.
 //!
 //! Costs are generic over [`Cost`]. For planning, `u32` is the intended default: action
 //! costs are small integers and heuristics over them stay exact. [`Cost`], [`Heuristic`],
@@ -102,8 +105,8 @@
 //! ## Features
 //!
 //! - `float`: re-exports the checked float cost `NonNegF64` from `search-core`, and enables
-//!   the any-angle grid searches `theta_star` and `lazy_theta_star`, whose Euclidean costs
-//!   are floats.
+//!   the any-angle grid searches `theta_star` and `lazy_theta_star` and the Field D*
+//!   planner `FieldDStar` with its `CostGrid`, whose Euclidean costs are floats.
 //!
 //! ## Example
 //!
@@ -140,7 +143,7 @@
 //! [`bae_star`]). Suffixes compose in this order: `_tt` (a variant of the algorithm),
 //! `_multi` (several starts), `_meet` (a meet relation, always with several starts).
 //! Incremental planners keep state between calls, so they are types ([`LpaStar`],
-//! [`DStarLite`], [`AdStar`]). `astar` and `weighted_astar` remain as aliases.
+//! [`DStarLite`], [`AdStar`], `FieldDStar`). `astar` and `weighted_astar` remain as aliases.
 //!
 //! See `docs/design.md` in the repository for the design and milestones.
 //!
