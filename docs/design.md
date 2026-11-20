@@ -1,6 +1,7 @@
 # heuristic-search: design
 
-Status: draft, written with milestone 1 on branch `draft/initial`.
+Status: draft on branch `draft/initial`. Milestone 1 and every algorithm of milestones 2 to 6
+except DFS and IDA* are implemented; see [Milestones](#milestones).
 
 ## Goal and scope
 
@@ -88,6 +89,8 @@ pub trait Cost: Copy + Add<Output = Self> {
     fn cmp_cost(&self, other: &Self) -> Ordering; // total order
     fn times(self, factor: u32) -> Self;          // for weights
     fn saturating_add(self, other: Self) -> Self; // for priority keys
+    fn saturating_sub(self, other: Self) -> Self; // DIBBS/BAE* keys, ANA* slack
+    fn to_f64(self) -> f64;                       // ANA* and DPS ratios, priorities only
 }
 ```
 
@@ -112,32 +115,44 @@ it keeps consistency (`h(s) <= c(s, t) + h(t)` with integer `c(s, t) + ceil(h(t)
 `ceil(h(s)) <= c(s, t) + ceil(h(t))`). It is also the stronger (larger) of the two.
 Rounding down is safe but throws information away.
 
-### Planned
+### Added for later milestones
 
-- `Predecessors` for bidirectional search. miniplan's backward search does not walk over
-  states but over *subgoals* (partial states), and the two frontiers meet when a forward
-  state satisfies a backward subgoal, not when two states are equal. So the trait gets its
-  own node type:
+- `Predecessors` has its own `Node` type, as planned for miniplan's regression over
+  subgoals:
 
   ```rust
   pub trait Predecessors {
-      type Node;    // backward node; may differ from Successors::State
-      type Action;
-      type Cost: Cost;
+      type Node; type Action; type Cost: Cost;
       fn predecessors(&self, node: &Self::Node,
                       emit: impl FnMut(Self::Action, Self::Node, Self::Cost));
   }
+  pub trait BidirectionalGraph: Successors + Predecessors<Node = State, Action = Action,
+                                                         Cost = Cost> {} // blanket impl
   ```
 
-  plus a meet capability that indexes one side and answers "which open/closed nodes of the
-  other side does this node meet?". Equality on `State == Node` is the default
-  implementation; miniplan supplies its per-fact bucket index (`search/meet.rs`).
-  Backward heuristics are plain `Heuristic<Node, C>` values.
-- `LazySP` gets an `EdgeEvaluator` trait (cheap lazy weight, expensive true weight,
-  per-edge identity) on top of an explicit graph trait with stable edge ids.
-- D* Lite / LPA* get a `DynamicGraph` trait: predecessors and successors with stable vertex
-  ids plus a change feed of edge-cost updates. These do not reuse `Successors`.
-- Depth-first and IDA* need nothing beyond `Successors`, `Goal` and `Heuristic`.
+  The bidirectional searches need `Node = State` (the `BidirectionalGraph` bound) and detect
+  meets by state equality through the forward and backward search spaces. The planned
+  meet capability (miniplan's per-fact buckets, a forward state satisfying a backward
+  subgoal) is **not** built yet; see [Open questions](#open-questions). Goals are explicit
+  states (`goals: impl IntoIterator<Item = State>`), because the backward side starts from
+  them. Callers generic over `BidirectionalGraph` must write `<G as Successors>::Cost`:
+  `G::Cost` and `G::Action` are ambiguous between the two traits.
+- `FocalKey<S, A, C>` for focal search: `start(state)` and `extend(parent_key, parent,
+  action, cost, state)`, so a key can accumulate along the path (ECBS conflict counts in
+  `mapf-search`). `focal_fn` wraps a state-only closure.
+- `EdgeEvaluator<S, A, C>`: `evaluate(&mut self, from, action, to) -> Option<C>`, `None` for
+  an infeasible edge; implemented for closures. Unlike the plan there is no separate
+  explicit-graph trait with edge ids: the graph is an ordinary `Successors` that reports
+  *lazy* costs, and an edge is identified by `(source state, action)`.
+- `DynamicGraph`: stable `Vertex` (`Clone + Hash + Eq`), `successors` and `predecessors`
+  with current costs, no actions. Instead of a change feed inside the trait, the caller
+  mutates its graph and reports each changed edge with `planner.edge_changed(&graph, &from,
+  &to)`; planners do not borrow the graph between calls. Costs must be **strictly
+  positive**: with a zero-cost cycle, removing the edge that fed it leaves the cycle
+  supporting its own stale distance (a property test found this), and a dependency can tie
+  with the target's key. Heuristics are closures `FnMut(&V, &V) -> C` estimating the cost
+  from the first vertex to the second.
+- Depth-first and IDA* still need nothing beyond `Successors`, `Goal` and `Heuristic`.
 
 ## Results and statistics
 
@@ -145,8 +160,20 @@ Rounding down is safe but throws information away.
 pub struct SearchResult<S, A, C> { pub outcome: Outcome<S, A, C>, pub stats: Stats }
 pub enum Outcome<S, A, C> { Found(Solution<S, A, C>), Unsolvable, LimitReached }
 pub struct Solution<S, A, C> { pub states: Vec<S>, pub actions: Vec<A>, pub cost: C }
-pub struct Stats { pub expanded: u64, pub generated: u64, pub reopened: u64 }
+#[non_exhaustive]
+pub struct Stats { pub expanded: u64, pub generated: u64, pub reopened: u64,
+                   pub evaluations: u64 }                       // LazySP edge evaluations
+pub struct AnytimeResult<S, A, C> { pub solution: Option<Solution<S, A, C>>,
+                                    pub complete: bool, pub stats: Stats }
+pub type DynamicResult<G> = SearchResult<Vertex, (), Cost>;   // LPA*, D* Lite, AD*
 ```
+
+- Anytime searches (ARA*, ANA*) call `on_solution(&Solution, lower_bound)` for every
+  improvement and return the incumbent with a `complete` flag, so a budget stop keeps the
+  best solution instead of collapsing to `LimitReached`.
+- Incremental planners are structs (`LpaStar`, `DStarLite`, `AdStar`) whose `compute`
+  returns a path of vertices with `()` actions. The budget and stats of `compute` cover
+  that call; `stats()` gives the totals. A budget stop resumes on the next call.
 
 ### Start states
 
@@ -171,9 +198,12 @@ Multi-start search is what backward search from a set of goal states needs, and 
 - `reopened` counts closed states put back on the open list after a cheaper path showed up.
 - Wall-clock time is not measured (no clock in `no_std`); callers time the call.
 
-Later algorithms add fields as needed (heuristic evaluations, anytime solution history for
-ARA*/ANA*, meet count for bidirectional search). `Stats` will become `#[non_exhaustive]`
-before 0.1.0.
+`Stats` is `#[non_exhaustive]`; later algorithms may add counters (heuristic evaluations,
+meet count for bidirectional search).
+
+Only the milestone-1 searches have `*_multi` variants. The later ones take a single start
+(bidirectional ones a set of goal states); multi-start versions are cheap to add where
+needed.
 
 ## Budgets
 
@@ -214,15 +244,48 @@ The four best-first algorithms share one engine and differ only in the key (`g`,
 `den * g + num * h`, `h`) and the reopen flag. BFS uses the same search space with a FIFO
 queue and goal tests on generation.
 
-Later needs, kept out of milestone 1 on purpose:
+The lazy heap is generic over the key type (`OpenList<K, C>`, `f64` keys for ANA*) and has
+`peek_where`/`pop_where` with a custom liveness predicate (ARA*, ANA* and MHA* also check
+an open flag). It serves A*, WA*, GBFS, Dijkstra, ARA*, ANA* and MHA*.
 
-- bucket (Dial) queues for small integer costs, as a second open-list type behind the same
-  engine;
-- several keyed heaps over one node set (NBS, BAE*, EES, MHA*), like miniplan's
-  `Frontier<T, N>` with per-node epochs;
-- a focal list (EES, DPS) keyed by a second value among nodes within a bound.
+Searches that need exact removal or several orders over one node set use `KeyedSet<K>`:
+a `BTreeSet<(K, id)>` plus each id's current key, with insert-or-replace, remove, first,
+and neighbours of an entry. EES (cleanup order), DPS (order by `f`), the bidirectional
+searches (one or two per side) and the incremental core (inconsistency queue) use it.
+Costs get a total order for it through the internal `Ordered<C>` wrapper.
 
-These become a small internal `OpenList` trait once a second implementation exists.
+`FocalList<C, K>` is **public**, so `mapf-search` can drive its own low-level loop. Items
+are dense ids, each at most once; `push` replaces. It keeps an open order by `f` and an
+exact focal sublist `f <= w * f_min` ordered by the focal key, also when `f_min` falls
+(a boundary pointer into the open order shrinks or grows the sublist). Ties go by `f`,
+then `TieBreak::{LargerG, SmallerG}`, then FIFO; with weight 1 it is an A* open list with
+the focal key as tie-breaker. It is property-tested against a naive model.
+
+Still open: bucket (Dial) queues for small integer costs. The bench (`benches/search.rs`)
+measures ~0.5 µs per focal-list push and pop, so a heap-based focal list is the first
+candidate if focal search gets hot.
+
+Per-algorithm notes:
+
+- ARA* parks states improved after their expansion (`INCONS`) except in the last
+  iteration of the schedule, which reopens, so the final bound holds with inconsistent
+  heuristics. Goals are recognised on generation (also in MHA*).
+- ANA* orders by `h` until the first solution, then by the largest `(G - g) / h`, prunes
+  `g + h >= G` and reopens; its `G` is stored apart from the incumbent's `g`, which drops as
+  soon as a cheaper path to the same goal node is generated.
+- Focal search, EES and DPS reopen improved closed states and test goals on expansion, so
+  `f_min` stays a lower bound and the `w` bound holds for any admissible heuristic. DPS
+  groups open states by `(g, h)` and scans the groups per expansion.
+- Bidirectional searches share a core: two search spaces, both heuristics per node, the
+  best meet `mu`, path joining (forward links, then backward links in walking order).
+  NBS follows Chen et al.'s waiting/ready pair rule (miniplan's `Nbs` alternates sides
+  instead). DIBBS and BAE* both order by `2g + h - h_opposite` and stop at
+  `b_F + b_B >= 2 mu`; DIBBS expands the side with the smaller `b`, BAE* the side with fewer
+  open states. Bidirectional BFS runs the core on a unit-cost view and restores costs.
+- LPA*, D* Lite and AD* share one core: LPA* is D* Lite run from the start. AD* adds
+  inflation for overconsistent keys, `CLOSED`/`INCONS`, and re-keys everything at the
+  start of each `compute` instead of using `km`. Paths are read off tight edges by BFS
+  from the target, with a greedy fallback for AD*.
 
 ## Dependencies
 
@@ -232,6 +295,7 @@ These become a small internal `OpenList` trait once a second implementation exis
   `allocator-api2`. A `BTreeMap` would avoid the dependency but force `Ord` states and
   `O(log n)` lookups.
 - `proptest` (dev only).
+- `criterion` (dev only, default features off) for `benches/search.rs`.
 
 ## How miniplan adopts it
 
@@ -288,6 +352,11 @@ Things other repos would need to change or provide. None of these are done here.
   same `&mut H` and `Box<H>` blanket impls, and the same rule of rounding float values up
   over integer costs. Its heuristics implement this crate's `Heuristic` behind an optional
   feature, not the other way round.
+- `Cost` gained `saturating_sub` and `to_f64`, and `Stats` became `#[non_exhaustive]` with
+  an `evaluations` counter. `planning-heuristics` and `stochastic-search` keep their own
+  copies of these definitions and need the same change, or the move to `search-core`.
+- `mapf-search` (planned): can reuse `FocalList`, `TieBreak` and `focal_search` with a
+  path-dependent `FocalKey` for ECBS-style conflict counts.
 - `search-core` (candidate): `Heuristic`, `Cost`, `Goal` and `Budget` are candidates to move
   into a shared `search-core` crate. Three crates now need the same definitions:
   `planning-heuristics` (its own copy), `mapf-search` (re-exports from this crate) and
@@ -327,14 +396,14 @@ Things other repos would need to change or provide. None of these are done here.
 1. **Foundations** (done on `draft/initial`): capability traits, `Cost`, search space,
    open list, BFS, Dijkstra, A*, WA*, GBFS, single- and multi-start, statistics, budgets,
    path extraction, saturating keys, tests.
-2. **Rest of foundational + anytime**: DFS (with depth limit), IDA*, ARA*, ANA*.
-   `Stats` gets `#[non_exhaustive]`; anytime algorithms report each improved solution
-   through a callback.
-3. **Bidirectional**: `Predecessors`, meet capability, bidirectional BFS and Dijkstra, NBS,
-   BAE*, DIBBS. miniplan's forward and bidirectional planners move here.
-4. **Bounded-suboptimal and multi-heuristic**: focal lists; EES, DPS, MHA*.
-5. **Expensive edges**: `EdgeEvaluator`, LazySP.
-6. **Dynamic graphs**: `DynamicGraph`, LPA*, D* Lite, AD*.
+2. **Rest of foundational + anytime**: ARA*, ANA* done (`Stats` is `#[non_exhaustive]`,
+   improvements reported through a callback). DFS (with depth limit) and IDA* still open.
+3. **Bidirectional**: done except the meet capability: `Predecessors`, bidirectional BFS
+   and Dijkstra, NBS, BAE*, DIBBS. miniplan's planners have not moved yet.
+4. **Bounded-suboptimal and multi-heuristic**: done: focal list, focal search, EES, DPS,
+   shared MHA*.
+5. **Expensive edges**: done: `EdgeEvaluator`, LazySP.
+6. **Dynamic graphs**: done: `DynamicGraph`, LPA*, D* Lite, AD*.
 7. **0.1.0**: API review, benchmarks, release.
 
 ## Open questions
@@ -343,7 +412,15 @@ Things other repos would need to change or provide. None of these are done here.
   option, or keep expansion-time tests everywhere except BFS?
 - Should `Stats` count heuristic evaluations, which dominate run time in planning?
 - Is a stepping API (resume a search after a budget stop) needed, for example for
-  portfolios that interleave planners?
+  portfolios that interleave planners? (The incremental planners already resume.)
+- Meet capability for bidirectional search over subgoals (miniplan): a trait that indexes
+  one side and answers "which nodes of the other side does this node meet?", with state
+  equality as the default. Needed before miniplan's bidirectional planners can move.
+- BAE*: the citation (Sadhukhan 2013) is unverified, and the implementation differs from
+  DIBBS only in side selection (cardinality). Confirm against the paper.
+- Naming: `astar` but `ara_star`, `ana_star`, `mha_star`, `bae_star` (snake case of the
+  star); incremental planners are types (`LpaStar`, `DStarLite`, `AdStar`).
+- `*_multi` variants for the later searches, if callers need them.
 
 ## References
 
@@ -359,6 +436,8 @@ Things other repos would need to change or provide. None of these are done here.
   sub-optimality. NIPS 2003.
 - J. van den Berg, R. Shah, A. Huang, K. Goldberg. ANA*: Anytime nonparametric A*.
   AAAI 2011.
+- J. Pearl, J. H. Kim. Studies in semi-admissible heuristics. IEEE Trans. PAMI 4(4),
+  1982. (focal search, A*<sub>ε</sub>)
 - J. T. Thayer, W. Ruml. Bounded suboptimal search: a direct approach using inadmissible
   estimates. IJCAI 2011. (EES)
 - J. Gilon, A. Felner, R. Stern. Dynamic potential search. SoCS 2016. (DPS)
