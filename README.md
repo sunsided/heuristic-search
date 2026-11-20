@@ -9,17 +9,13 @@ Pre-release; the API will change. See [docs/design.md](docs/design.md).
 Implemented on the `draft/initial` branch:
 
 - Foundational: BFS, Dijkstra, A*, greedy best-first search (GBFS), each also from several
-  start states
+  start states; DFS, depth-limited DFS, iterative deepening DFS, IDA*
 - Weighted and anytime: Weighted A*, ARA*, ANA*
 - Bounded-suboptimal: focal search (with a public focal list and tie-breaking), EES, DPS
 - Bidirectional: bidirectional BFS and Dijkstra, NBS, DIBBS, BAE*
 - Multiple heuristics: shared MHA*
 - Expensive edge evaluation: LazySP
 - Dynamic graphs: LPA*, D* Lite, AD*
-
-Planned:
-
-- Foundational: DFS, IDA*
 
 ## License
 

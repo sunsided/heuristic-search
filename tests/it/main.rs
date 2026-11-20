@@ -4,6 +4,7 @@
 mod anytime;
 mod bidirectional;
 mod bounded;
+mod depth_first;
 mod dynamic;
 mod fixtures;
 mod grid;

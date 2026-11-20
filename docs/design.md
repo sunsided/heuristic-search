@@ -1,7 +1,7 @@
 # heuristic-search: design
 
-Status: draft on branch `draft/initial`. Milestone 1 and every algorithm of milestones 2 to 6
-except DFS and IDA* are implemented; see [Milestones](#milestones).
+Status: draft on branch `draft/initial`. Every algorithm of milestones 1 to 6 is
+implemented; see [Milestones](#milestones).
 
 ## Goal and scope
 
@@ -152,7 +152,11 @@ Rounding down is safe but throws information away.
   supporting its own stale distance (a property test found this), and a dependency can tie
   with the target's key. Heuristics are closures `FnMut(&V, &V) -> C` estimating the cost
   from the first vertex to the second.
-- Depth-first and IDA* still need nothing beyond `Successors`, `Goal` and `Heuristic`.
+- Depth-first search and IDA* need nothing beyond `Successors`, `Goal` and `Heuristic`.
+  `dfs` is a graph search with a closed set; `depth_limited_dfs`, `iddfs` and `ida_star`
+  are iterative tree searches that keep only the current path, skip successors already on
+  it (so states need only `Eq`), and test goals on generation. `depth_limited_dfs` reports
+  `LimitReached` when the depth limit cut something off and no goal was found.
 
 ## Results and statistics
 
@@ -396,8 +400,8 @@ Things other repos would need to change or provide. None of these are done here.
 1. **Foundations** (done on `draft/initial`): capability traits, `Cost`, search space,
    open list, BFS, Dijkstra, A*, WA*, GBFS, single- and multi-start, statistics, budgets,
    path extraction, saturating keys, tests.
-2. **Rest of foundational + anytime**: ARA*, ANA* done (`Stats` is `#[non_exhaustive]`,
-   improvements reported through a callback). DFS (with depth limit) and IDA* still open.
+2. **Rest of foundational + anytime**: done: DFS, depth-limited DFS, IDDFS, IDA*, ARA*,
+   ANA* (`Stats` is `#[non_exhaustive]`, improvements reported through a callback).
 3. **Bidirectional**: done except the meet capability: `Predecessors`, bidirectional BFS
    and Dijkstra, NBS, BAE*, DIBBS. miniplan's planners have not moved yet.
 4. **Bounded-suboptimal and multi-heuristic**: done: focal list, focal search, EES, DPS,
@@ -421,6 +425,10 @@ Things other repos would need to change or provide. None of these are done here.
 - Naming: `astar` but `ara_star`, `ana_star`, `mha_star`, `bae_star` (snake case of the
   star); incremental planners are types (`LpaStar`, `DStarLite`, `AdStar`).
 - `*_multi` variants for the later searches, if callers need them.
+- `depth_limited_dfs` overloads `LimitReached` for both a budget stop and a depth cutoff.
+  A separate `Outcome::Cutoff` would tell them apart but changes a public enum.
+- IDA* has no transposition table, so graphs with many paths to the same state blow up;
+  a bounded transposition table is the usual fix.
 
 ## References
 

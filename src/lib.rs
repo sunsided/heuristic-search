@@ -24,6 +24,13 @@
 //! Each has a `*_multi` variant ([`astar_multi`] and so on) that searches from several
 //! start states at once.
 //!
+//! Depth-first searches need memory only for the current path (except [`dfs`]):
+//!
+//! - [`dfs`]: graph depth-first search, some path.
+//! - [`depth_limited_dfs`] and [`iddfs`]: depth-limited and iterative deepening, fewest
+//!   edges.
+//! - [`ida_star`]: IDA*, cheapest path with an admissible heuristic.
+//!
 //! Anytime searches report each improved solution and return an [`AnytimeResult`]:
 //!
 //! - [`ara_star`]: ARA*, Weighted A* with a falling weight schedule.
@@ -87,10 +94,6 @@
 //! assert_eq!(solution.cost, 3);
 //! ```
 //!
-//! ## Planned scope
-//!
-//! - Foundational: DFS, IDA*
-//!
 //! See `docs/design.md` in the repository for the design and milestones.
 //!
 //! ## Status
@@ -110,6 +113,7 @@ mod bfs;
 mod bidirectional;
 mod bounded;
 mod cost;
+mod depth_first;
 mod dynamic;
 mod focal;
 mod keyed_set;
@@ -131,6 +135,7 @@ pub use bidirectional::{
 };
 pub use bounded::{EesEstimates, FocalFn, FocalKey, dps, ees, focal_fn, focal_search};
 pub use cost::{Cost, Weight};
+pub use depth_first::{depth_limited_dfs, dfs, ida_star, iddfs};
 pub use dynamic::{AdStar, DStarLite, DynamicGraph, DynamicResult, LpaStar};
 pub use focal::{FocalList, TieBreak};
 pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp};
