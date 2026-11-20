@@ -178,6 +178,7 @@ mod open_list;
 mod outcome;
 mod problem;
 mod rbfs;
+mod real_time;
 mod sma;
 mod space;
 
@@ -234,6 +235,10 @@ pub use mha::{MhaWeights, mha_star, mha_star_multi};
 pub use outcome::{Limits, Outcome, SearchResult, Solution, Stats};
 pub use problem::{Predecessors, Successors};
 pub use rbfs::{rbfs, rbfs_multi};
+pub use real_time::{
+    LearnedHeuristic, TrialResult, TrialStats, lhb_lrta_star, lhb_update, lrta_star, lss_lrta_star,
+    rta_star, rtaa_star,
+};
 #[cfg(feature = "float")]
 pub use search_core::NonNegF64;
 pub use search_core::{Budget, Cost, Decimal, Goal, Heuristic, HeuristicFn, Zero, heuristic_fn};

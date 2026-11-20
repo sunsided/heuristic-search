@@ -93,6 +93,29 @@ pub fn graph_and_goal() -> impl Strategy<Value = (Graph, usize)> {
     })
 }
 
+/// A random strongly connected graph with up to 12 nodes and edge costs `1..=9`, plus a
+/// goal node: a cycle through every node, plus random edges.
+///
+/// Every node reaches the goal and every edge costs at least one, as real-time searches
+/// need for completeness and convergence.
+pub fn strongly_connected_graph_and_goal() -> impl Strategy<Value = (Graph, usize)> {
+    (2_usize..12).prop_flat_map(|nodes| {
+        let cycle = prop::collection::vec(1_u64..10, nodes);
+        let extra = prop::collection::vec((0..nodes, 0..nodes, 1_u64..10), 0..nodes * 2);
+
+        (cycle, extra, 0..nodes).prop_map(move |(cycle, extra, goal)| {
+            let mut edges: Vec<_> = cycle
+                .iter()
+                .enumerate()
+                .map(|(from, &cost)| (from, (from + 1) % nodes, cost))
+                .collect();
+            edges.extend(extra);
+
+            (Graph::new(nodes, &edges), goal)
+        })
+    })
+}
+
 /// Exact cost from `start` to every node, or `None` where a node is unreachable.
 ///
 /// [`distances_to`] on the reversed graph.

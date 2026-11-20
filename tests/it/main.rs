@@ -19,6 +19,7 @@ mod mha;
 mod multi;
 mod properties;
 mod rbfs;
+mod real_time;
 mod sma;
 mod small_graphs;
 #[cfg(feature = "float")]
