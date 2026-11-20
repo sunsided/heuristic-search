@@ -10,6 +10,19 @@
 //! | LPA*      | start  | goal   | predecessors   | successors           |
 //! | D* Lite   | goal   | start  | successors     | predecessors         |
 //!
+//! One call of [`Incremental::compute`]:
+//!
+//! ```mermaid
+//! flowchart TD
+//!     begin[AD*: INCONS into queue, clear CLOSED, re-key] --> top{"queue empty, or target settled?"}
+//!     top -->|yes| path[path over tight edges from the target]
+//!     top -->|no| key{"key of top vertex grew?"}
+//!     key -->|yes| rekey[re-queue with new key] --> top
+//!     key -->|no| over{"g > rhs?"}
+//!     over -->|yes| settle["g = rhs, update neighbours away from source"] --> top
+//!     over -->|no| reset["g = inf, update it and neighbours away from source"] --> top
+//! ```
+//!
 //! AD* is D* Lite with an inflated heuristic for overconsistent vertices, a `CLOSED` set
 //! per iteration and an `INCONS` list of vertices that became inconsistent after their
 //! expansion ([`Anytime`]).

@@ -1,5 +1,5 @@
 //! Bidirectional search from a start state forwards and from goal states backwards, until
-//! the frontiers meet: [`bidirectional_bfs`], [`bidirectional_dijkstra`], [`nbs`],
+//! the frontiers meet: [`bidirectional_bfs`], [`bidirectional_dijkstra`], [`nbs()`],
 //! [`dibbs`] and [`bae_star`].
 //!
 //! The graph must implement [`Successors`] and [`Predecessors`] over the same states,
@@ -12,7 +12,7 @@
 //! | -------------------------- | ---------------------------------------------- | --------------------------------- | -------------- |
 //! | [`bidirectional_bfs`]      | the smaller frontier, a whole layer at a time   | a layer met the other side        | nothing        |
 //! | [`bidirectional_dijkstra`] | the side with the smaller `g`                  | `g_min_F + g_min_B >= mu`         | nothing        |
-//! | [`nbs`]                    | a pair `(u, v)` with `lb(u, v) <= CLB`, both    | `CLB >= mu`                       | admissible `h` |
+//! | [`nbs()`]                    | a pair `(u, v)` with `lb(u, v) <= CLB`, both    | `CLB >= mu`                       | admissible `h` |
 //! | [`dibbs`]                  | the side with the smaller `b = 2g + h - h_opp` | `b_min_F + b_min_B >= 2 mu`       | consistent `h` |
 //! | [`bae_star`]               | the side with fewer open states, by `b`        | `b_min_F + b_min_B >= 2 mu`       | consistent `h` |
 //!

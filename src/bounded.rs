@@ -1,12 +1,12 @@
-//! Bounded-suboptimal search: [`focal_search`], [`ees`] and [`dps`] return a solution that
+//! Bounded-suboptimal search: [`focal_search`], [`ees()`] and [`dps()`] return a solution that
 //! costs at most `w` times the optimum, and use the slack to search where a second
 //! estimate says the goal is near.
 //!
 //! | Algorithm        | Expands                                              | Estimates           |
 //! | ---------------- | ---------------------------------------------------- | ------------------- |
 //! | [`focal_search`] | smallest focal key among `f <= w * f_min`            | `h`, focal key      |
-//! | [`ees`]          | smallest `d^` among `f^ <= w * f^_min`, else cleanup | `h`, `h^`, `d^`     |
-//! | [`dps`]          | largest `(w * f_min - g) / h`                        | `h`                 |
+//! | [`ees()`]          | smallest `d^` among `f^ <= w * f^_min`, else cleanup | `h`, `h^`, `d^`     |
+//! | [`dps()`]          | largest `(w * f_min - g) / h`                        | `h`                 |
 //!
 //! All three reopen closed states when a cheaper path turns up. That keeps a state of an
 //! optimal path open with its optimal `g`, which is what makes `f_min` a lower bound and

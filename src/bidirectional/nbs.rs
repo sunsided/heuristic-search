@@ -25,6 +25,17 @@ use crate::space::NodeId;
 /// meet. `forward` estimates the cost to the nearest goal and `backward` the cost from the
 /// start; with admissible estimates the solution is optimal.
 ///
+/// ```mermaid
+/// flowchart TD
+///     check{"a side empty, or CLB >= mu?"} -->|yes| done[best meet, or Unsolvable]
+///     check -->|no| promote["move f <= CLB from waiting to ready, both sides"]
+///     promote --> pair{"g_F + g_B of the ready minima <= CLB?"}
+///     pair -->|yes| expand[expand both, queue children as waiting]
+///     pair -->|no| raise["CLB = smallest waiting f or ready g sum"]
+///     expand --> check
+///     raise --> check
+/// ```
+///
 /// # Examples
 ///
 /// ```
