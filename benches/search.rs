@@ -14,7 +14,8 @@ use heuristic_search::{
     AdStar, DStarLite, DynamicGraph, EdgeSelector, EesEstimates, EightConnected, FocalList, Limits,
     MhaWeights, OctileDistance, Predecessors, Successors, UniformGrid, Weight, a_star, ana_star,
     ara_star, beam_search, beam_stack_search, dfs, dps, ees, focal_fn, focal_search, fringe_search,
-    heuristic_fn, ida_star, ida_star_tt, iddfs, jps, lazy_sp, mha_star, nbs, rbfs, sma_star,
+    heuristic_fn, ida_star, ida_star_tt, iddfs, jps, lazy_sp, lss_lrta_star, mha_star, nbs, rbfs,
+    sma_star,
 };
 
 /// Side length of the benchmark grid.
@@ -555,6 +556,24 @@ fn bench_field_d_star(c: &mut Criterion) {
     });
 }
 
+/// One LSS-LRTA* trial around the wall with a fresh Manhattan table, lookahead 32: the
+/// bounded A*, the Dijkstra update and the moves of every step.
+fn bench_lss_lrta_star(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("lss_lrta_star first trial grid", |b| {
+        b.iter(|| {
+            let mut table = heuristic_search::LearnedHeuristic::new(to_goal());
+            black_box(lss_lrta_star(
+                grid,
+                START,
+                &at_goal,
+                &mut table,
+                32,
+                Limits::NONE,
+            ))
+        });
+    });
+}
+
 /// Runs every benchmark.
 fn main() {
     let grid = Grid::new();
@@ -581,6 +600,7 @@ fn main() {
     bench_lazy_sp(&mut c, &grid);
     bench_ad_star(&mut c);
     bench_depth_first(&mut c, &grid);
+    bench_lss_lrta_star(&mut c, &grid);
 
     c.final_summary();
 }

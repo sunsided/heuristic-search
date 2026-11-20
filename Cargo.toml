@@ -1,6 +1,6 @@
 [package]
 name = "heuristic-search"
-description = "Explicit-state heuristic graph search: A*, weighted and anytime, bounded-suboptimal, bidirectional and incremental search"
+description = "Explicit-state heuristic graph search: A*, weighted and anytime, bounded-suboptimal, bidirectional, incremental and real-time search"
 version = "0.0.0"
 edition = "2024"
 rust-version = "1.85"
@@ -39,4 +39,8 @@ missing_docs_in_private_items = "warn"
 
 [[bench]]
 name = "search"
+harness = false
+
+[[bench]]
+name = "learning"
 harness = false
