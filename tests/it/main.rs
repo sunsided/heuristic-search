@@ -6,5 +6,6 @@ mod bidirectional;
 mod bounded;
 mod fixtures;
 mod grid;
+mod mha;
 mod properties;
 mod small_graphs;

@@ -13,11 +13,11 @@ Implemented on the `draft/initial` branch:
 - Weighted and anytime: Weighted A*, ARA*, ANA*
 - Bounded-suboptimal: focal search (with a public focal list and tie-breaking), EES, DPS
 - Bidirectional: bidirectional BFS and Dijkstra, NBS, DIBBS, BAE*
+- Multiple heuristics: shared MHA*
 
 Planned:
 
 - Foundational: DFS, IDA*
-- Multiple heuristics: MHA*
 - Expensive edge evaluation: LazySP
 - Dynamic graphs: LPA*, D* Lite, AD*
 
