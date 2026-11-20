@@ -17,7 +17,7 @@ use alloc::vec::Vec;
 
 use search_core::{Budget, Cost, NonNegF64};
 
-use crate::grid::{GridCell, LineOfSight, STEPS, can_move, is_open, offset};
+use crate::grid::{GridCell, LineOfSight, STEPS, can_move, is_open, offset, sqrt};
 use crate::open_list::OpenList;
 use crate::outcome::{Outcome, SearchResult, Solution, Stats};
 
@@ -417,27 +417,11 @@ impl<'a, G: LineOfSight> AnyAngle<'a, G> {
 /// The Euclidean distance between the centres of two cells.
 fn euclidean(a: GridCell, b: GridCell) -> NonNegF64 {
     let (dx, dy) = (a.0.abs_diff(b.0) as u128, a.1.abs_diff(b.1) as u128);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "squared grid distances; a rounded input is fine"
+    )]
+    let squared = (dx * dx + dy * dy) as f64;
 
-    NonNegF64::new(sqrt(dx * dx + dy * dy)).expect("square roots are non-negative")
-}
-
-/// The square root of `n`, without `std`: Newton's method from an exponent-halving guess,
-/// accurate to a few units in the last place.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "squared grid distances; a rounded input is fine"
-)]
-fn sqrt(n: u128) -> f64 {
-    if n == 0 {
-        return 0.0;
-    }
-
-    let x = n as f64;
-    // Halving the biased exponent gives a guess within a factor of two.
-    let mut root = f64::from_bits((x.to_bits() >> 1) + (1023_u64 << 51));
-    for _ in 0..6 {
-        root = root.midpoint(x / root);
-    }
-
-    root
+    NonNegF64::new(sqrt(squared)).expect("square roots are non-negative")
 }

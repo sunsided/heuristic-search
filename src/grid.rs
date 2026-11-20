@@ -377,3 +377,71 @@ impl<G: UniformGrid> Successors for EightConnected<G> {
         }
     }
 }
+
+/// The square root of `x`, without `std`: Newton's method from an exponent-halving guess,
+/// iterated until it stops decreasing, accurate to about one unit in the last place.
+/// `0`, `+∞` and NaN are returned unchanged; negative inputs give NaN.
+#[cfg(feature = "float")]
+pub(crate) fn sqrt(x: f64) -> f64 {
+    if x.is_nan() || x == 0.0 || x == f64::INFINITY {
+        return x;
+    }
+
+    if x < 0.0 {
+        return f64::NAN;
+    }
+
+    // Halving the biased exponent gives a guess within a factor of two for normal inputs;
+    // subnormal ones take a few more halving steps.
+    let guess = f64::from_bits((x.to_bits() >> 1) + (1023_u64 << 51));
+    // From any positive guess, one step lands at or above the root; from there the
+    // iterates fall until rounding stops them.
+    let mut root = guess.midpoint(x / guess);
+    loop {
+        let next = root.midpoint(x / root);
+        if next >= root {
+            return root;
+        }
+
+        root = next;
+    }
+}
+
+#[cfg(all(test, feature = "float"))]
+mod tests {
+    //! The `no_std` square root against exact squares and the defining relation.
+
+    use proptest::prelude::*;
+
+    use super::sqrt;
+
+    proptest! {
+        /// Squares of integers come back exactly.
+        #[test]
+        fn exact_on_squares(n in 0_u32..1_000_000) {
+            let n = f64::from(n);
+            prop_assert_eq!(sqrt(n * n).to_bits(), n.to_bits());
+        }
+
+        /// Over many magnitudes, including subnormals, the root squared is within a few
+        /// units in the last place of the input.
+        #[test]
+        fn root_squared_is_the_input(bits in 1_u64..0x7FEF_FFFF_FFFF_FFFF) {
+            let x = f64::from_bits(bits);
+            let root = sqrt(x);
+            prop_assert!(root > 0.0);
+            let relative = (root * root - x).abs() / x;
+            let tolerance = if root * root < f64::MIN_POSITIVE { 1e-3 } else { 1e-15 };
+            prop_assert!(relative <= tolerance, "sqrt({x}) = {root}");
+        }
+    }
+
+    /// Zero, infinity and NaN pass through; negative inputs give NaN.
+    #[test]
+    fn special_values() {
+        assert_eq!(sqrt(0.0).to_bits(), 0.0_f64.to_bits());
+        assert_eq!(sqrt(f64::INFINITY).to_bits(), f64::INFINITY.to_bits());
+        assert!(sqrt(f64::NAN).is_nan());
+        assert!(sqrt(-1.0).is_nan());
+    }
+}
