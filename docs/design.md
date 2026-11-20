@@ -33,7 +33,7 @@ Constraints:
 There is no universal `SearchProblem` trait. Each algorithm names the capabilities it
 needs, and the goal test and heuristic are separate values rather than methods on the
 graph. One graph can then be searched towards many goals with many heuristics, and closures
-work for quick uses.
+work for quick uses (goal tests directly, heuristics through `heuristic_fn`).
 
 ### Implemented
 
@@ -46,8 +46,12 @@ pub trait Successors {
                   emit: impl FnMut(Self::Action, Self::State, Self::Cost));
 }
 
-pub trait Goal<S> { fn is_goal(&self, state: &S) -> bool; }            // + impl for Fn(&S) -> bool
-pub trait Heuristic<S, C> { fn estimate(&self, state: &S) -> Option<C>; } // + impl for Fn(&S) -> Option<C>
+pub trait Goal<S> { fn is_goal(&self, state: &S) -> bool; }  // + impl for Fn(&S) -> bool
+
+pub trait Heuristic<S, C> { fn estimate(&mut self, state: &S) -> Option<C>; }
+impl<S, C, H: Heuristic<S, C> + ?Sized> Heuristic<S, C> for &mut H { /* forwards */ }
+impl<S, C, H: Heuristic<S, C> + ?Sized> Heuristic<S, C> for Box<H> { /* forwards */ }
+pub fn heuristic_fn<S, C, F: FnMut(&S) -> Option<C>>(f: F) -> HeuristicFn<F>;
 pub struct Zero; // blind heuristic
 ```
 
@@ -56,6 +60,25 @@ pub struct Zero; // blind heuristic
 - `Heuristic::estimate` returns `None` for a proven dead end (miniplan's `HValue::INFINITY`).
   Searches keep a dead-end node for duplicate detection but never open it.
 - `Goal` is a predicate, not a goal state, because planning goals are partial states.
+
+#### Heuristic ownership and workspaces
+
+`Heuristic::estimate` takes `&mut self`. Real planning heuristics (h_add, h_FF, landmark
+counting, abstractions) keep scratch buffers that are reused on every call; `&mut self`
+lets them do so without `RefCell` and without runtime borrow checks. Every search takes the
+heuristic by value (`heuristic: H`) and owns it for the run. A caller that wants the
+heuristic and its workspace back afterwards passes `&mut h`, which is a heuristic through
+the `&mut H` blanket impl. `Box<dyn Heuristic<S, C>>` works for run-time choice.
+
+Closures need `heuristic_fn(|s| ...)`: a blanket impl for `F: FnMut(&S) -> Option<C>`
+cannot coexist with the one for `&mut H`, because `&mut F` is itself `FnMut` and the impls
+overlap (E0119, checked; `Fn` instead of `FnMut` overlaps too). Of the two, the `&mut H`
+impl wins: lending struct heuristics with workspaces is the reason for `&mut self`, and a
+one-word wrapper on closures is the cheaper cost.
+
+`Goal` stays `&self`, taken by reference, with the closure blanket impl. Goal tests are
+pure predicates over a state and need no workspace; switching to `&mut self` would force
+the same wrapper on every goal closure for no gain.
 
 ### Cost
 
@@ -260,10 +283,17 @@ Things other repos would need to change or provide. None of these are done here.
   do not assert exact counts today, but benchmarks and logs comparing runs will shift.
 - `mapf-search` (planned): low-level path search needs time-expanded states and constraint
   checks; both fit `Successors` and `Goal` as they are.
-- `planning-heuristics` (planned): heuristics there should implement this crate's
-  `Heuristic` trait behind an optional feature, not the other way round.
-- `search-core` (maybe): if `width-search` or `multiobjective-search` want the same
-  `Successors` trait, the trait moves there. Until then it lives here.
+- `planning-heuristics` (planned): adopts the exact same signature,
+  `fn estimate(&mut self, state: &S) -> Option<C>`, with `None` for proven dead ends, the
+  same `&mut H` and `Box<H>` blanket impls, and the same rule of rounding float values up
+  over integer costs. Its heuristics implement this crate's `Heuristic` behind an optional
+  feature, not the other way round.
+- `search-core` (candidate): `Heuristic`, `Cost`, `Goal` and `Budget` are candidates to move
+  into a shared `search-core` crate. Three crates now need the same definitions:
+  `planning-heuristics` (its own copy), `mapf-search` (re-exports from this crate) and
+  `stochastic-search` (its own copy). Under the architecture rule ("create `search-core`
+  only when two independent crates need the same public trait") the threshold is met.
+  `Successors` follows if `width-search` or `multiobjective-search` need it.
 
 ## Testing strategy
 
