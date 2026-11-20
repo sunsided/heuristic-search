@@ -330,17 +330,19 @@ Per-algorithm notes:
   `b_F + b_B >= 2 mu`; DIBBS expands the side with the smaller `b`, BAE* the side with fewer
   open states. Bidirectional BFS runs the core on a unit-cost view and restores costs.
 - Meets: by default a node meets the opposite side's node with an equal state, found
-  through that side's hash index. `MeetRelation` replaces this: the core reports every
-  new node with its dense id per side (`insert`) and asks which opposite-side ids meet a
-  new or improved node (`meets`); the relation keeps its own index (per-fact buckets for
-  miniplan, or `meet_fn`'s linear scan). `nbs_meet`, `dibbs_meet`, `bae_star_meet` and
-  `bidirectional_dijkstra_meet` take one and a set of starts. Backward nodes may then be
-  subgoals of the state type, so the solution replays the backward actions forwards from
-  the meeting state (first successor edge with an equal label, hence `Action:
-  PartialEq`) to return real states and true costs; if a step has no such edge, the
-  backward part is joined as is. Bidirectional BFS has no `_meet` variant: it runs on a
-  unit-cost view whose actions carry the costs. Backward nodes still share the forward
-  state type; a separate `Node` type would need a second search-space type.
+  through that side's hash index. The `_meet` searches (`bidirectional_bfs_meet`,
+  `bidirectional_dijkstra_meet`, `nbs_meet`, `dibbs_meet`, `bae_star_meet`, all with a set
+  of starts) take a `MeetRelation<S, N>` between forward states `S` and backward nodes `N`,
+  the graph's own `Predecessors::Node` type (a `RegressionGraph`), so regression can run
+  over subgoals of another type. The relation is told of every new node (dense id per
+  side) and asked which opposite-side ids meet a new or improved node; it keeps its own
+  index (per-fact buckets for miniplan, or `meet_fn`'s linear scan). Internally the core,
+  which has one node type, runs over a `Mixed { State, Node }` enum with adapters for the
+  graph, the heuristics (which implement `Heuristic` for both `S` and `N`) and the
+  relation. The solution replays the backward actions forwards from the meeting state
+  (first successor edge with an equal label, hence `Action: PartialEq`) to return real
+  states and true costs; a step without such an edge is a `ReplayError { state, action }`
+  in the `MeetResult`.
 - LPA*, D* Lite and AD* share one core: LPA* is D* Lite run from the start. AD* adds
   inflation for overconsistent keys and `CLOSED`/`INCONS` (reset from lists, not scans).
   Target moves raise `km` by `numerator * h(old, new)` in scaled key units, which keeps

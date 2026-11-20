@@ -8,9 +8,14 @@ use alloc::vec::Vec;
 use search_core::{Budget, Cost, Heuristic};
 
 use crate::best_first::GraphResult;
-use crate::bidirectional::{BidirectionalGraph, Core, Direction, Equality, MeetRelation, Meeting};
+use crate::bidirectional::mixed::{Both, Mixed, MixedGraph, Split, unmix};
+use crate::bidirectional::{
+    BidirectionalGraph, Core, Direction, Equality, MeetRelation, MeetResult, Meeting, Meets,
+    RegressionGraph,
+};
 use crate::keyed_set::KeyedSet;
 use crate::outcome::Stats;
+use crate::problem::Predecessors;
 use crate::problem::Successors;
 use crate::space::NodeId;
 
@@ -165,17 +170,23 @@ where
 /// [`nbs()`](crate::nbs()) that meets by a [`MeetRelation`] instead of state equality, from several
 /// starts at once.
 ///
-/// `goals` are backward nodes, such as subgoals (partial states), and `meet` decides which
-/// forward states meet which backward nodes (see [`MeetRelation`] for the contract). The
-/// returned path is rebuilt from the meeting state by replaying the backward actions
-/// forwards, through the first successor edge with an equal label, so every state on it
-/// is a real state and its cost the true cost. If a step finds no such edge (the relation
-/// or the predecessors disagree with the successors), the rest of the backward nodes is
-/// joined unchanged, with cost `g_F + g_B`.
+/// `goals` are backward nodes of the graph's [`Predecessors::Node`](crate::Predecessors)
+/// type, such as subgoals (partial states), and `meet` decides which forward states meet
+/// which backward nodes (see [`MeetRelation`] for the contract). The returned path is
+/// rebuilt from the meeting state by replaying the backward actions forwards, through the
+/// first successor edge with an equal label, so every state on it is a real state and its
+/// cost the true cost.
 ///
-/// Both heuristics are evaluated on nodes of both sides. On a backward node such as a
-/// subgoal, each must keep its guarantee (admissible, and consistent where the search
-/// needs it) when read as the cheapest value over the states that satisfy the node.
+/// Both heuristics are evaluated on states and on backward nodes, so they implement
+/// [`Heuristic`] for both types ([`Zero`](crate::Zero) does). On a backward node such as a subgoal,
+/// each must keep its guarantee (admissible, and consistent where the search needs it)
+/// when read as the cheapest value over the states that satisfy the node.
+///
+/// # Errors
+///
+/// [`ReplayError`](crate::ReplayError) if a replay step finds no successor edge with the backward action's
+/// label: the relation or the predecessors disagree with the successors.
+///
 /// The backward heuristic estimates the cost from the starts to a backward node.
 ///
 /// # Examples
@@ -219,38 +230,42 @@ where
 /// let satisfies = meet_fn(|state: &u8, subgoal: &u8| state & subgoal == *subgoal);
 /// let result = nbs_meet(&Facts, [0], [0b110], Zero, Zero, satisfies, Limits::NONE);
 ///
-/// let solution = result.into_solution().expect("facts 1 and 2 are reachable");
+/// let solution = result.expect("the model replays").into_solution().expect("facts 1 and 2 are reachable");
 /// assert_eq!(solution.cost, 2);
 /// assert_eq!(solution.states.len(), 3);
 /// assert_eq!(solution.goal() & 0b110, 0b110);
 /// ```
 pub fn nbs_meet<G, HF, HB, M>(
     graph: &G,
-    starts: impl IntoIterator<Item = G::State>,
-    goals: impl IntoIterator<Item = G::State>,
+    starts: impl IntoIterator<Item = <G as Successors>::State>,
+    goals: impl IntoIterator<Item = <G as Predecessors>::Node>,
     forward: HF,
     backward: HB,
     meet: M,
     budget: impl Budget<Stats>,
-) -> GraphResult<G>
+) -> MeetResult<G>
 where
-    G: BidirectionalGraph,
-    G::State: Clone + Hash + Eq,
+    G: RegressionGraph,
+    <G as Successors>::State: Clone + Hash + Eq,
+    <G as Predecessors>::Node: Clone + Hash + Eq,
     <G as Successors>::Action: Clone + PartialEq,
-    HF: Heuristic<G::State, <G as Successors>::Cost>,
-    HB: Heuristic<G::State, <G as Successors>::Cost>,
-    M: MeetRelation<G::State>,
+    HF: Heuristic<<G as Successors>::State, <G as Successors>::Cost>
+        + Heuristic<<G as Predecessors>::Node, <G as Successors>::Cost>,
+    HB: Heuristic<<G as Successors>::State, <G as Successors>::Cost>
+        + Heuristic<<G as Predecessors>::Node, <G as Successors>::Cost>,
+    M: MeetRelation<<G as Successors>::State, <G as Predecessors>::Node>,
 {
+    let mixed = MixedGraph(graph);
     let core = Core::new(
-        graph,
-        starts,
-        goals,
-        forward,
-        backward,
-        Some(Meeting::new(meet)),
+        &mixed,
+        starts.into_iter().map(Mixed::State),
+        goals.into_iter().map(Mixed::Node),
+        Both(forward),
+        Both(backward),
+        Some(Meeting::new(Split(meet))),
     );
 
-    Nbs::new(core).run(budget)
+    unmix(Nbs::new(core).run(budget))
 }
 
 /// A queue order: smallest primary value, then the secondary value reversed, then node id.
@@ -275,7 +290,7 @@ where
     <G as Successors>::Action: Clone,
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
-    M: MeetRelation<G::State>,
+    M: Meets<G::State>,
 {
     /// Queues the live seeds of both sides.
     fn new(core: Core<'a, G, HF, HB, M>) -> Self {

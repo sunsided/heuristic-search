@@ -1,4 +1,4 @@
-//! Bidirectional breadth-first search ([`bidirectional_bfs`]).
+//! Bidirectional breadth-first search ([`bidirectional_bfs`], [`bidirectional_bfs_meet`]).
 
 use core::hash::Hash;
 
@@ -7,7 +7,11 @@ use alloc::vec::Vec;
 use search_core::{Budget, Cost, Heuristic, Zero};
 
 use crate::best_first::GraphResult;
-use crate::bidirectional::{BidirectionalGraph, Core, Direction, Equality, MeetRelation, Meeting};
+use crate::bidirectional::mixed::{Mixed, MixedGraph, Split, unmix};
+use crate::bidirectional::{
+    BidirectionalGraph, Core, Direction, Equality, MeetRelation, MeetResult, Meeting, Meets,
+    RegressionGraph,
+};
 use crate::outcome::{Outcome, SearchResult, Solution, Stats};
 use crate::problem::{Predecessors, Successors};
 use crate::space::NodeId;
@@ -118,7 +122,7 @@ pub fn bidirectional_bfs_multi<G>(
     graph: &G,
     starts: impl IntoIterator<Item = G::State>,
     goals: impl IntoIterator<Item = G::State>,
-    mut budget: impl Budget<Stats>,
+    budget: impl Budget<Stats>,
 ) -> GraphResult<G>
 where
     G: BidirectionalGraph,
@@ -126,7 +130,7 @@ where
     <G as Successors>::Action: Clone,
 {
     let unit = Unit(graph);
-    let mut core = Core::new(
+    let core = Core::new(
         &unit,
         starts,
         goals,
@@ -134,6 +138,109 @@ where
         Zero,
         None::<Meeting<Unit<'_, G>, Equality>>,
     );
+
+    weighted(layers(core, budget))
+}
+
+/// [`bidirectional_bfs`] that meets by a [`MeetRelation`] instead of state equality, from
+/// several starts at once: the path with the fewest edges through a meet.
+///
+/// `goals` are backward nodes of the graph's [`Predecessors::Node`] type, such as
+/// subgoals, and `meet` decides which forward states meet which backward nodes. The path is
+/// rebuilt by replaying the backward actions forwards through the first successor edge
+/// with an equal label and cost, so every state on it is real.
+///
+/// # Errors
+///
+/// [`ReplayError`](crate::ReplayError) if a replay step finds no such edge.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Limits, Predecessors, Successors, bidirectional_bfs_meet, meet_fn};
+///
+/// /// Three facts as bits; action `k` makes fact `k` true at cost 1.
+/// struct Facts;
+///
+/// /// A subgoal: the facts that must hold.
+/// #[derive(Clone, PartialEq, Eq, Hash)]
+/// struct Subgoal(u8);
+///
+/// impl Successors for Facts {
+///     type State = u8;
+///     type Action = u8;
+///     type Cost = u32;
+///
+///     fn successors(&self, state: &u8, mut emit: impl FnMut(u8, u8, u32)) {
+///         for k in 0..3 {
+///             if state & (1 << k) == 0 {
+///                 emit(k, state | (1 << k), 1);
+///             }
+///         }
+///     }
+/// }
+///
+/// impl Predecessors for Facts {
+///     type Node = Subgoal;
+///     type Action = u8;
+///     type Cost = u32;
+///
+///     fn predecessors(&self, subgoal: &Subgoal, mut emit: impl FnMut(u8, Subgoal, u32)) {
+///         for k in 0..3 {
+///             if subgoal.0 & (1 << k) != 0 {
+///                 emit(k, Subgoal(subgoal.0 & !(1 << k)), 1);
+///             }
+///         }
+///     }
+/// }
+///
+/// let satisfies = meet_fn(|state: &u8, subgoal: &Subgoal| state & subgoal.0 == subgoal.0);
+/// let result = bidirectional_bfs_meet(&Facts, [0], [Subgoal(0b110)], satisfies, Limits::NONE);
+/// let solution = result.expect("the model replays").into_solution().expect("reachable");
+///
+/// assert_eq!(solution.len(), 2);
+/// assert_eq!(solution.goal() & 0b110, 0b110);
+/// ```
+pub fn bidirectional_bfs_meet<G, M>(
+    graph: &G,
+    starts: impl IntoIterator<Item = <G as Successors>::State>,
+    goals: impl IntoIterator<Item = <G as Predecessors>::Node>,
+    meet: M,
+    budget: impl Budget<Stats>,
+) -> MeetResult<G>
+where
+    G: RegressionGraph,
+    <G as Successors>::State: Clone + Hash + Eq,
+    <G as Predecessors>::Node: Clone + Hash + Eq,
+    <G as Successors>::Action: Clone + PartialEq,
+    M: MeetRelation<<G as Successors>::State, <G as Predecessors>::Node>,
+{
+    let mixed = MixedGraph(graph);
+    let unit = Unit(&mixed);
+    let core = Core::new(
+        &unit,
+        starts.into_iter().map(Mixed::State),
+        goals.into_iter().map(Mixed::Node),
+        Zero,
+        Zero,
+        Some(Meeting::new(Split(meet))),
+    );
+
+    unmix(weighted(layers(core, budget)))
+}
+
+/// Grows the smaller frontier a layer at a time until a layer meets the other side, a
+/// side runs empty or the budget is used up.
+fn layers<G, M>(
+    mut core: Core<'_, G, Zero, Zero, M>,
+    mut budget: impl Budget<Stats>,
+) -> GraphResult<G>
+where
+    G: BidirectionalGraph,
+    G::State: Clone + Hash + Eq,
+    <G as Successors>::Action: Clone,
+    M: Meets<G::State>,
+{
     let mut frontiers = [Vec::new(), Vec::new()];
     for direction in [Direction::Forward, Direction::Backward] {
         frontiers[direction.index()] = (0..core.side(direction).space.len()).collect();
@@ -148,13 +255,13 @@ where
 
         let layer = core::mem::take(&mut frontiers[direction.index()]);
         let Some(next) = expand_layer(&mut core, direction, &layer, &mut budget) else {
-            return weighted(core.finish(false));
+            return core.finish(false);
         };
 
         frontiers[direction.index()] = next;
     }
 
-    weighted(core.finish(true))
+    core.finish(true)
 }
 
 /// Expands every node of `layer` on `direction`'s side and returns the next layer, or
@@ -171,7 +278,7 @@ where
     <G as Successors>::Action: Clone,
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
-    M: MeetRelation<G::State>,
+    M: Meets<G::State>,
 {
     let mut next = Vec::new();
     for &node in layer {

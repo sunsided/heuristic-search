@@ -23,17 +23,19 @@
 mod bfs;
 mod frontier;
 mod meet;
+mod mixed;
 mod nbs;
 
-pub use bfs::{bidirectional_bfs, bidirectional_bfs_multi};
+pub use bfs::{bidirectional_bfs, bidirectional_bfs_meet, bidirectional_bfs_multi};
 pub use frontier::{
     bae_star, bae_star_meet, bae_star_multi, bidirectional_dijkstra, bidirectional_dijkstra_meet,
     bidirectional_dijkstra_multi, dibbs, dibbs_meet, dibbs_multi,
 };
-pub use meet::{Direction, MeetFn, MeetRelation, meet_fn};
+pub use meet::{MeetFn, MeetRelation, MeetResult, ReplayError, meet_fn};
+pub use mixed::RegressionGraph;
 pub use nbs::{nbs, nbs_meet, nbs_multi};
 
-use meet::{Equality, Meeting};
+use meet::{Direction, Equality, Meeting, Meets};
 
 use alloc::vec::Vec;
 use core::hash::Hash;
@@ -122,7 +124,7 @@ where
     <G as Successors>::Action: Clone,
     HF: Heuristic<G::State, <G as Successors>::Cost>,
     HB: Heuristic<G::State, <G as Successors>::Cost>,
-    M: MeetRelation<G::State>,
+    M: Meets<G::State>,
 {
     /// Seeds the forward side with `starts` and the backward side with `goals`, evaluates
     /// them, and records a meet if a start meets a goal: by equality, or by `meeting`.
@@ -319,8 +321,9 @@ where
     ///
     /// With a meet relation the backward nodes are not states of the path (they may be
     /// subgoals), so the backward actions are replayed forwards from the meeting state to
-    /// get real states and costs. If a replay step finds no edge with the action's label,
-    /// the backward part is joined as it is.
+    /// get real states and costs. From the first step without an edge of the action's
+    /// label on, the backward nodes are joined as they are; the cost then only counts the
+    /// replayed steps.
     fn solution(
         &self,
     ) -> Option<Solution<G::State, <G as Successors>::Action, <G as Successors>::Cost>> {
@@ -331,9 +334,15 @@ where
             .space
             .walk_to_root(meet.backward);
 
-        if let Some(replayed) = self.replay(&path, &tail.actions) {
-            path.states.extend(replayed.0);
-            path.cost = path.cost + replayed.1;
+        if self.meeting.is_some() {
+            let (states, cost) = self.replay(path.goal(), &tail.actions);
+            let replayed = states.len();
+            path.states.extend(states);
+            // A step without a matching edge leaves the rest as backward nodes, which the
+            // `_meet` searches report as a `ReplayError`.
+            path.states
+                .extend(tail.states.into_iter().skip(replayed + 1));
+            path.cost = path.cost + cost;
         } else {
             path.states.extend(tail.states.into_iter().skip(1));
             path.cost = path.cost + tail.cost;
@@ -344,24 +353,30 @@ where
         Some(path)
     }
 
-    /// The states and total cost reached by applying `actions` forwards from the last state
-    /// of `path`, or `None` without a meet relation or if a step has no matching edge.
+    /// The states and their total cost reached by applying `actions` forwards from `from`,
+    /// up to the first action without a matching edge.
     fn replay(
         &self,
-        path: &Solution<G::State, <G as Successors>::Action, <G as Successors>::Cost>,
+        from: &G::State,
         actions: &[<G as Successors>::Action],
-    ) -> Option<(Vec<G::State>, <G as Successors>::Cost)> {
-        let replay = self.meeting.as_ref()?.replay;
+    ) -> (Vec<G::State>, <G as Successors>::Cost) {
         let mut states: Vec<G::State> = Vec::with_capacity(actions.len());
         let mut cost = <G as Successors>::Cost::ZERO;
+        let Some(meeting) = &self.meeting else {
+            return (states, cost);
+        };
+
         for action in actions {
-            let current = states.last().unwrap_or_else(|| path.goal());
-            let (next, step) = replay(self.graph, current, action)?;
+            let current = states.last().unwrap_or(from);
+            let Some((next, step)) = (meeting.replay)(self.graph, current, action) else {
+                break;
+            };
+
             states.push(next);
             cost = cost + step;
         }
 
-        Some((states, cost))
+        (states, cost)
     }
 
     /// Wraps up the run: the best meet if `decided`, else [`Outcome::LimitReached`].
