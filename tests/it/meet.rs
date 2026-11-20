@@ -27,7 +27,9 @@ impl Successors for Strips {
 
     fn successors(&self, state: &u8, mut emit: impl FnMut(usize, u8, u32)) {
         for (index, &(pre, add, cost)) in self.0.iter().enumerate() {
-            if state & pre == pre && state | add != *state {
+            // No-op applications stay edges (self-loops): regression may use an action
+            // whose facts the state already has, and the replay must be able to follow it.
+            if state & pre == pre {
                 emit(index, state | add, cost);
             }
         }
