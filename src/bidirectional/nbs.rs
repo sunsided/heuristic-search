@@ -169,7 +169,13 @@ where
 /// forward states meet which backward nodes (see [`MeetRelation`] for the contract). The
 /// returned path is rebuilt from the meeting state by replaying the backward actions
 /// forwards, through the first successor edge with an equal label, so every state on it
-/// is a real state and its cost the true cost.
+/// is a real state and its cost the true cost. If a step finds no such edge (the relation
+/// or the predecessors disagree with the successors), the rest of the backward nodes is
+/// joined unchanged, with cost `g_F + g_B`.
+///
+/// Both heuristics are evaluated on nodes of both sides. On a backward node such as a
+/// subgoal, each must keep its guarantee (admissible, and consistent where the search
+/// needs it) when read as the cheapest value over the states that satisfy the node.
 /// The backward heuristic estimates the cost from the starts to a backward node.
 ///
 /// # Examples
