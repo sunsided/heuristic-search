@@ -4,7 +4,7 @@
 
 use heuristic_search::{
     Limits, Weight, astar, astar_multi, bfs, bfs_multi, dijkstra, dijkstra_multi, gbfs,
-    weighted_astar,
+    heuristic_fn, weighted_astar,
 };
 use proptest::prelude::*;
 
@@ -53,11 +53,11 @@ proptest! {
         scales in prop::collection::vec(0_u64..=4, 12),
     ) {
         let exact = distances_to(&graph, goal);
-        let h = |state: &usize| Some(exact[*state].map_or(0, |d| d * scales[*state] / 4));
+        let mut h = heuristic_fn(|state: &usize| Some(exact[*state].map_or(0, |d| d * scales[*state] / 4)));
         let is_goal = |state: &usize| *state == goal;
 
         let optimal = dijkstra(&graph, 0, &is_goal, Limits::NONE).into_solution();
-        let informed = astar(&graph, 0, &is_goal, &h, Limits::NONE).into_solution();
+        let informed = astar(&graph, 0, &is_goal, &mut h, Limits::NONE).into_solution();
 
         prop_assert_eq!(optimal.as_ref().map(|s| s.cost), exact[0]);
         prop_assert_eq!(informed.as_ref().map(|s| s.cost), exact[0]);
@@ -74,10 +74,10 @@ proptest! {
     ) {
         let weight = Weight::new(numerator + 2, 2);
         let exact = distances_to(&graph, goal);
-        let h = |state: &usize| Some(exact[*state].unwrap_or(0));
+        let mut h = heuristic_fn(|state: &usize| Some(exact[*state].unwrap_or(0)));
         let is_goal = |state: &usize| *state == goal;
 
-        let solution = weighted_astar(&graph, 0, &is_goal, &h, weight, Limits::NONE).into_solution();
+        let solution = weighted_astar(&graph, 0, &is_goal, &mut h, weight, Limits::NONE).into_solution();
 
         prop_assert_eq!(solution.is_some(), exact[0].is_some());
         if let (Some(solution), Some(optimum)) = (&solution, exact[0]) {
@@ -91,9 +91,9 @@ proptest! {
     fn gbfs_is_complete((graph, goal) in graph_and_goal()) {
         let exact = distances_to(&graph, goal);
         let is_goal = |state: &usize| *state == goal;
-        let h = |state: &usize| Some(*state as u64);
+        let mut h = heuristic_fn(|state: &usize| Some(*state as u64));
 
-        let solution = gbfs(&graph, 0, &is_goal, &h, Limits::NONE).into_solution();
+        let solution = gbfs(&graph, 0, &is_goal, &mut h, Limits::NONE).into_solution();
 
         prop_assert_eq!(solution.is_some(), exact[0].is_some());
         if let Some(solution) = &solution {
@@ -126,7 +126,7 @@ proptest! {
         let nodes = graph.edges.len();
         let starts: Vec<usize> = raw_starts.into_iter().map(|s| s % nodes).collect();
         let exact = distances_to(&graph, goal);
-        let h = |state: &usize| Some(exact[*state].unwrap_or(0));
+        let mut h = heuristic_fn(|state: &usize| Some(exact[*state].unwrap_or(0)));
         let is_goal = |state: &usize| *state == goal;
 
         let best_cost = starts.iter().filter_map(|&s| exact[s]).min();
@@ -137,7 +137,7 @@ proptest! {
             .min();
 
         let cheapest = dijkstra_multi(&graph, starts.iter().copied(), &is_goal, Limits::NONE);
-        let informed = astar_multi(&graph, starts.iter().copied(), &is_goal, &h, Limits::NONE);
+        let informed = astar_multi(&graph, starts.iter().copied(), &is_goal, &mut h, Limits::NONE);
         let shortest = bfs_multi(&graph, starts.iter().copied(), &is_goal, Limits::NONE);
 
         prop_assert_eq!(cheapest.solution().map(|s| s.cost), best_cost);

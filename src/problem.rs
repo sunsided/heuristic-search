@@ -3,9 +3,13 @@
 //!
 //! There is no single "search problem" trait. Each algorithm asks for the capabilities it
 //! needs, and the goal test and heuristic are separate values, so one graph can be searched
-//! with many goals and heuristics. [`Goal`] and [`Heuristic`] are implemented for plain
-//! closures.
+//! with many goals and heuristics. [`Goal`] is implemented for plain closures, and
+//! [`heuristic_fn`] turns a closure into a [`Heuristic`].
+//!
+//! [`Goal`] keeps `&self` and is taken by reference: goal tests are pure predicates that need
+//! no workspace, and keeping the closure blanket impl lets callers pass `&|s| ...` directly.
 
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use crate::cost::Cost;
@@ -48,7 +52,11 @@ impl<S, F: Fn(&S) -> bool> Goal<S> for F {
 
 /// An estimate of the cost from a state to the nearest goal.
 ///
-/// Implemented for every `Fn(&S) -> Option<C>`.
+/// `estimate` takes `&mut self`, so a heuristic can keep a reusable workspace (scratch
+/// buffers, caches) without interior mutability. Searches take the heuristic by value and
+/// own it for the run; pass `&mut h` to keep `h` and its workspace afterwards. Implemented
+/// for `&mut H` and `Box<H>` of any heuristic `H`, for [`Zero`], and for closures through
+/// [`heuristic_fn`].
 ///
 /// A* and Dijkstra return optimal solutions only if the heuristic is admissible (never
 /// overestimates). They stay optimal with inconsistent heuristics, because states are
@@ -58,12 +66,53 @@ pub trait Heuristic<S, C> {
     ///
     /// `None` means no goal is reachable from `state` (a proven dead end). Searches drop such
     /// states, so a heuristic must only return `None` when that is certain.
-    fn estimate(&self, state: &S) -> Option<C>;
+    fn estimate(&mut self, state: &S) -> Option<C>;
 }
 
-impl<S, C, F: Fn(&S) -> Option<C>> Heuristic<S, C> for F {
-    fn estimate(&self, state: &S) -> Option<C> {
-        self(state)
+impl<S, C, H: Heuristic<S, C> + ?Sized> Heuristic<S, C> for &mut H {
+    fn estimate(&mut self, state: &S) -> Option<C> {
+        (**self).estimate(state)
+    }
+}
+
+impl<S, C, H: Heuristic<S, C> + ?Sized> Heuristic<S, C> for Box<H> {
+    fn estimate(&mut self, state: &S) -> Option<C> {
+        (**self).estimate(state)
+    }
+}
+
+/// Turns a closure `FnMut(&S) -> Option<C>` into a [`Heuristic`].
+///
+/// A blanket impl for closures is not possible next to the one for `&mut H`: `&mut F` is
+/// itself a closure, so the two impls would overlap.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{Heuristic, heuristic_fn};
+///
+/// let mut calls = 0;
+/// let mut h = heuristic_fn(|n: &u32| {
+///     calls += 1;
+///     10_u32.checked_sub(*n)
+/// });
+///
+/// assert_eq!(h.estimate(&3), Some(7));
+/// assert_eq!(h.estimate(&12), None);
+/// drop(h);
+/// assert_eq!(calls, 2);
+/// ```
+pub fn heuristic_fn<S, C, F: FnMut(&S) -> Option<C>>(f: F) -> HeuristicFn<F> {
+    HeuristicFn(f)
+}
+
+/// A closure used as a [`Heuristic`]; created by [`heuristic_fn`].
+#[derive(Debug, Clone, Copy)]
+pub struct HeuristicFn<F>(F);
+
+impl<S, C, F: FnMut(&S) -> Option<C>> Heuristic<S, C> for HeuristicFn<F> {
+    fn estimate(&mut self, state: &S) -> Option<C> {
+        (self.0)(state)
     }
 }
 
@@ -72,7 +121,7 @@ impl<S, C, F: Fn(&S) -> Option<C>> Heuristic<S, C> for F {
 pub struct Zero;
 
 impl<S, C: Cost> Heuristic<S, C> for Zero {
-    fn estimate(&self, _state: &S) -> Option<C> {
+    fn estimate(&mut self, _state: &S) -> Option<C> {
         Some(C::ZERO)
     }
 }

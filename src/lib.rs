@@ -5,10 +5,11 @@
 //!
 //! A problem is described by small capability traits instead of one universal problem
 //! trait: a graph implements [`Successors`], the goal test is a [`Goal`] and the estimate a
-//! [`Heuristic`]. Both are implemented for closures. Every search returns a
-//! [`SearchResult`] with an [`Outcome`] (a [`Solution`] path, unsolvable, or limit reached)
-//! and [`Stats`]. A [`Budget`] (such as [`Limits`], or a closure that checks a clock) stops a
-//! search early.
+//! [`Heuristic`]. Goal tests can be closures; [`heuristic_fn`] wraps a closure as a
+//! heuristic. Searches own their heuristic; pass `&mut h` to lend one and keep its
+//! workspace. Every search returns a [`SearchResult`] with an [`Outcome`] (a [`Solution`]
+//! path, unsolvable, or limit reached) and [`Stats`]. A [`Budget`] (such as [`Limits`], or a
+//! closure that checks a clock) stops a search early.
 //!
 //! The crate is `no_std` and needs only `alloc`.
 //!
@@ -91,4 +92,4 @@ pub use best_first::{
 pub use bfs::{bfs, bfs_multi};
 pub use cost::{Cost, Weight};
 pub use outcome::{Budget, Limits, Outcome, SearchResult, Solution, Stats};
-pub use problem::{Goal, Heuristic, Successors, Zero};
+pub use problem::{Goal, Heuristic, HeuristicFn, Successors, Zero, heuristic_fn};

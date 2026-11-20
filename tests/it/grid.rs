@@ -1,6 +1,6 @@
 //! Path finding on small grids.
 
-use heuristic_search::{Limits, Weight, astar, bfs, dijkstra, gbfs, weighted_astar};
+use heuristic_search::{Limits, Weight, astar, bfs, dijkstra, gbfs, heuristic_fn, weighted_astar};
 
 use crate::fixtures::{Cell, Grid, manhattan};
 
@@ -42,7 +42,7 @@ fn all_optimal_algorithms_agree() {
     let costs = [
         bfs(&grid, START, &is_goal, Limits::NONE),
         dijkstra(&grid, START, &is_goal, Limits::NONE),
-        astar(&grid, START, &is_goal, &to_goal, Limits::NONE),
+        astar(&grid, START, &is_goal, heuristic_fn(to_goal), Limits::NONE),
     ]
     .map(|result| result.into_solution().expect("goal is reachable").cost);
 
@@ -53,7 +53,7 @@ fn all_optimal_algorithms_agree() {
 #[test]
 fn astar_expands_fewer_states_than_dijkstra() {
     let grid = walled();
-    let informed = astar(&grid, START, &is_goal, &to_goal, Limits::NONE).stats;
+    let informed = astar(&grid, START, &is_goal, heuristic_fn(to_goal), Limits::NONE).stats;
     let blind = dijkstra(&grid, START, &is_goal, Limits::NONE).stats;
 
     assert!(
@@ -68,10 +68,17 @@ fn astar_expands_fewer_states_than_dijkstra() {
 fn suboptimal_searches_stay_within_bounds() {
     let grid = walled();
     let weight = Weight::integer(3);
-    let weighted = weighted_astar(&grid, START, &is_goal, &to_goal, weight, Limits::NONE)
-        .into_solution()
-        .expect("goal is reachable");
-    let greedy = gbfs(&grid, START, &is_goal, &to_goal, Limits::NONE)
+    let weighted = weighted_astar(
+        &grid,
+        START,
+        &is_goal,
+        heuristic_fn(to_goal),
+        weight,
+        Limits::NONE,
+    )
+    .into_solution()
+    .expect("goal is reachable");
+    let greedy = gbfs(&grid, START, &is_goal, heuristic_fn(to_goal), Limits::NONE)
         .into_solution()
         .expect("goal is reachable");
 
@@ -89,7 +96,7 @@ fn enclosed_goal_is_unsolvable() {
         &grid,
         START,
         &goal,
-        &|c: &Cell| Some(manhattan(*c, (0, 3))),
+        heuristic_fn(|c: &Cell| Some(manhattan(*c, (0, 3)))),
         Limits::NONE,
     );
 
@@ -105,11 +112,11 @@ fn enclosed_goal_is_unsolvable() {
 #[test]
 fn huge_heuristic_values_do_not_overflow() {
     let grid = walled();
-    let huge = |cell: &Cell| Some(if *cell == GOAL { 0 } else { u32::MAX - 1 });
+    let mut huge = heuristic_fn(|cell: &Cell| Some(if *cell == GOAL { 0 } else { u32::MAX - 1 }));
     let weight = Weight::new(3, 2);
 
-    let plain = astar(&grid, START, &is_goal, &huge, Limits::NONE);
-    let weighted = weighted_astar(&grid, START, &is_goal, &huge, weight, Limits::NONE);
+    let plain = astar(&grid, START, &is_goal, &mut huge, Limits::NONE);
+    let weighted = weighted_astar(&grid, START, &is_goal, &mut huge, weight, Limits::NONE);
 
     assert_eq!(plain.solution().map(|s| *s.goal()), Some(GOAL));
     assert_eq!(weighted.solution().map(|s| *s.goal()), Some(GOAL));

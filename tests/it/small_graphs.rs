@@ -2,7 +2,7 @@
 
 use heuristic_search::{
     Limits, Outcome, Stats, Weight, astar, astar_multi, bfs, bfs_multi, dijkstra, dijkstra_multi,
-    gbfs, gbfs_multi, weighted_astar, weighted_astar_multi,
+    gbfs, gbfs_multi, heuristic_fn, weighted_astar, weighted_astar_multi,
 };
 
 use crate::fixtures::{Graph, assert_valid_path};
@@ -56,7 +56,7 @@ fn astar_with_admissible_heuristic_is_optimal() {
         &graph,
         0,
         &is_three,
-        &|s: &usize| Some(exact[*s]),
+        heuristic_fn(|s: &usize| Some(exact[*s])),
         Limits::NONE,
     )
     .into_solution()
@@ -74,7 +74,7 @@ fn astar_with_perfect_heuristic_expands_only_the_path() {
         &graph,
         0,
         &is_three,
-        &|s: &usize| Some(exact[*s]),
+        heuristic_fn(|s: &usize| Some(exact[*s])),
         Limits::NONE,
     );
 
@@ -90,7 +90,13 @@ fn astar_reopens_with_inconsistent_heuristic() {
     // h(1) = 3 hides the cheap path until 2 has been expanded through the expensive one.
     let graph = Graph::new(4, &[(0, 1, 1), (0, 2, 3), (1, 2, 1), (2, 3, 3)]);
     let h = [0_u64, 3, 0, 0];
-    let result = astar(&graph, 0, &is_three, &|s: &usize| Some(h[*s]), Limits::NONE);
+    let result = astar(
+        &graph,
+        0,
+        &is_three,
+        heuristic_fn(|s: &usize| Some(h[*s])),
+        Limits::NONE,
+    );
 
     assert_eq!(result.stats.reopened, 1);
     let solution = result.into_solution().expect("3 is reachable");
@@ -119,7 +125,7 @@ fn start_goal_yields_empty_path() {
 fn unreachable_goal_is_unsolvable() {
     let graph = Graph::new(3, &[(0, 1, 1), (1, 0, 1)]);
     let goal = |state: &usize| *state == 2;
-    let zero = |_: &usize| Some(0_u64);
+    let mut zero = heuristic_fn(|_: &usize| Some(0_u64));
 
     assert_eq!(
         bfs(&graph, 0, &goal, Limits::NONE).outcome,
@@ -130,11 +136,11 @@ fn unreachable_goal_is_unsolvable() {
         Outcome::Unsolvable
     );
     assert_eq!(
-        astar(&graph, 0, &goal, &zero, Limits::NONE).outcome,
+        astar(&graph, 0, &goal, &mut zero, Limits::NONE).outcome,
         Outcome::Unsolvable
     );
     assert_eq!(
-        gbfs(&graph, 0, &goal, &zero, Limits::NONE).outcome,
+        gbfs(&graph, 0, &goal, &mut zero, Limits::NONE).outcome,
         Outcome::Unsolvable
     );
 }
@@ -144,8 +150,8 @@ fn unreachable_goal_is_unsolvable() {
 fn dead_end_heuristic_prunes_states() {
     let graph = diamond();
     // Declaring 1 a dead end leaves only the direct edge.
-    let h = |state: &usize| (*state != 1).then_some(0_u64);
-    let solution = astar(&graph, 0, &is_three, &h, Limits::NONE)
+    let mut h = heuristic_fn(|state: &usize| (*state != 1).then_some(0_u64));
+    let solution = astar(&graph, 0, &is_three, &mut h, Limits::NONE)
         .into_solution()
         .expect("the direct edge remains");
 
@@ -157,8 +163,8 @@ fn dead_end_heuristic_prunes_states() {
 fn dead_end_is_not_reopened() {
     // 0 -> 1 costs 5, 0 -> 2 -> 1 costs 2; 1 is declared a dead end.
     let graph = Graph::new(4, &[(0, 1, 5), (0, 2, 1), (2, 1, 1), (1, 3, 1)]);
-    let h = |state: &usize| (*state != 1).then_some(0_u64);
-    let result = astar(&graph, 0, &is_three, &h, Limits::NONE);
+    let mut h = heuristic_fn(|state: &usize| (*state != 1).then_some(0_u64));
+    let result = astar(&graph, 0, &is_three, &mut h, Limits::NONE);
 
     assert_eq!(result.outcome, Outcome::Unsolvable);
     assert_eq!(result.stats.expanded, 2);
@@ -194,9 +200,9 @@ fn closure_budget_sees_stats() {
 #[test]
 fn weighted_astar_with_weight_one_matches_astar() {
     let graph = diamond();
-    let h = |s: &usize| Some([3_u64, 2, 1, 0][*s]);
-    let plain = astar(&graph, 0, &is_three, &h, Limits::NONE);
-    let weighted = weighted_astar(&graph, 0, &is_three, &h, Weight::ONE, Limits::NONE);
+    let mut h = heuristic_fn(|s: &usize| Some([3_u64, 2, 1, 0][*s]));
+    let plain = astar(&graph, 0, &is_three, &mut h, Limits::NONE);
+    let weighted = weighted_astar(&graph, 0, &is_three, &mut h, Weight::ONE, Limits::NONE);
 
     assert_eq!(plain, weighted);
 }
@@ -206,8 +212,8 @@ fn weighted_astar_with_weight_one_matches_astar() {
 fn gbfs_follows_the_heuristic() {
     let graph = diamond();
     // A misleading heuristic that makes the expensive direct edge look best.
-    let h = |s: &usize| Some([1_u64, 5, 5, 0][*s]);
-    let solution = gbfs(&graph, 0, &is_three, &h, Limits::NONE)
+    let mut h = heuristic_fn(|s: &usize| Some([1_u64, 5, 5, 0][*s]));
+    let solution = gbfs(&graph, 0, &is_three, &mut h, Limits::NONE)
         .into_solution()
         .expect("3 is reachable");
 
@@ -252,15 +258,22 @@ fn float_costs_work() {
 #[test]
 fn no_starts_is_unsolvable() {
     let graph = diamond();
-    let zero = |_: &usize| Some(0_u64);
+    let mut zero = heuristic_fn(|_: &usize| Some(0_u64));
     let none = core::iter::empty::<usize>;
 
     let results = [
         bfs_multi(&graph, none(), &is_three, Limits::NONE),
         dijkstra_multi(&graph, none(), &is_three, Limits::NONE),
-        astar_multi(&graph, none(), &is_three, &zero, Limits::NONE),
-        weighted_astar_multi(&graph, none(), &is_three, &zero, Weight::ONE, Limits::NONE),
-        gbfs_multi(&graph, none(), &is_three, &zero, Limits::NONE),
+        astar_multi(&graph, none(), &is_three, &mut zero, Limits::NONE),
+        weighted_astar_multi(
+            &graph,
+            none(),
+            &is_three,
+            &mut zero,
+            Weight::ONE,
+            Limits::NONE,
+        ),
+        gbfs_multi(&graph, none(), &is_three, &mut zero, Limits::NONE),
     ];
 
     for result in results {
@@ -274,21 +287,21 @@ fn no_starts_is_unsolvable() {
 fn goal_among_starts_costs_nothing() {
     let graph = diamond();
     // Misleading: node 2 looks closer than the goal itself.
-    let h = |s: &usize| Some([9_u64, 9, 0, 5][*s]);
+    let mut h = heuristic_fn(|s: &usize| Some([9_u64, 9, 0, 5][*s]));
 
     let results = [
         bfs_multi(&graph, [2, 3], &is_three, Limits::NONE),
         dijkstra_multi(&graph, [2, 3], &is_three, Limits::NONE),
-        astar_multi(&graph, [2, 3], &is_three, &h, Limits::NONE),
+        astar_multi(&graph, [2, 3], &is_three, &mut h, Limits::NONE),
         weighted_astar_multi(
             &graph,
             [2, 3],
             &is_three,
-            &h,
+            &mut h,
             Weight::integer(2),
             Limits::NONE,
         ),
-        gbfs_multi(&graph, [2, 3], &is_three, &h, Limits::NONE),
+        gbfs_multi(&graph, [2, 3], &is_three, &mut h, Limits::NONE),
     ];
 
     for result in results {
@@ -320,4 +333,55 @@ fn multi_start_picks_the_cheapest_start() {
     assert_eq!(solution.states, [1, 2, 3]);
     assert_eq!(solution.cost, 2);
     assert_valid_path(&graph, 1, &solution);
+}
+
+/// A struct heuristic with a reusable workspace, lent to searches as `&mut`.
+struct Counting {
+    /// Exact distances to node 3, by node.
+    exact: [u64; 4],
+    /// Every state estimated so far, in order; stands in for a reusable workspace.
+    seen: Vec<usize>,
+}
+
+impl heuristic_search::Heuristic<usize, u64> for Counting {
+    fn estimate(&mut self, state: &usize) -> Option<u64> {
+        self.seen.push(*state);
+        Some(self.exact[*state])
+    }
+}
+
+/// A heuristic lent as `&mut` keeps its workspace across searches, and each state is
+/// estimated at most once per search.
+#[test]
+fn borrowed_heuristic_keeps_its_workspace() {
+    let graph = diamond();
+    let mut h = Counting {
+        exact: [3, 2, 1, 0],
+        seen: Vec::new(),
+    };
+
+    let first = astar(&graph, 0, &is_three, &mut h, Limits::NONE);
+    let estimated_once = h.seen.len();
+    let second = gbfs(&graph, 0, &is_three, &mut h, Limits::NONE);
+
+    assert_eq!(first.solution().map(|s| s.cost), Some(3));
+    assert!(second.solution().is_some());
+    // A* reaches 3 again through 2 without estimating it twice; GBFS stops at 3 early.
+    assert_eq!(h.seen[..estimated_once], [0, 3, 1, 2]);
+    assert_eq!(h.seen[estimated_once..], [0, 3, 1]);
+}
+
+/// A boxed trait object works as a heuristic, for callers that choose one at run time.
+#[test]
+fn boxed_dyn_heuristic_works() {
+    let graph = diamond();
+    let h: Box<dyn heuristic_search::Heuristic<usize, u64>> = Box::new(Counting {
+        exact: [3, 2, 1, 0],
+        seen: Vec::new(),
+    });
+    let solution = astar(&graph, 0, &is_three, h, Limits::NONE)
+        .into_solution()
+        .expect("3 is reachable");
+
+    assert_eq!(solution.cost, 3);
 }

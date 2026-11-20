@@ -48,7 +48,7 @@ pub type GraphResult<G> =
 /// # Examples
 ///
 /// ```
-/// use heuristic_search::{Limits, Successors, astar};
+/// use heuristic_search::{Limits, Successors, heuristic_fn, astar};
 ///
 /// /// A line of integers; each step moves one to the left or right at cost 1.
 /// struct Line;
@@ -64,8 +64,8 @@ pub type GraphResult<G> =
 ///     }
 /// }
 ///
-/// let distance = |state: &i32| Some(7_i32.abs_diff(*state));
-/// let result = astar(&Line, 0, &|state: &i32| *state == 7, &distance, Limits::NONE);
+/// let distance = heuristic_fn(|state: &i32| Some(7_i32.abs_diff(*state)));
+/// let result = astar(&Line, 0, &|state: &i32| *state == 7, distance, Limits::NONE);
 /// let solution = result.solution().expect("7 is reachable");
 ///
 /// assert_eq!(solution.cost, 7);
@@ -76,7 +76,7 @@ pub fn astar<G, T, H>(
     graph: &G,
     start: G::State,
     goal: &T,
-    heuristic: &H,
+    heuristic: H,
     budget: impl Budget,
 ) -> GraphResult<G>
 where
@@ -84,7 +84,7 @@ where
     G::State: Clone + Hash + Eq,
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
-    H: Heuristic<G::State, G::Cost> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
 {
     let order = Order::Weighted(Weight::ONE);
 
@@ -129,7 +129,7 @@ where
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
 {
-    Engine::new(graph, goal, &Zero, Order::G).run([start], budget)
+    Engine::new(graph, goal, Zero, Order::G).run([start], budget)
 }
 
 /// Weighted A*: A* ordered by `g + w * h`, trading solution quality for speed.
@@ -140,7 +140,7 @@ where
 /// # Examples
 ///
 /// ```
-/// use heuristic_search::{Limits, Successors, Weight, weighted_astar};
+/// use heuristic_search::{Limits, Successors, heuristic_fn, Weight, weighted_astar};
 ///
 /// /// A line of integers; each step moves one to the left or right at cost 1.
 /// struct Line;
@@ -156,9 +156,9 @@ where
 ///     }
 /// }
 ///
-/// let distance = |state: &i32| Some(9_i32.abs_diff(*state));
+/// let distance = heuristic_fn(|state: &i32| Some(9_i32.abs_diff(*state)));
 /// let weight = Weight::new(3, 2);
-/// let result = weighted_astar(&Line, 0, &|s: &i32| *s == 9, &distance, weight, Limits::NONE);
+/// let result = weighted_astar(&Line, 0, &|s: &i32| *s == 9, distance, weight, Limits::NONE);
 ///
 /// assert!(result.solution().is_some_and(|solution| solution.cost <= 9 * 3 / 2));
 /// ```
@@ -166,7 +166,7 @@ pub fn weighted_astar<G, T, H>(
     graph: &G,
     start: G::State,
     goal: &T,
-    heuristic: &H,
+    heuristic: H,
     weight: Weight,
     budget: impl Budget,
 ) -> GraphResult<G>
@@ -175,7 +175,7 @@ where
     G::State: Clone + Hash + Eq,
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
-    H: Heuristic<G::State, G::Cost> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
 {
     Engine::new(graph, goal, heuristic, Order::Weighted(weight)).run([start], budget)
 }
@@ -189,7 +189,7 @@ where
 /// # Examples
 ///
 /// ```
-/// use heuristic_search::{Limits, Successors, gbfs};
+/// use heuristic_search::{Limits, Successors, heuristic_fn, gbfs};
 ///
 /// /// Cells of a 1-D corridor `0..=20`; each step moves one cell at cost 1.
 /// struct Corridor;
@@ -209,8 +209,8 @@ where
 ///     }
 /// }
 ///
-/// let distance = |cell: &u8| Some(u32::from(15_u8.abs_diff(*cell)));
-/// let result = gbfs(&Corridor, 5, &|cell: &u8| *cell == 15, &distance, Limits::NONE);
+/// let distance = heuristic_fn(|cell: &u8| Some(u32::from(15_u8.abs_diff(*cell))));
+/// let result = gbfs(&Corridor, 5, &|cell: &u8| *cell == 15, distance, Limits::NONE);
 ///
 /// assert_eq!(result.solution().map(|solution| solution.len()), Some(10));
 /// assert_eq!(result.stats.expanded, 10);
@@ -219,7 +219,7 @@ pub fn gbfs<G, T, H>(
     graph: &G,
     start: G::State,
     goal: &T,
-    heuristic: &H,
+    heuristic: H,
     budget: impl Budget,
 ) -> GraphResult<G>
 where
@@ -227,7 +227,7 @@ where
     G::State: Clone + Hash + Eq,
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
-    H: Heuristic<G::State, G::Cost> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
 {
     Engine::new(graph, goal, heuristic, Order::H).run([start], budget)
 }
@@ -242,7 +242,7 @@ where
 /// # Examples
 ///
 /// ```
-/// use heuristic_search::{Limits, Successors, astar_multi};
+/// use heuristic_search::{Limits, Successors, heuristic_fn, astar_multi};
 ///
 /// /// Counting up by one, at cost 1.
 /// struct Up;
@@ -257,8 +257,8 @@ where
 ///     }
 /// }
 ///
-/// let distance = |n: &u32| 8_u32.checked_sub(*n);
-/// let result = astar_multi(&Up, [0, 6, 3], &|n: &u32| *n == 8, &distance, Limits::NONE);
+/// let distance = heuristic_fn(|n: &u32| 8_u32.checked_sub(*n));
+/// let result = astar_multi(&Up, [0, 6, 3], &|n: &u32| *n == 8, distance, Limits::NONE);
 /// let solution = result.into_solution().expect("8 is reachable");
 ///
 /// assert_eq!(solution.states, [6, 7, 8]);
@@ -268,7 +268,7 @@ pub fn astar_multi<G, T, H>(
     graph: &G,
     starts: impl IntoIterator<Item = G::State>,
     goal: &T,
-    heuristic: &H,
+    heuristic: H,
     budget: impl Budget,
 ) -> GraphResult<G>
 where
@@ -276,7 +276,7 @@ where
     G::State: Clone + Hash + Eq,
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
-    H: Heuristic<G::State, G::Cost> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
 {
     let order = Order::Weighted(Weight::ONE);
 
@@ -298,7 +298,7 @@ where
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
 {
-    Engine::new(graph, goal, &Zero, Order::G).run(starts, budget)
+    Engine::new(graph, goal, Zero, Order::G).run(starts, budget)
 }
 
 /// [`weighted_astar`] from several start states at once.
@@ -309,7 +309,7 @@ pub fn weighted_astar_multi<G, T, H>(
     graph: &G,
     starts: impl IntoIterator<Item = G::State>,
     goal: &T,
-    heuristic: &H,
+    heuristic: H,
     weight: Weight,
     budget: impl Budget,
 ) -> GraphResult<G>
@@ -318,7 +318,7 @@ where
     G::State: Clone + Hash + Eq,
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
-    H: Heuristic<G::State, G::Cost> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
 {
     Engine::new(graph, goal, heuristic, Order::Weighted(weight)).run(starts, budget)
 }
@@ -330,7 +330,7 @@ pub fn gbfs_multi<G, T, H>(
     graph: &G,
     starts: impl IntoIterator<Item = G::State>,
     goal: &T,
-    heuristic: &H,
+    heuristic: H,
     budget: impl Budget,
 ) -> GraphResult<G>
 where
@@ -338,7 +338,7 @@ where
     G::State: Clone + Hash + Eq,
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
-    H: Heuristic<G::State, G::Cost> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
 {
     Engine::new(graph, goal, heuristic, Order::H).run(starts, budget)
 }
@@ -376,13 +376,13 @@ impl Order {
 }
 
 /// One best-first search run over a graph, a goal and a heuristic.
-struct Engine<'a, G: Successors, T: ?Sized, H: ?Sized> {
+struct Engine<'a, G: Successors, T: ?Sized, H> {
     /// The graph being searched.
     graph: &'a G,
     /// The goal test.
     goal: &'a T,
-    /// The heuristic.
-    heuristic: &'a H,
+    /// The heuristic, owned for the run (pass `&mut h` to lend one).
+    heuristic: H,
     /// The open-list order.
     order: Order,
     /// Counters for the result.
@@ -402,10 +402,10 @@ where
     G::State: Clone + Hash + Eq,
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
-    H: Heuristic<G::State, G::Cost> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
 {
     /// Prepares a run.
-    fn new(graph: &'a G, goal: &'a T, heuristic: &'a H, order: Order) -> Self {
+    fn new(graph: &'a G, goal: &'a T, heuristic: H, order: Order) -> Self {
         Self {
             graph,
             goal,
