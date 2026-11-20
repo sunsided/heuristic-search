@@ -4,7 +4,11 @@
 use alloc::vec::Vec;
 
 /// Counters collected during one search run.
+///
+/// Non-exhaustive: later algorithms may add counters. Start from [`Stats::default`] where
+/// a value is needed.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Stats {
     /// States whose successors were generated. A goal state that ends the search is not
     /// counted. A state reopened through a cheaper path counts once per expansion.
@@ -15,6 +19,22 @@ pub struct Stats {
     /// Closed states reopened because a cheaper path to them turned up. Always `0` for
     /// breadth-first and greedy best-first search, and for A* with a consistent heuristic.
     pub reopened: u64,
+    /// True edge costs computed by an expensive edge evaluator. Only
+    /// [`lazy_sp`](crate::lazy_sp) evaluates edges; `0` everywhere else.
+    pub evaluations: u64,
+}
+
+impl Stats {
+    /// The counters of `self` and `other` added up, for searches made of several runs.
+    #[must_use]
+    pub(crate) fn plus(self, other: Self) -> Self {
+        Self {
+            expanded: self.expanded + other.expanded,
+            generated: self.generated + other.generated,
+            reopened: self.reopened + other.reopened,
+            evaluations: self.evaluations + other.evaluations,
+        }
+    }
 }
 
 /// A path from the start state to a goal state.

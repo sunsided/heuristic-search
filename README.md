@@ -14,11 +14,11 @@ Implemented on the `draft/initial` branch:
 - Bounded-suboptimal: focal search (with a public focal list and tie-breaking), EES, DPS
 - Bidirectional: bidirectional BFS and Dijkstra, NBS, DIBBS, BAE*
 - Multiple heuristics: shared MHA*
+- Expensive edge evaluation: LazySP
 
 Planned:
 
 - Foundational: DFS, IDA*
-- Expensive edge evaluation: LazySP
 - Dynamic graphs: LPA*, D* Lite, AD*
 
 ## License

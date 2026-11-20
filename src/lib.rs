@@ -46,6 +46,9 @@
 //! [`mha_star`] (shared multi-heuristic A*) combines one consistent anchor heuristic with
 //! any number of inadmissible ones, within `w1 * w2` times the optimum.
 //!
+//! [`lazy_sp`] (`LazySP`) finds cheapest paths when true edge costs are expensive, evaluating
+//! them through an [`EdgeEvaluator`] only on candidate paths.
+//!
 //! Costs are generic over [`Cost`]. For planning, `u32` is the intended default: action
 //! costs are small integers and heuristics over them stay exact.
 //!
@@ -80,7 +83,6 @@
 //! ## Planned scope
 //!
 //! - Foundational: DFS, IDA*
-//! - Expensive edge evaluation: `LazySP`
 //! - Dynamic graphs: LPA*, D* Lite, AD*
 //!
 //! See `docs/design.md` in the repository for the design and milestones.
@@ -104,6 +106,7 @@ mod bounded;
 mod cost;
 mod focal;
 mod keyed_set;
+mod lazy;
 mod mha;
 mod open_list;
 mod outcome;
@@ -122,6 +125,7 @@ pub use bidirectional::{
 pub use bounded::{EesEstimates, FocalFn, FocalKey, dps, ees, focal_fn, focal_search};
 pub use cost::{Cost, Weight};
 pub use focal::{FocalList, TieBreak};
+pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp};
 pub use mha::{MhaWeights, mha_star};
 pub use outcome::{Budget, Limits, Outcome, SearchResult, Solution, Stats};
 pub use problem::{Goal, Heuristic, HeuristicFn, Predecessors, Successors, Zero, heuristic_fn};
