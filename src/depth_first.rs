@@ -712,7 +712,7 @@ where
 ///
 /// Compares by equality only, since tree searches do not require `Hash`: quadratic in the
 /// number of starts, which is small in practice.
-fn distinct<S: Eq>(starts: impl IntoIterator<Item = S>) -> Vec<S> {
+pub(crate) fn distinct<S: Eq>(starts: impl IntoIterator<Item = S>) -> Vec<S> {
     let mut roots: Vec<S> = Vec::new();
     for start in starts {
         if !roots.contains(&start) {
@@ -724,7 +724,7 @@ fn distinct<S: Eq>(starts: impl IntoIterator<Item = S>) -> Vec<S> {
 }
 
 /// The zero-cost solution at the first root that is a goal, if any.
-fn goal_root<S: Clone, A, C: Cost, T: Goal<S> + ?Sized>(
+pub(crate) fn goal_root<S: Clone, A, C: Cost, T: Goal<S> + ?Sized>(
     roots: &[S],
     goal: &T,
 ) -> Option<Solution<S, A, C>> {

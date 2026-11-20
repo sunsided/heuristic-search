@@ -7,7 +7,7 @@ use heuristic_search::{
     ara_star_multi, bae_star_multi, bfs, bidirectional_bfs_multi, bidirectional_dijkstra_multi,
     depth_limited_dfs_multi, dfs_multi, dibbs_multi, dps_multi, ees_multi, focal_fn,
     focal_search_multi, fringe_search_multi, heuristic_fn, ida_star_multi, iddfs_multi,
-    lazy_sp_multi, mha_star_multi, nbs_multi,
+    lazy_sp_multi, mha_star_multi, nbs_multi, rbfs_multi,
 };
 use proptest::prelude::*;
 
@@ -54,6 +54,7 @@ proptest! {
 
         let results: Vec<(&str, Result)> = vec![
             ("fringe_search", fringe_search_multi(&graph, s(), &is_goal, heuristic_fn(h), Limits::NONE)),
+            ("rbfs", rbfs_multi(&graph, s(), &is_goal, heuristic_fn(h), Limits::NONE)),
             ("ida_star", ida_star_multi(&graph, s(), &is_goal, heuristic_fn(h), Limits::NONE)),
             ("mha_star", mha_star_multi(&graph, s(), &is_goal, heuristic_fn(h), [heuristic_fn(h)], MhaWeights::ONE, Limits::NONE)),
             ("lazy_sp", lazy_sp_multi(&graph, s(), &is_goal, heuristic_fn(h), evaluate, EdgeSelector::Forward, Limits::NONE)),

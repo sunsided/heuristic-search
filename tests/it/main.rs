@@ -14,4 +14,5 @@ mod meet;
 mod mha;
 mod multi;
 mod properties;
+mod rbfs;
 mod small_graphs;

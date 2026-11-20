@@ -34,6 +34,8 @@
 //!   edges.
 //! - [`ida_star`]: IDA*, cheapest path with an admissible heuristic; [`ida_star_tt`] adds
 //!   a bounded transposition table for graphs with many paths to each state.
+//! - [`rbfs`]: recursive best-first search (RBFS), cheapest path with an admissible
+//!   heuristic, in best-first order with memory linear in the depth.
 //!
 //! Anytime searches report each improved solution and return an [`AnytimeResult`]:
 //!
@@ -147,6 +149,7 @@ mod mha;
 mod open_list;
 mod outcome;
 mod problem;
+mod rbfs;
 mod space;
 
 pub use anytime::{
@@ -186,6 +189,7 @@ pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp, lazy_sp_multi};
 pub use mha::{MhaWeights, mha_star, mha_star_multi};
 pub use outcome::{Limits, Outcome, SearchResult, Solution, Stats};
 pub use problem::{Predecessors, Successors};
+pub use rbfs::{rbfs, rbfs_multi};
 #[cfg(feature = "float")]
 pub use search_core::NonNegF64;
 pub use search_core::{Budget, Cost, Decimal, Goal, Heuristic, HeuristicFn, Zero, heuristic_fn};

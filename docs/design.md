@@ -12,7 +12,7 @@ through small capability traits and gets back a path and counters.
 In scope, in milestone order (see [Milestones](#milestones)):
 
 - foundational: BFS, DFS, Dijkstra, greedy best-first (GBFS), A*, IDA*;
-- linear- and bounded-memory: fringe search;
+- linear- and bounded-memory: fringe search, RBFS;
 - weighted and anytime: Weighted A* (WA*), ARA*, ANA*;
 - bounded-suboptimal: EES, DPS;
 - multiple heuristics: MHA*;
@@ -309,6 +309,15 @@ the same machine: `FocalList push+pop 10k` 9.8 ms to 3.5 ms, `FocalList churn 10
 
 Per-algorithm notes:
 
+- RBFS is iterative: a stack of frames, one per node on the current path, each with its
+  bound and its children's backed-up values `F` (an `Extended` cost, whose `Infinite` lies
+  above every cost; a saturated sum would tie with real costs). A frame whose best child
+  exceeds its bound pops and writes that `F` into its parent's entry; a descent applies
+  Korf's inheritance rule (`F(child) = max(F(parent), f(child))` when `f(parent) <
+  F(parent)`). Several starts are the children of a virtual root with an infinite bound.
+  A returning subtree's value strictly exceeds the value it was entered with, so the search
+  terminates on finite graphs; like IDA* it is a tree search that skips states on the
+  current path.
 - Fringe search keeps the cache in a `SearchSpace` (best `g`, parent, heuristic value per
   node) and its *now* and *later* lists as two `Vec`s of `(node, ticket)`. *Now* is a
   stack whose head is its last element, so successors inserted "after the current node"
@@ -495,7 +504,7 @@ the move to `search-core`.
    shared MHA*.
 5. **Expensive edges**: done: `EdgeEvaluator`, LazySP.
 6. **Dynamic graphs**: done: `DynamicGraph`, LPA*, D* Lite, AD*.
-7. **More algorithms** (branch `draft/algorithms`): fringe search.
+7. **More algorithms** (branch `draft/algorithms`): fringe search, RBFS.
 8. **0.1.0**: API review, benchmarks, release.
 
 ## Open questions
@@ -528,6 +537,8 @@ the move to `search-core`.
   sub-optimality. NIPS 2003.
 - J. van den Berg, R. Shah, A. Huang, K. Goldberg. ANA*: Anytime nonparametric A*.
   AAAI 2011.
+- R. E. Korf. Linear-space best-first search. Artificial Intelligence 62(1), 1993.
+  (RBFS)
 - J. Pearl, J. H. Kim. Studies in semi-admissible heuristics. IEEE Trans. PAMI 4(4),
   1982. (focal search, A*<sub>ε</sub>)
 - J. T. Thayer, W. Ruml. Bounded suboptimal search: a direct approach using inadmissible
