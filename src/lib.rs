@@ -37,6 +37,10 @@
 //! - [`rbfs`]: recursive best-first search (RBFS), cheapest path with an admissible
 //!   heuristic, in best-first order with memory linear in the depth.
 //!
+//! [`sma_star`] (SMA*) is A* within a fixed number of nodes: it forgets its worst leaves
+//! and regenerates them when needed, and returns the cheapest path among those that fit in
+//! memory, or [`Outcome::Cutoff`] when none does.
+//!
 //! Anytime searches report each improved solution and return an [`AnytimeResult`]:
 //!
 //! - [`ara_star`]: ARA*, Weighted A* with a falling weight schedule.
@@ -169,6 +173,7 @@ mod open_list;
 mod outcome;
 mod problem;
 mod rbfs;
+mod sma;
 mod space;
 
 pub use anytime::{
@@ -221,3 +226,4 @@ pub use rbfs::{rbfs, rbfs_multi};
 #[cfg(feature = "float")]
 pub use search_core::NonNegF64;
 pub use search_core::{Budget, Cost, Decimal, Goal, Heuristic, HeuristicFn, Zero, heuristic_fn};
+pub use sma::{sma_star, sma_star_multi};

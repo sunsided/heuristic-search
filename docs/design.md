@@ -12,7 +12,7 @@ through small capability traits and gets back a path and counters.
 In scope, in milestone order (see [Milestones](#milestones)):
 
 - foundational: BFS, DFS, Dijkstra, greedy best-first (GBFS), A*, IDA*;
-- linear- and bounded-memory: fringe search, RBFS, beam search, beam-stack search;
+- linear- and bounded-memory: fringe search, RBFS, SMA*, beam search, beam-stack search;
 - uniform-cost grids: Jump Point Search (JPS); any-angle Theta* and Lazy Theta*;
 - weighted and anytime: Weighted A* (WA*), ARA*, ANA*;
 - bounded-suboptimal: EES, DPS;
@@ -310,6 +310,23 @@ the same machine: `FocalList push+pop 10k` 9.8 ms to 3.5 ms, `FocalList churn 10
 
 Per-algorithm notes:
 
+- SMA* is a tree search over a slot arena (freed slots are reused) with two `KeyedSet`s:
+  the open list (leaves by backed-up `F`, and expanded nodes by their smallest forgotten
+  child's value; smallest first, deepest first) and the prunable leaves (largest `F`,
+  shallowest, then oldest; starts are never pruned). The first expansion generates every
+  successor; afterwards a node regenerates only its best forgotten child. Each node keeps
+  the position and backed-up value of every forgotten child, so a regenerated child gets
+  its value back: an earlier version kept only the minimum (as in the paper's
+  description) and regenerated all forgotten children valued at that minimum, which lost
+  their larger values and thrashed forever on a wide node (a hand test caught it). Values
+  are backed up before pruning, which then leaves them unchanged. `memory` counts nodes;
+  a child at depth `d` is generated only if `k + d <= memory` (`k` starts), and a non-goal
+  one only if `k + d + 1 <= memory`, so the result is the cheapest path of at most
+  `memory - k` edges. When that cap drops a child, a failed search reports `Cutoff`
+  (memory too small) rather than `Unsolvable`. Tested against a bounded Bellman-Ford
+  oracle (cheapest path within an edge count) for memory 1 to 14, plus a one-off
+  100 000-case stress run on 16-node graphs, all terminating within the budget. Successors
+  must come in a stable order, since forgotten children are found again by position.
 - Theta* and Lazy Theta* need the `float` feature: path lengths are sums of square roots,
   which no exact cost type here represents, so costs are `NonNegF64`. `f64::sqrt` is not in
   `core` at the MSRV, so a private Newton iteration (exponent-halving guess, six steps)
@@ -572,7 +589,7 @@ the move to `search-core`.
 6. **Dynamic graphs**: done: `DynamicGraph`, LPA*, D* Lite, AD*.
 7. **More algorithms** (branch `draft/algorithms`): fringe search, RBFS, beam search,
    beam-stack search, JPS (with `UniformGrid`, `Octile`, `EightConnected`), Theta* and
-   Lazy Theta* (with `LineOfSight`, feature `float`).
+   Lazy Theta* (with `LineOfSight`, feature `float`), SMA*.
 8. **0.1.0**: API review, benchmarks, release.
 
 ## Open questions
@@ -593,6 +610,7 @@ the move to `search-core`.
 
 - E. W. Dijkstra. A note on two problems in connexion with graphs. Numerische
   Mathematik 1, 1959.
+- S. Russell. Efficient memory-bounded search methods. ECAI 1992. (SMA*)
 - R. Zhou, E. A. Hansen. Beam-stack search: integrating backtracking with beam search.
   ICAPS 2005.
 - D. Harabor, A. Grastien. Online graph pruning for pathfinding on grid maps. AAAI 2011.

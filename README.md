@@ -15,6 +15,8 @@ Implemented on the `draft/initial` branch:
   iterations over a cache of `g` per state, no priority queue
 - RBFS (`rbfs`): recursive best-first search, optimal with an admissible heuristic in
   memory linear in the depth, iterative so deep paths cannot overflow the stack
+- SMA* (`sma_star`): A* within a node budget, forgetting and regenerating leaves; the
+  cheapest path that fits in memory, `Cutoff` when none does
 - Beam search (`beam_search`, incomplete; `Cutoff` when the width pruned) and beam-stack
   search (`beam_stack_search`): complete and anytime, optimal once it completes, with a
   fixed beam width

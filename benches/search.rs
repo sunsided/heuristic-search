@@ -14,7 +14,7 @@ use heuristic_search::{
     AdStar, DStarLite, DynamicGraph, EdgeSelector, EesEstimates, EightConnected, FocalList, Limits,
     MhaWeights, OctileDistance, Predecessors, Successors, UniformGrid, Weight, a_star, ana_star,
     ara_star, beam_search, beam_stack_search, dfs, dps, ees, focal_fn, focal_search, fringe_search,
-    heuristic_fn, ida_star, ida_star_tt, iddfs, jps, lazy_sp, mha_star, nbs, rbfs,
+    heuristic_fn, ida_star, ida_star_tt, iddfs, jps, lazy_sp, mha_star, nbs, rbfs, sma_star,
 };
 
 /// Side length of the benchmark grid.
@@ -494,6 +494,9 @@ fn bench_depth_first(c: &mut Criterion, grid: &Grid) {
     });
     c.bench_function("rbfs open 6x6", |b| {
         b.iter(|| black_box(rbfs(&Open, START, &corner, h(), Limits::NONE)));
+    });
+    c.bench_function("sma_star open 6x6 mem=64", |b| {
+        b.iter(|| black_box(sma_star(&Open, START, &corner, h(), 64, Limits::NONE)));
     });
 }
 
