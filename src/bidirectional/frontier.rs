@@ -11,7 +11,6 @@ use search_core::{Budget, Cost, Heuristic, Zero};
 use crate::best_first::GraphResult;
 use crate::bidirectional::{BidirectionalGraph, Core, Direction};
 use crate::cost::CostExt;
-use crate::cost::Ordered;
 use crate::keyed_set::KeyedSet;
 use crate::outcome::Stats;
 use crate::problem::Successors;
@@ -214,7 +213,7 @@ enum Rule {
 }
 
 /// Open-list order of one side: smallest key, then larger `g`, then node id.
-type Key<C> = (Ordered<C>, Reverse<Ordered<C>>);
+type Key<C> = (C, Reverse<C>);
 
 /// A bidirectional search with one keyed open list per side.
 struct Frontier<'a, G: BidirectionalGraph, HF, HB> {
@@ -285,7 +284,7 @@ where
 
     /// The smallest key open on `direction`'s side.
     fn min_key(&self, direction: Direction) -> Option<<G as Successors>::Cost> {
-        self.open[direction.index()].first().map(|(key, _)| key.0.0)
+        self.open[direction.index()].first().map(|(key, _)| key.0)
     }
 
     /// Returns `true` if the keys `forward` and `backward` prove the best meet optimal.
@@ -331,6 +330,6 @@ where
             Rule::Dibbs | Rule::Bae => (g + g + h).saturating_sub(h_opposite),
         };
 
-        self.open[direction.index()].insert(id, (Ordered(key), Reverse(Ordered(g))));
+        self.open[direction.index()].insert(id, (key, Reverse(g)));
     }
 }

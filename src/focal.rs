@@ -12,7 +12,7 @@ use core::cmp::Ordering;
 
 use search_core::Cost;
 
-use crate::cost::{Ordered, Weight, within};
+use crate::cost::{Weight, within};
 use crate::keyed_set::KeyedSet;
 
 /// How equal keys are ordered, after the primary and (for the focal sublist) the focal key.
@@ -43,7 +43,7 @@ impl TieBreak {
 #[derive(Debug, Clone, Copy)]
 struct OpenKey<C> {
     /// The admissible value the open order and the focal bound use.
-    f: Ordered<C>,
+    f: C,
     /// The path cost, for tie-breaking.
     g: C,
     /// The tie-break rule; the same for every key of one list.
@@ -196,13 +196,13 @@ impl<C: Cost, K: Ord + Clone> FocalList<C, K> {
     /// The `f` value of `item`, if it is in the list.
     #[must_use]
     pub fn f(&self, item: usize) -> Option<C> {
-        self.open.key(item).map(|key| key.f.0)
+        self.open.key(item).map(|key| key.f)
     }
 
     /// The smallest `f` in the list.
     #[must_use]
     pub fn min_f(&self) -> Option<C> {
-        self.open.first().map(|(key, _)| key.f.0)
+        self.open.first().map(|(key, _)| key.f)
     }
 
     /// The item with the smallest `f` (first in open order).
@@ -231,7 +231,7 @@ impl<C: Cost, K: Ord + Clone> FocalList<C, K> {
         self.remove(item);
 
         let open = OpenKey {
-            f: Ordered(f),
+            f,
             g,
             tie: self.tie,
             seq: self.pushes,
@@ -287,7 +287,7 @@ impl<C: Cost, K: Ord + Clone> FocalList<C, K> {
         };
 
         while let Some((last, item)) = self.boundary {
-            if within(last.f.0, self.weight, min_f) {
+            if within(last.f, self.weight, min_f) {
                 break;
             }
 
@@ -300,7 +300,7 @@ impl<C: Cost, K: Ord + Clone> FocalList<C, K> {
                 Some((last, item)) => self.open.after(last, *item),
                 None => self.open.first(),
             };
-            let Some((&open, item)) = next.filter(|(key, _)| within(key.f.0, self.weight, min_f))
+            let Some((&open, item)) = next.filter(|(key, _)| within(key.f, self.weight, min_f))
             else {
                 break;
             };

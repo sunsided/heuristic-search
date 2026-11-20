@@ -9,7 +9,6 @@ use search_core::{Budget, Cost, Heuristic};
 
 use crate::best_first::GraphResult;
 use crate::bidirectional::{BidirectionalGraph, Core, Direction};
-use crate::cost::Ordered;
 use crate::keyed_set::KeyedSet;
 use crate::outcome::Stats;
 use crate::problem::Successors;
@@ -97,7 +96,7 @@ where
 }
 
 /// A queue order: smallest primary value, then the secondary value reversed, then node id.
-type Key<C> = (Ordered<C>, Reverse<Ordered<C>>);
+type Key<C> = (C, Reverse<C>);
 
 /// The state of one NBS run.
 struct Nbs<'a, G: BidirectionalGraph, HF, HB> {
@@ -175,13 +174,13 @@ where
     /// Moves every waiting state with `f <= CLB` on `direction`'s side to the ready queue.
     fn promote(&mut self, direction: Direction) {
         let side = direction.index();
-        while let Some((&(Ordered(f), Reverse(Ordered(g))), id)) = self.waiting[side].first() {
+        while let Some((&(f, Reverse(g)), id)) = self.waiting[side].first() {
             if f.cmp(&self.clb).is_gt() {
                 break;
             }
 
             self.waiting[side].remove(id);
-            self.ready[side].insert(id, (Ordered(g), Reverse(Ordered(f))));
+            self.ready[side].insert(id, (g, Reverse(f)));
         }
     }
 
@@ -190,7 +189,7 @@ where
         let (forward, u) = self.ready[0].first()?;
         let (backward, v) = self.ready[1].first()?;
 
-        (forward.0.0 + backward.0.0)
+        (forward.0 + backward.0)
             .cmp(&self.clb)
             .is_le()
             .then_some((u, v))
@@ -202,9 +201,9 @@ where
         let waiting = self
             .waiting
             .iter()
-            .filter_map(|queue| queue.first().map(|(key, _)| key.0.0));
+            .filter_map(|queue| queue.first().map(|(key, _)| key.0));
         let ready = match (self.ready[0].first(), self.ready[1].first()) {
-            (Some((forward, _)), Some((backward, _))) => Some(forward.0.0 + backward.0.0),
+            (Some((forward, _)), Some((backward, _))) => Some(forward.0 + backward.0),
             _ => None,
         };
 
@@ -227,6 +226,6 @@ where
         let g = self.core.g(direction, id);
         let side = direction.index();
         self.ready[side].remove(id);
-        self.waiting[side].insert(id, (Ordered(g + h), Reverse(Ordered(g))));
+        self.waiting[side].insert(id, (g + h, Reverse(g)));
     }
 }

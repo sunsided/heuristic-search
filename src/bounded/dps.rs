@@ -8,7 +8,7 @@ use search_core::{Budget, Goal, Heuristic};
 
 use crate::best_first::GraphResult;
 use crate::cost::CostExt;
-use crate::cost::{Ordered, Weight, within};
+use crate::cost::{Weight, within};
 use crate::keyed_set::KeyedSet;
 use crate::outcome::{Outcome, SearchResult, Stats};
 use crate::problem::{Successors, collect_successors};
@@ -101,7 +101,7 @@ where
 }
 
 /// A pair of costs: a `(g, h)` group key, or an `(f, g)` order key.
-type Pair<C> = (Ordered<C>, Ordered<C>);
+type Pair<C> = (C, C);
 
 /// The state of one DPS run.
 struct Dps<'a, G: Successors, H> {
@@ -166,12 +166,12 @@ where
     /// The open node of largest potential among those with `f <= w * f_min`.
     fn select(&self) -> Option<NodeId> {
         let (key, _) = self.by_f.first()?;
-        let f_min = key.0.0;
+        let f_min = key.0;
         let budget = f_min.to_f64() * f64::from(self.weight.numerator())
             / f64::from(self.weight.denominator());
 
         let mut best: Option<(f64, NodeId)> = None;
-        for (&(Ordered(g), Ordered(h)), nodes) in self.groups.iter().rev() {
+        for (&(g, h), nodes) in self.groups.iter().rev() {
             if !within(g + h, self.weight, f_min) {
                 continue;
             }
@@ -187,12 +187,12 @@ where
 
     /// Takes `node` off the open list.
     fn close(&mut self, node: NodeId) {
-        let Some((_, Ordered(g))) = self.by_f.remove(node) else {
+        let Some((_, g)) = self.by_f.remove(node) else {
             return;
         };
 
         let h = self.h[node].expect("open nodes are live");
-        let pair = (Ordered(g), Ordered(h));
+        let pair = (g, h);
         if let Some(group) = self.groups.get_mut(&pair) {
             group.remove(&node);
             if group.is_empty() {
@@ -246,11 +246,8 @@ where
         };
 
         let g = self.space.g(id);
-        self.by_f.insert(id, (Ordered(g + h), Ordered(g)));
-        self.groups
-            .entry((Ordered(g), Ordered(h)))
-            .or_default()
-            .insert(id);
+        self.by_f.insert(id, (g + h, g));
+        self.groups.entry((g, h)).or_default().insert(id);
     }
 
     /// Wraps up the run with `outcome`.

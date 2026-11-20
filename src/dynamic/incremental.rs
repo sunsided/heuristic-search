@@ -36,13 +36,13 @@ use hashbrown::{DefaultHashBuilder, HashTable};
 
 use search_core::{Budget, Cost};
 
-use crate::cost::{Ordered, Weight};
+use crate::cost::Weight;
 use crate::dynamic::{DynamicGraph, DynamicResult};
 use crate::keyed_set::KeyedSet;
 use crate::outcome::{Outcome, SearchResult, Solution, Stats};
 
 /// A queue key `[min(g, rhs) + h + km, min(g, rhs)]`, compared lexicographically.
-type Key<C> = (Ordered<C>, Ordered<C>);
+type Key<C> = (C, C);
 
 /// Dense id of an interned vertex.
 type VertexId = usize;
@@ -231,7 +231,7 @@ where
     /// Relies on positive edge costs, as in the papers: with a zero-cost edge a vertex the
     /// target depends on can tie with the target's key and be left unprocessed.
     fn target_settled(&mut self, top: Key<C>) -> bool {
-        let consistent = self.g[self.target].map(Ordered) == self.rhs[self.target].map(Ordered);
+        let consistent = self.g[self.target] == self.rhs[self.target];
 
         consistent && self.key(self.target).is_some_and(|key| top >= key)
     }
@@ -297,7 +297,7 @@ where
     /// takes it out otherwise. AD* parks inconsistent vertices closed in this iteration in
     /// `INCONS` instead.
     fn requeue(&mut self, vertex: VertexId) {
-        let consistent = self.g[vertex].map(Ordered) == self.rhs[vertex].map(Ordered);
+        let consistent = self.g[vertex] == self.rhs[vertex];
         if let Some(anytime) = self.anytime.as_mut().filter(|a| a.closed[vertex]) {
             anytime.incons[vertex] = !consistent;
             self.queue.remove(vertex);
@@ -337,7 +337,7 @@ where
             .saturating_times(weight.denominator())
             .saturating_add(h.saturating_times(inflation));
 
-        Some((Ordered(first), Ordered(best)))
+        Some((first, best))
     }
 
     /// The heuristic between the target and `vertex`, in travel direction.

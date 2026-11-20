@@ -2,8 +2,6 @@
 //!
 //! The [`Cost`] trait itself comes from `search-core`.
 
-use core::cmp::Ordering;
-
 use search_core::{Cost, Decimal};
 
 /// Priority arithmetic that [`Cost`] lacks: subtraction and conversion to `f64`.
@@ -167,30 +165,6 @@ impl Weight {
     #[must_use]
     pub const fn denominator(self) -> u32 {
         self.denominator
-    }
-}
-
-/// A [`Cost`] in an ordered collection; orders like the cost itself.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Ordered<C>(pub(crate) C);
-
-impl<C: Cost> PartialEq for Ordered<C> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl<C: Cost> Eq for Ordered<C> {}
-
-impl<C: Cost> PartialOrd for Ordered<C> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<C: Cost> Ord for Ordered<C> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.cmp(&other.0)
     }
 }
 

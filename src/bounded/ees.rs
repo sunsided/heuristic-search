@@ -7,7 +7,7 @@ use core::hash::Hash;
 use search_core::{Budget, Cost, Goal, Heuristic};
 
 use crate::best_first::GraphResult;
-use crate::cost::{Ordered, Weight, within};
+use crate::cost::{Weight, within};
 use crate::focal::FocalList;
 use crate::keyed_set::KeyedSet;
 use crate::outcome::{Outcome, SearchResult, Stats};
@@ -119,7 +119,7 @@ where
 type Values<C, Dc> = (C, C, Dc);
 
 /// The cleanup order: smallest `f`, then larger `g`, then node id.
-type CleanupKey<C> = (Ordered<C>, Reverse<Ordered<C>>);
+type CleanupKey<C> = (C, Reverse<C>);
 
 /// The state of one EES run.
 struct Ees<'a, G: Successors, H, Hh, D, Dc> {
@@ -132,7 +132,7 @@ struct Ees<'a, G: Successors, H, Hh, D, Dc> {
     /// Every state seen so far.
     space: SearchSpace<G::State, G::Action, G::Cost>,
     /// Open states by `f^`, with the focal sublist by `d^`.
-    focal: FocalList<G::Cost, Ordered<Dc>>,
+    focal: FocalList<G::Cost, Dc>,
     /// Open states by admissible `f`.
     cleanup: KeyedSet<CleanupKey<G::Cost>>,
     /// Counters for the result.
@@ -186,7 +186,7 @@ where
     /// Picks the next node by EES's three rules.
     fn select(&self) -> Option<NodeId> {
         let (key, best_f) = self.cleanup.first()?;
-        let f_min = key.0.0;
+        let f_min = key.0;
         let acceptable = |id: NodeId| {
             self.focal
                 .f(id)
@@ -250,9 +250,8 @@ where
         };
 
         let g = self.space.g(id);
-        self.focal.push(id, g + h_hat, g, Ordered(d_hat));
-        self.cleanup
-            .insert(id, (Ordered(g + h), Reverse(Ordered(g))));
+        self.focal.push(id, g + h_hat, g, d_hat);
+        self.cleanup.insert(id, (g + h, Reverse(g)));
     }
 
     /// Wraps up the run with `outcome`.
