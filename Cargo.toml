@@ -16,6 +16,7 @@ categories = ["algorithms", "no-std"]
 hashbrown = { version = "0.16", default-features = false, features = ["default-hasher"] }
 
 [dev-dependencies]
+criterion = { version = "0.7", default-features = false }
 proptest = "1.12"
 
 [lints.rust]
@@ -25,3 +26,7 @@ unsafe_code = "forbid"
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 missing_docs_in_private_items = "warn"
+
+[[bench]]
+name = "search"
+harness = false
