@@ -1,5 +1,7 @@
-//! Benchmarks for the hot paths: A* and focal search on an open grid with a wall, the
-//! focal list itself, NBS, and a D* Lite repair after a wall appears.
+//! Benchmarks for the hot paths: A*, the anytime, bounded-suboptimal and multi-heuristic
+//! searches, `LazySP` and focal search on a grid with a wall; the focal list itself; NBS;
+//! D* Lite and AD* repairs after the wall changes; and the depth-first searches on a
+//! small open grid, where tree searches meet many transpositions.
 //!
 //! Run with `cargo bench`.
 
@@ -7,8 +9,9 @@ use std::hint::black_box;
 
 use criterion::Criterion;
 use heuristic_search::{
-    DStarLite, DynamicGraph, FocalList, Limits, Predecessors, Successors, Weight, astar, focal_fn,
-    focal_search, heuristic_fn, nbs,
+    AdStar, DStarLite, DynamicGraph, EdgeSelector, EesEstimates, FocalList, Limits, MhaWeights,
+    Predecessors, Successors, Weight, astar, ana_star, ara_star, dfs, dps, ees, focal_fn,
+    focal_search, heuristic_fn, ida_star, ida_star_tt, iddfs, lazy_sp, mha_star, nbs,
 };
 
 /// Side length of the benchmark grid.
@@ -178,6 +181,216 @@ fn bench_focal_list_churn(c: &mut Criterion) {
     });
 }
 
+/// The goal test of the wall grid.
+fn at_goal(cell: &Cell) -> bool {
+    *cell == GOAL
+}
+
+/// The admissible Manhattan heuristic towards [`GOAL`].
+fn to_goal() -> impl heuristic_search::Heuristic<Cell> + Copy {
+    heuristic_fn(|cell: &Cell| Some(manhattan(cell, &GOAL)))
+}
+
+/// ARA* with the weight schedule 3, 2, 1.
+fn bench_ara_star(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("ara_star grid 3,2,1", |b| {
+        b.iter(|| {
+            let weights = [Weight::integer(3), Weight::integer(2), Weight::ONE];
+            black_box(ara_star(
+                grid,
+                START,
+                &at_goal,
+                to_goal(),
+                weights,
+                |_, _| {},
+                Limits::NONE,
+            ))
+        });
+    });
+}
+
+/// ANA* until it proves its last solution optimal.
+fn bench_ana_star(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("ana_star grid", |b| {
+        b.iter(|| {
+            black_box(ana_star(
+                grid,
+                START,
+                &at_goal,
+                to_goal(),
+                |_, _| {},
+                Limits::NONE,
+            ))
+        });
+    });
+}
+
+/// EES with weight 2, the Manhattan distance for all three estimates.
+fn bench_ees(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("ees grid w=2", |b| {
+        b.iter(|| {
+            let estimates = EesEstimates {
+                admissible: to_goal(),
+                cost_to_go: to_goal(),
+                distance_to_go: to_goal(),
+            };
+            black_box(ees(
+                grid,
+                START,
+                &at_goal,
+                estimates,
+                Weight::integer(2),
+                Limits::NONE,
+            ))
+        });
+    });
+}
+
+/// DPS with weight 2.
+fn bench_dps(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("dps grid w=2", |b| {
+        b.iter(|| {
+            black_box(dps(
+                grid,
+                START,
+                &at_goal,
+                to_goal(),
+                Weight::integer(2),
+                Limits::NONE,
+            ))
+        });
+    });
+}
+
+/// Shared MHA* with the Manhattan anchor and one inadmissible guide (twice Manhattan).
+fn bench_mha_star(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("mha_star grid w1=w2=2", |b| {
+        b.iter(|| {
+            let guide = heuristic_fn(|cell: &Cell| Some(2 * manhattan(cell, &GOAL)));
+            let weights = MhaWeights {
+                heuristic: Weight::integer(2),
+                anchor: Weight::integer(2),
+            };
+            black_box(mha_star(
+                grid,
+                START,
+                &at_goal,
+                to_goal(),
+                [guide],
+                weights,
+                Limits::NONE,
+            ))
+        });
+    });
+}
+
+/// `LazySP` where cells in the right half truly cost 2 to leave, evaluating whole paths.
+fn bench_lazy_sp(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("lazy_sp grid all", |b| {
+        b.iter(|| {
+            let evaluate =
+                |from: &Cell, (): &(), _: &Cell| Some(if from.1 >= SIZE / 2 { 2 } else { 1 });
+            black_box(lazy_sp(
+                grid,
+                START,
+                &at_goal,
+                to_goal(),
+                evaluate,
+                EdgeSelector::All,
+                Limits::NONE,
+            ))
+        });
+    });
+}
+
+/// Moves the wall's gap: closes the right end and opens a cell at column 5, reporting
+/// every affected edge to `changed(from, to)`.
+fn move_gap(grid: &mut Grid, mut changed: impl FnMut(&Grid, &Cell, &Cell)) {
+    let (closed, opened) = ((SIZE / 2, SIZE - 1), (SIZE / 2, 5));
+    grid.walls[closed.0 * SIZE + closed.1] = true;
+    grid.walls[opened.0 * SIZE + opened.1] = false;
+    for cell in [closed, opened] {
+        let around = [
+            (cell.0 - 1, cell.1),
+            (cell.0 + 1, cell.1),
+            (cell.0, cell.1 - 1),
+            (cell.0, (cell.1 + 1).min(SIZE - 1)),
+        ];
+        for neighbour in around {
+            changed(grid, &neighbour, &cell);
+            changed(grid, &cell, &neighbour);
+        }
+    }
+}
+
+/// AD*: a plan at weight 3, the wall's gap moves, then plans at weights 2 and 1.
+fn bench_ad_star(c: &mut Criterion) {
+    c.bench_function("ad_star replan grid 3,2,1", |b| {
+        b.iter(|| {
+            let mut grid = Grid::new();
+            let mut planner = AdStar::new(&grid, START, GOAL, manhattan, Weight::integer(3));
+            black_box(planner.compute(&grid, Limits::NONE));
+
+            move_gap(&mut grid, |grid, from, to| {
+                planner.edge_changed(grid, from, to);
+            });
+            for weight in [Weight::integer(2), Weight::ONE] {
+                planner.set_weight(weight);
+                black_box(planner.compute(&grid, Limits::NONE));
+            }
+        });
+    });
+}
+
+/// Side length of the open grid for the depth-first searches.
+const OPEN: usize = 6;
+
+/// An open `OPEN x OPEN` grid with unit moves: many paths reach each cell.
+struct Open;
+
+impl Successors for Open {
+    type State = Cell;
+    type Action = ();
+    type Cost = u32;
+
+    fn successors(&self, &(row, column): &Cell, mut emit: impl FnMut((), Cell, u32)) {
+        let candidates = [
+            row.checked_sub(1).map(|r| (r, column)),
+            (row + 1 < OPEN).then_some((row + 1, column)),
+            column.checked_sub(1).map(|c| (row, c)),
+            (column + 1 < OPEN).then_some((row, column + 1)),
+        ];
+        for cell in candidates.into_iter().flatten() {
+            emit((), cell, 1);
+        }
+    }
+}
+
+/// The far corner of [`Open`].
+const CORNER: Cell = (OPEN - 1, OPEN - 1);
+
+/// DFS on the wall grid, and IDDFS, IDA* and IDA* with a transposition table on the open
+/// grid from one corner to the other.
+fn bench_depth_first(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("dfs grid", |b| {
+        b.iter(|| black_box(dfs(grid, START, &at_goal, Limits::NONE)));
+    });
+
+    let corner = |cell: &Cell| *cell == CORNER;
+    // Half the Manhattan distance: admissible but weak, so IDA* needs several iterations
+    // and meets many transpositions.
+    let h = || heuristic_fn(|cell: &Cell| Some(manhattan(cell, &CORNER) / 2));
+    c.bench_function("iddfs open 6x6", |b| {
+        b.iter(|| black_box(iddfs(&Open, START, &corner, Limits::NONE)));
+    });
+    c.bench_function("ida_star open 6x6", |b| {
+        b.iter(|| black_box(ida_star(&Open, START, &corner, h(), Limits::NONE)));
+    });
+    c.bench_function("ida_star_tt open 6x6 cap=256", |b| {
+        b.iter(|| black_box(ida_star_tt(&Open, START, &corner, h(), 256, Limits::NONE)));
+    });
+}
+
 /// NBS with the Manhattan heuristic in both directions.
 fn bench_nbs(c: &mut Criterion, grid: &Grid) {
     c.bench_function("nbs grid", |b| {
@@ -197,21 +410,9 @@ fn bench_d_star_lite(c: &mut Criterion) {
             let mut planner = DStarLite::new(&grid, START, GOAL, manhattan);
             black_box(planner.compute(&grid, Limits::NONE));
 
-            let (closed, opened) = ((SIZE / 2, SIZE - 1), (SIZE / 2, 5));
-            grid.walls[closed.0 * SIZE + closed.1] = true;
-            grid.walls[opened.0 * SIZE + opened.1] = false;
-            for cell in [closed, opened] {
-                let around = [
-                    (cell.0 - 1, cell.1),
-                    (cell.0 + 1, cell.1),
-                    (cell.0, cell.1 - 1),
-                    (cell.0, (cell.1 + 1).min(SIZE - 1)),
-                ];
-                for neighbour in around {
-                    planner.edge_changed(&grid, &neighbour, &cell);
-                    planner.edge_changed(&grid, &cell, &neighbour);
-                }
-            }
+            move_gap(&mut grid, |grid, from, to| {
+                planner.edge_changed(grid, from, to);
+            });
 
             black_box(planner.compute(&grid, Limits::NONE))
         });
@@ -229,6 +430,14 @@ fn main() {
     bench_focal_list_churn(&mut c);
     bench_nbs(&mut c, &grid);
     bench_d_star_lite(&mut c);
+    bench_ara_star(&mut c, &grid);
+    bench_ana_star(&mut c, &grid);
+    bench_ees(&mut c, &grid);
+    bench_dps(&mut c, &grid);
+    bench_mha_star(&mut c, &grid);
+    bench_lazy_sp(&mut c, &grid);
+    bench_ad_star(&mut c);
+    bench_depth_first(&mut c, &grid);
 
     c.final_summary();
 }
