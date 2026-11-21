@@ -1,10 +1,18 @@
 # heuristic-search
 
+[![crates.io](https://img.shields.io/crates/v/heuristic-search.svg)](https://crates.io/crates/heuristic-search)
+[![docs.rs](https://img.shields.io/docsrs/heuristic-search)](https://docs.rs/heuristic-search)
+[![CI](https://github.com/sunsided/heuristic-search/actions/workflows/ci.yml/badge.svg)](https://github.com/sunsided/heuristic-search/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/sunsided/heuristic-search/graph/badge.svg)](https://codecov.io/gh/sunsided/heuristic-search)
+[![MSRV](https://img.shields.io/crates/msrv/heuristic-search)](https://crates.io/crates/heuristic-search)
+[![License](https://img.shields.io/crates/l/heuristic-search)](https://github.com/sunsided/heuristic-search#license)
+[![unsafe forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance/)
+
 Explicit-state heuristic graph search: A*, weighted and anytime, bounded-suboptimal, bidirectional, incremental and real-time search.
 
 ## Status
 
-Pre-release; the API will change. See [docs/design.md](docs/design.md).
+Pre-release; the API will change. See [docs/design.md](https://github.com/sunsided/heuristic-search/blob/main/docs/design.md).
 
 Implemented on the `draft/initial` branch:
 
@@ -47,11 +55,52 @@ Implemented on the `draft/initial` branch:
   and (feature `float`) `NonNegF64`; signed and raw `f64` costs were dropped. The design
   document lists the breaking changes under "Cross-crate needs".
 
+## Usage
+
+```rust
+use heuristic_search::{Limits, Successors, dijkstra};
+
+/// A directed graph as adjacency lists of `(target, cost)` pairs.
+struct Graph(Vec<Vec<(usize, u32)>>);
+
+impl Successors for Graph {
+    type State = usize;
+    type Action = usize;
+    type Cost = u32;
+
+    fn successors(&self, state: &usize, mut emit: impl FnMut(usize, usize, u32)) {
+        for &(target, cost) in &self.0[*state] {
+            emit(target, target, cost);
+        }
+    }
+}
+
+let graph = Graph(vec![vec![(1, 5), (2, 1)], vec![(3, 1)], vec![(1, 1)], vec![]]);
+let result = dijkstra(&graph, 0, &|state: &usize| *state == 3, Limits::NONE);
+let solution = result.solution().expect("3 is reachable");
+
+assert_eq!(solution.states, [0, 2, 1, 3]);
+assert_eq!(solution.cost, 3);
+```
+
+The crate is `no_std` and needs only `alloc`. The feature `float` adds the float cost
+`NonNegF64`, the any-angle grid searches Theta* and Lazy Theta*, and Field D*.
+
+## MSRV
+
+Rust 1.85 (`rust-version` in `Cargo.toml`). The MSRV is a signal, not a contract: it may
+rise in a minor release.
+
 ## License
 
 Licensed under either of
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT license ([LICENSE-MIT](LICENSE-MIT))
+- Apache License, Version 2.0 ([LICENSE-APACHE](https://github.com/sunsided/heuristic-search/blob/main/LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](https://github.com/sunsided/heuristic-search/blob/main/LICENSE-MIT))
 
 at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for
+inclusion in this work by you, as defined in the Apache-2.0 license, shall be dual licensed
+as above, without any additional terms or conditions. See
+[CONTRIBUTING.md](https://github.com/sunsided/heuristic-search/blob/main/CONTRIBUTING.md).

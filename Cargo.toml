@@ -10,6 +10,19 @@ repository = "https://github.com/sunsided/heuristic-search"
 readme = "README.md"
 keywords = ["search", "astar", "pathfinding", "heuristic", "planning"]
 categories = ["algorithms", "no-std"]
+# Repository tooling stays out of the published crate.
+exclude = [
+    ".github/",
+    "scripts/",
+    ".pre-commit-config.yaml",
+    "Taskfile.dist.yaml",
+    "_typos.toml",
+    "clippy.toml",
+    "codecov.yml",
+    "deny.toml",
+    "release-plz.toml",
+    "rustfmt.toml",
+]
 
 [features]
 ## The checked float cost `NonNegF64`, re-exported from `search-core`, the any-angle
