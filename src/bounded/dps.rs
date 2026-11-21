@@ -26,7 +26,7 @@ use crate::space::{NodeId, Reach, SearchSpace};
 /// The potential changes whenever `f_min` does, so open states are grouped by their
 /// `(g, h)` pair, as in the paper, and every expansion scans the groups. That is cheap when
 /// costs are small integers and few distinct pairs exist, and linear in the open list in
-/// the worst case. Potentials are compared in `f64` (see [`CostExt::to_f64`](crate::CostExt::to_f64)); the bound is
+/// the worst case. Potentials are compared in `f64` (see [`CostExt::to_f64`]); the bound is
 /// checked exactly. Ties go to larger `g`.
 ///
 /// # Panics

@@ -1,6 +1,6 @@
 //! Searches specialised to 8-connected grids with uniform costs: the [`UniformGrid`]
 //! trait, the exact octile cost [`Octile`], the plain grid graph [`EightConnected`], and
-//! Jump Point Search ([`jps`]).
+//! Jump Point Search ([`jps()`]).
 //!
 //! A cell is `(x, y)` with `x < width` and `y < height`. A move goes to one of the eight
 //! neighbours: a straight move costs `1`, a diagonal move `√2`.
@@ -373,7 +373,7 @@ impl Heuristic<GridCell, Octile> for OctileDistance {
 }
 
 /// A [`UniformGrid`] as an 8-connected graph with [`Octile`] costs, for the general searches
-/// ([`a_star`](crate::a_star) and the others) on the same moves that [`jps`] uses.
+/// ([`a_star`](crate::a_star) and the others) on the same moves that [`jps()`] uses.
 ///
 /// It implements [`Successors`] only. The searches that also need
 /// [`CostExt`](crate::CostExt) on the cost ([`ana_star`](crate::ana_star),

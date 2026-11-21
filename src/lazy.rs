@@ -114,7 +114,7 @@ where
 
 /// [`lazy_sp`] from several start states at once.
 ///
-/// Every start has path cost zero; each round runs [`a_star_multi`](crate::a_star_multi) from
+/// Every start has path cost zero; each round runs [`a_star_multi`] from
 /// all of them over the lazily evaluated graph. Repeated starts count once, an empty set of
 /// starts finds nothing, and a start that is a goal is returned without any evaluation.
 ///

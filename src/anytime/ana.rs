@@ -24,7 +24,7 @@ use crate::space::{NodeId, Reach, SearchSpace};
 ///
 /// Closed states are reopened when a cheaper path to them turns up, so the final solution
 /// is optimal for any admissible `heuristic`, consistent or not. Goals are tested when they
-/// are expanded. The priority is computed in `f64` (see [`CostExt::to_f64`](crate::CostExt::to_f64)); rounding only
+/// are expanded. The priority is computed in `f64` (see [`CostExt::to_f64`]); rounding only
 /// changes the expansion order, never the returned cost.
 ///
 /// # Examples

@@ -7,7 +7,7 @@
 //! child is regenerated, with its old value, once it is the most promising part of the
 //! tree again. (Each node thus keeps one value per forgotten child; `memory` counts
 //! nodes.) Values are backed up like in
-//! [`rbfs`](crate::rbfs): a node's `f` is the smallest `f` of its children in memory and of
+//! [`rbfs`](fn@crate::rbfs): a node's `f` is the smallest `f` of its children in memory and of
 //! the forgotten ones, never less than before.
 //!
 //! ```mermaid

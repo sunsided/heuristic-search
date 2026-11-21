@@ -34,7 +34,7 @@
 //!   edges.
 //! - [`ida_star`]: IDA*, cheapest path with an admissible heuristic; [`ida_star_tt`] adds
 //!   a bounded transposition table for graphs with many paths to each state.
-//! - [`rbfs`]: recursive best-first search (RBFS), cheapest path with an admissible
+//! - [`rbfs()`]: recursive best-first search (RBFS), cheapest path with an admissible
 //!   heuristic, in best-first order with memory linear in the depth.
 //!
 //! [`sma_star`] (SMA*) is A* within a fixed number of nodes: it forgets its worst leaves

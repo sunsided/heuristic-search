@@ -429,7 +429,7 @@ type Key<C> = (C, Reverse<C>);
 /// cost the true cost.
 ///
 /// Both heuristics are evaluated on states and on backward nodes, so they implement
-/// [`Heuristic`] for both types ([`Zero`](crate::Zero) does). On a backward node such as a subgoal,
+/// [`Heuristic`] for both types ([`Zero`] does). On a backward node such as a subgoal,
 /// each must keep its guarantee (admissible, and consistent where the search needs it)
 /// when read as the cheapest value over the states that satisfy the node.
 ///
@@ -523,7 +523,7 @@ where
 /// cost the true cost.
 ///
 /// Both heuristics are evaluated on states and on backward nodes, so they implement
-/// [`Heuristic`] for both types ([`Zero`](crate::Zero) does). On a backward node such as a subgoal,
+/// [`Heuristic`] for both types ([`Zero`] does). On a backward node such as a subgoal,
 /// each must keep its guarantee (admissible, and consistent where the search needs it)
 /// when read as the cheapest value over the states that satisfy the node.
 ///
@@ -625,7 +625,7 @@ where
 /// cost the true cost.
 ///
 /// Both heuristics are evaluated on states and on backward nodes, so they implement
-/// [`Heuristic`] for both types ([`Zero`](crate::Zero) does). On a backward node such as a subgoal,
+/// [`Heuristic`] for both types ([`Zero`] does). On a backward node such as a subgoal,
 /// each must keep its guarantee (admissible, and consistent where the search needs it)
 /// when read as the cheapest value over the states that satisfy the node.
 ///
