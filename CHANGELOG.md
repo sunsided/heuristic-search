@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/sunsided/heuristic-search/compare/v0.2.0...v0.2.1) - 2026-11-21
+
+### Changed
+
+- Describe the third exhaustive 3 x 3 corner pair correctly
+- Justify why a finite Field D* g(start) implies a lattice path
+- Format the Field D* lattice fallback and its tests
+- Never return a Field D* path above the 8-connected optimum
+
 ## [0.2.0](https://github.com/sunsided/heuristic-search/compare/v0.1.0...v0.2.0) - 2026-11-21
 
 ### Changed
