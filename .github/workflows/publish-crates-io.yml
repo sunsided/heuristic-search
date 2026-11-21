@@ -30,9 +30,9 @@ jobs:
       - uses: taiki-e/install-action@25f51f6b1bf4e18876107cece836f4f77ac17c8c # v2.90.7
         with:
           tool: cargo-nextest
-      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      - run: cargo nextest run --workspace --all-features --locked
-      - run: cargo test --workspace --all-features --doc --locked
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo nextest run --workspace --all-features
+      - run: cargo test --workspace --all-features --doc
 
   crates-io:
     name: publish to crates.io
@@ -85,7 +85,7 @@ jobs:
         # A search-core release this crate now requires may not be on the index yet: retry.
         run: |
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            if cargo publish -p "$CRATE" --locked 2> "$RUNNER_TEMP/publish.log"; then
+            if cargo publish -p "$CRATE" 2> "$RUNNER_TEMP/publish.log"; then
               exit 0
             fi
             cat "$RUNNER_TEMP/publish.log" >&2
