@@ -551,7 +551,7 @@ fn all_pairs(width: usize, height: usize) -> Vec<(GridCell, GridCell)> {
 }
 
 /// Every 3 x 3 grid with cells of cost 1, 2 or blocked, between opposite corners and
-/// between two edge midpoints.
+/// between two corners on the left and right borders.
 #[test]
 fn exhaustive_3x3() {
     exhaustive(
