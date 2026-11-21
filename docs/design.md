@@ -620,8 +620,7 @@ costs, and RTAA* was the cheap variant.
 ## Naming
 
 Every A* variant is a snake-case function ending in `_star`: `a_star`, `weighted_a_star`,
-`ida_star`, `ara_star`, `ana_star`, `mha_star`, `bae_star` (`astar` and `weighted_astar`
-were renamed and stay as aliases). Non-A* searches keep their usual names (`bfs`,
+`ida_star`, `ara_star`, `ana_star`, `mha_star`, `bae_star`. Non-A* searches keep their usual names (`bfs`,
 `dijkstra`, `gbfs`, `dfs`, `iddfs`, `nbs`, `dibbs`, `ees`, `dps`, `lazy_sp`,
 `focal_search`). Suffixes compose in a fixed order: `_tt` for an algorithm variant,
 `_multi` for several starts, `_meet` for a meet relation (which always takes several
@@ -682,11 +681,6 @@ rejected: they are not one-shot searches.
   portfolios that interleave planners? (The incremental planners already resume.)
 - BAE*: the citation (Sadhukhan 2013) is unverified, and the implementation differs from
   DIBBS only in side selection (cardinality). Confirm against the paper.
-- Deprecating the `astar`/`weighted_astar` aliases: they are plain re-exports of
-  `a_star`/`weighted_a_star` for now, because `#[deprecated]` warns in every dependent
-  (`mapf-search` builds with `-D warnings` and calls `astar`). Deprecate them once the
-  dependents have moved.
-
 - Real-time search: should a trial report where the agent stopped on `Unsolvable` (the
   dead end may not include `start` on graphs with irreversible edges)? Default: no, the
   outcome has no payload; the table records the dead ends.

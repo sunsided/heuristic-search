@@ -62,8 +62,7 @@ for the design behind it.
   LRTA*, RTA*, LSS-LRTA* (A* lookahead, Dijkstra update), RTAA*, and the limited-horizon
   Bellman update of Hadar et al. 2025 (`lhb_update` offline, `lhb_lrta_star` inside the
   LSS-LRTA* agent); learning curves in `benches/learning.rs` and the design notes
-- Naming: every A* variant is `*_star` (`a_star`, `weighted_a_star`, ...); `astar` and
-  `weighted_astar` remain as aliases
+- Naming: every A* variant is `*_star` (`a_star`, `weighted_a_star`, ...)
 - Shared traits: `Cost`, `Heuristic`, `Goal` and `Budget<Stats>` come from `search-core`
   and are re-exported from the crate root. Costs are the unsigned integers, `Decimal<K>`
   and (feature `float`) `NonNegF64`.

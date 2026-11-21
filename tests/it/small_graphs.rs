@@ -207,23 +207,6 @@ fn weighted_a_star_with_weight_one_matches_a_star() {
     assert_eq!(plain, weighted);
 }
 
-/// The pre-rename names `astar` and `weighted_astar` still call the same searches.
-#[test]
-fn old_names_are_aliases() {
-    let graph = diamond();
-    let mut h = heuristic_fn(|s: &usize| Some([3_u64, 2, 1, 0][*s]));
-    let new = a_star(&graph, 0, &is_three, &mut h, Limits::NONE);
-
-    assert_eq!(
-        heuristic_search::astar(&graph, 0, &is_three, &mut h, Limits::NONE),
-        new
-    );
-    assert_eq!(
-        heuristic_search::weighted_astar(&graph, 0, &is_three, &mut h, Weight::ONE, Limits::NONE),
-        new
-    );
-}
-
 /// GBFS trusts a misleading heuristic and returns the expensive path.
 #[test]
 fn gbfs_follows_the_heuristic() {

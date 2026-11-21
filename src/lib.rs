@@ -153,7 +153,7 @@
 //! [`bae_star`]). Suffixes compose in this order: `_tt` (a variant of the algorithm),
 //! `_multi` (several starts), `_meet` (a meet relation, always with several starts).
 //! Incremental planners keep state between calls, so they are types ([`LpaStar`],
-//! [`DStarLite`], [`AdStar`], `FieldDStar`). `astar` and `weighted_astar` remain as aliases.
+//! [`DStarLite`], [`AdStar`], `FieldDStar`).
 //!
 //! See `docs/design.md` in the repository for the design.
 //!
@@ -200,12 +200,6 @@ pub use beam::{beam_search, beam_search_multi, beam_stack_search, beam_stack_sea
 pub use best_first::{
     GraphResult, a_star, a_star_multi, dijkstra, dijkstra_multi, gbfs, gbfs_multi, weighted_a_star,
     weighted_a_star_multi,
-};
-/// The names of [`a_star`] and [`weighted_a_star`] (and their `*_multi` forms) before
-/// every A* variant was named `*_star`, kept as plain aliases.
-pub use best_first::{
-    a_star as astar, a_star_multi as astar_multi, weighted_a_star as weighted_astar,
-    weighted_a_star_multi as weighted_astar_multi,
 };
 pub use bfs::{bfs, bfs_multi};
 pub use bidirectional::{
