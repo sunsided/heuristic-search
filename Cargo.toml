@@ -20,7 +20,7 @@ float = ["search-core/float"]
 # Hash table for duplicate detection under no_std; see docs/design.md.
 hashbrown = { version = "0.16", default-features = false, features = ["default-hasher"] }
 # Shared Cost, Heuristic, Goal and Budget traits; re-exported from the crate root.
-search-core = { path = "../search-core", version = ">=0.0.0, <0.2" }
+search-core = { path = "../search-core", version = "0.1" }
 
 [dev-dependencies]
 criterion = { version = "0.7", default-features = false }
