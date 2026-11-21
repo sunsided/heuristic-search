@@ -31,12 +31,12 @@ float = ["search-core/float"]
 
 [dependencies]
 # Hash table for duplicate detection under no_std; see docs/design.md.
-hashbrown = { version = "0.16", default-features = false, features = ["default-hasher"] }
+hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
 # Shared Cost, Heuristic, Goal and Budget traits; re-exported from the crate root.
 search-core = "0.3"
 
 [dev-dependencies]
-criterion = { version = "0.7", default-features = false }
+criterion = { version = "0.8", default-features = false }
 proptest = "1.12"
 
 [package.metadata.docs.rs]
