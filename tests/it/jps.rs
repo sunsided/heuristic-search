@@ -1,10 +1,11 @@
 //! Jump Point Search and the octile cost: JPS against Dijkstra on an independently written
 //! 8-connected grid graph with random obstacles (same corner rule), with every segment of
-//! the sparse path checked move by move; and the exact octile order against floats.
+//! the sparse path checked move by move; the exact octile order against floats; and the
+//! octile distance as a consistent heuristic.
 
 use heuristic_search::{
-    EightConnected, GridCell, GridStep, Limits, Octile, OctileDistance, Outcome, Solution,
-    Successors, UniformGrid, a_star, dijkstra, jps, jps_multi,
+    Cost, EightConnected, GridCell, GridStep, Heuristic, Limits, Octile, OctileDistance, Outcome,
+    Solution, Successors, UniformGrid, a_star, dijkstra, jps, jps_multi,
 };
 use proptest::prelude::*;
 
@@ -246,6 +247,28 @@ pub fn map_and_cells() -> impl Strategy<Value = (Map, GridCell, GridCell)> {
     })
 }
 
+/// The eight neighbours of `(x, y)` that have non-negative coordinates, each with the cost
+/// of the move onto it.
+fn neighbours((x, y): GridCell) -> impl Iterator<Item = (GridCell, Octile)> {
+    let steps = [-1_i64, 0, 1]
+        .into_iter()
+        .flat_map(|dx| [-1_i64, 0, 1].map(|dy| (dx, dy)));
+
+    steps
+        .filter(|&step| step != (0, 0))
+        .filter_map(move |(dx, dy)| {
+            let x = usize::try_from(i64::try_from(x).ok()? + dx).ok()?;
+            let y = usize::try_from(i64::try_from(y).ok()? + dy).ok()?;
+            let cost = if dx == 0 || dy == 0 {
+                Octile::STRAIGHT
+            } else {
+                Octile::DIAGONAL
+            };
+
+            Some(((x, y), cost))
+        })
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(1024))]
 
@@ -294,6 +317,46 @@ proptest! {
         prop_assert_eq!(a.cmp(&b), b.cmp(&a).reverse());
         prop_assert_eq!(a == b, (a.straight(), a.diagonal()) == (b.straight(), b.diagonal()));
         prop_assert_eq!((a + c).cmp(&(b + c)), a.cmp(&b));
+    }
+
+    /// The octile distance is zero at the goal, symmetric, and consistent: one move never
+    /// lowers it by more than the move costs.
+    #[test]
+    fn octile_distance_is_consistent(
+        cell in (0_usize..1000, 0_usize..1000),
+        goal in (0_usize..1000, 0_usize..1000),
+    ) {
+        let mut h = OctileDistance(goal);
+        let here = h.estimate(&cell).expect("the octile distance is always defined");
+
+        prop_assert_eq!(h.estimate(&goal), Some(Octile::ZERO));
+        prop_assert_eq!(Octile::between(goal, cell), here);
+        for (next, cost) in neighbours(cell) {
+            let there = h.estimate(&next).expect("the octile distance is always defined");
+            prop_assert!(here <= cost + there, "{here} > {cost} + {there} at {next:?}");
+        }
+    }
+
+    /// Saturating arithmetic matches `+` and repeated addition wherever the counts fit, and
+    /// clamps each count at `u32::MAX` instead of wrapping.
+    #[test]
+    fn octile_saturating_arithmetic_never_wraps(
+        a in (any::<u32>(), any::<u32>()),
+        b in (any::<u32>(), any::<u32>()),
+        factor in any::<u32>(),
+    ) {
+        let (x, y) = (Octile::new(a.0, a.1), Octile::new(b.0, b.1));
+        let sum = x.saturating_add(y);
+        let product = x.saturating_times(factor);
+
+        prop_assert_eq!(sum.straight(), a.0.saturating_add(b.0));
+        prop_assert_eq!(sum.diagonal(), a.1.saturating_add(b.1));
+        prop_assert_eq!(product.straight(), a.0.saturating_mul(factor));
+        prop_assert_eq!(product.diagonal(), a.1.saturating_mul(factor));
+        prop_assert!(sum >= x && sum >= y);
+        if a.0.checked_add(b.0).is_some() && a.1.checked_add(b.1).is_some() {
+            prop_assert_eq!(sum, x + y);
+        }
     }
 
     /// Counts near `u32::MAX` compare without overflow.
