@@ -14,7 +14,7 @@ applyTo: "**/Cargo.toml,release-plz.toml,.github/workflows/release-plz.yml,**/CH
 - The single crate `heuristic-search` is tagged `vX.Y.Z`.
 - New dependencies must pass `cargo deny check`: allowed licenses, no advisories, no git or
   unknown-registry sources. Runtime dependencies are `hashbrown` and `search-core` only;
-  adding one needs a reason in the PR. Path dependencies carry a `version` too.
+  adding one needs a reason in the PR. They come from crates.io, never by `path`.
 - Dependent crates (`mapf-search`, `connector-routing`) build against this one by path:
   flag public API changes and require a `BREAKING CHANGE:` line for them.
 - `rust-version` is a signal, not a contract. Raising it is allowed when a dependency or a

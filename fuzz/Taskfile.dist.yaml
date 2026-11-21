@@ -1,6 +1,5 @@
 # Included from the root Taskfile as `fuzz:` with dir: fuzz.
 # fuzz/ is a separate cargo-fuzz workspace and needs the nightly toolchain.
-# cargo fmt runs without --all, which would also format the path dependencies (.., ../../search-core).
 version: '3'
 
 vars:
@@ -42,15 +41,15 @@ tasks:
         done
 
   fmt:
-    desc: Format the fuzz crate (separate workspace, not covered by the root cargo fmt)
+    desc: Format the fuzz crate (separate workspace, not covered by cargo fmt --all)
     cmds:
-      - cargo fmt
+      - cargo fmt --all
 
   lint:
     desc: Format check and clippy for the fuzz crate
     preconditions: *nightly
     cmds:
-      - cargo fmt --check
+      - cargo fmt --all --check
       - cargo +nightly clippy --all-targets -- -D warnings
 
   clean:

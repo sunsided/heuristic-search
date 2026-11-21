@@ -639,7 +639,7 @@ rejected: they are not one-shot searches.
   store each state once. Feature `default-hasher` (foldhash) only; no `std`, no
   `allocator-api2`. A `BTreeMap` would avoid the dependency but force `Ord` states and
   `O(log n)` lookups.
-- `search-core` (runtime, default features, path dependency): the shared `Cost`,
+- `search-core` (runtime, default features, from crates.io): the shared `Cost`,
   `Heuristic`, `Goal` and `Budget` traits. Feature `float` forwards to its `float`.
 - `proptest` (dev only).
 - `criterion` (dev only, default features off) for `benches/search.rs`.

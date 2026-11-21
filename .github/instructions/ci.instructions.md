@@ -11,8 +11,6 @@ applyTo: ".github/workflows/**,Taskfile.dist.yaml,**/Taskfile.dist.yaml,.pre-com
   commands.
 - Every `uses:` is pinned to a full 40-character commit SHA, with a `# vX.Y.Z` comment. Reject
   tag or branch refs.
-- Local actions keep the `./` form with `# zizmor: ignore[self-repository]`: actionlint 1.7.12
-  rejects the `$/` form.
 - `dtolnay/rust-toolchain` is pinned to a `master` commit (`# master`) and always gets an
   explicit `toolchain:` input. Its `stable`/`nightly` branches are not tags, and Dependabot
   cannot follow them: it re-pinned the `nightly` use to the `stable` commit.
@@ -30,15 +28,11 @@ applyTo: ".github/workflows/**,Taskfile.dist.yaml,**/Taskfile.dist.yaml,.pre-com
   `--all-targets` back.
 - `fuzz/` is a separate nightly workspace. Its tasks live in `fuzz/Taskfile.dist.yaml`,
   included as `fuzz:`; CI's `fuzz` job mirrors `task fuzz:build` and `task fuzz:lint`.
-- `Cargo.lock` and `fuzz/Cargo.lock` are tracked, but no step uses `--locked`: CI builds
-  against the default branch of the sibling `search-core`, so a locked sibling version would
-  fail every job after its next release.
-- `search-core` is a path dependency. Jobs that resolve dependencies check this repository
-  out into `heuristic-search/`, call `.github/actions/checkout-siblings`, and run from
-  `heuristic-search/` (`defaults.run.working-directory`, plus the path inputs of
-  `uses:` steps: rust-cache `workspaces`, `manifest-path`, codecov `working-directory`).
-  A new sibling dependency goes into that action.
-- `cargo fmt` never gets `--all`: it would also format the path dependencies.
+- `Cargo.lock` and `fuzz/Cargo.lock` are tracked and record `search-core` from crates.io
+  (`source = "registry+..."`, with checksum). The publish workflow uses `--locked`. Never
+  commit a lock rewritten under the local hub `[patch.crates-io]`: it records a path source.
+- `search-core` is a plain crates.io dependency: no sibling checkout, no subdirectory
+  layout, no `working-directory` defaults.
 - `scripts/check-branch.sh` is the single definition of allowed branch names. It is used by
   the Taskfile, the hook and the CI `branch` job.
 - New jobs that should gate merges must also be added to branch protection. Mention that in

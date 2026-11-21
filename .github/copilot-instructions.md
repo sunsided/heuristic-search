@@ -5,8 +5,9 @@ search (A*, weighted and anytime, bounded-suboptimal, bidirectional, incremental
 real-time search), with strict conventions. Path-specific rules live in
 `.github/instructions/*.instructions.md`.
 
-- Local development and CI expect the sibling repository `search-core` checked out next to
-  this one (`../search-core`); it is a path dependency.
+- `search-core` is a crates.io dependency. CI resolves it from crates.io; local development
+  may build against a sibling checkout through an untracked hub `.cargo/config.toml`
+  (`[patch.crates-io]`) one directory above this repository.
 - Run checks through the Taskfile: `task ci` mirrors CI. `task lint`, `task test` and
   `task doc` are the common entry points.
 - Every item gets a doc comment, private items included. No `mod.rs` files (use `foo.rs`
