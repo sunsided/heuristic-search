@@ -25,11 +25,10 @@ traits, budgets and statistics, so trying IDA* or Weighted A* instead of A* chan
 call, not the problem description. Symbolic (BDD), multi-objective, stochastic and
 width-based search are out of scope.
 
-## Status
+## What's included
 
-Pre-release; the API will change. See [docs/design.md](https://github.com/sunsided/heuristic-search/blob/main/docs/design.md).
-
-Implemented:
+See [docs/design.md](https://github.com/sunsided/heuristic-search/blob/main/docs/design.md)
+for the design behind it.
 
 - Foundational: BFS, Dijkstra, A*, greedy best-first search (GBFS); DFS, depth-limited DFS,
   iterative deepening DFS, IDA*, IDA* with a bounded transposition table; depth cutoffs
@@ -70,6 +69,15 @@ Implemented:
   and (feature `float`) `NonNegF64`.
 
 ## Usage
+
+Add the crate with `cargo add heuristic-search`, or in `Cargo.toml`:
+
+```toml
+[dependencies]
+heuristic-search = "0.1"
+```
+
+Then describe the graph and run a search:
 
 ```rust
 use heuristic_search::{Limits, Successors, dijkstra};

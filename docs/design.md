@@ -1,14 +1,12 @@
 # heuristic-search: design
 
-Status: draft. Every algorithm of milestones 1 to 7 and real-time search is implemented; see [Milestones](#milestones).
-
 ## Goal and scope
 
 `heuristic-search` is a domain-independent library of explicit-state deterministic graph
 search. It knows nothing about PDDL, SAS+ or any other model: a caller describes a graph
 through small capability traits and gets back a path and counters.
 
-In scope, in milestone order (see [Milestones](#milestones)):
+In scope:
 
 - foundational: BFS, DFS, Dijkstra, greedy best-first (GBFS), A*, IDA*;
 - linear- and bounded-memory: fringe search, RBFS, SMA*, beam search, beam-stack search;
@@ -60,7 +58,7 @@ pub fn heuristic_fn<S, C, F: FnMut(&S) -> Option<C>>(f: F) -> HeuristicFn<F>;
 pub struct Zero; // blind heuristic
 ```
 
-- `Successors` keeps the callback form of the 0.0.0 placeholder: an implementation needs no
+- `Successors` takes an emit callback: an implementation needs no
   allocation and no iterator type. Searches copy the emitted edges into a reused buffer.
 - `Heuristic::estimate` returns `None` for a proven dead end (miniplan's `HValue::INFINITY`).
   Searches keep a dead-end node for duplicate detection but never open it.
@@ -139,10 +137,10 @@ it keeps consistency (`h(s) <= c(s, t) + h(t)` with integer `c(s, t) + ceil(h(t)
 `ceil(h(s)) <= c(s, t) + ceil(h(t))`). It is also the stronger (larger) of the two.
 Rounding down is safe but throws information away.
 
-### Added for later milestones
+### Further capabilities
 
-- `Predecessors` has its own `Node` type, as planned for miniplan's regression over
-  subgoals:
+- `Predecessors` has its own `Node` type, for regression over subgoals (as in
+  miniplan):
 
   ```rust
   pub trait Predecessors {
@@ -643,81 +641,6 @@ rejected: they are not one-shot searches.
 - `proptest` (dev only).
 - `criterion` (dev only, default features off) for `benches/search.rs`.
 
-## How miniplan adopts it
-
-What miniplan has today (`crates/miniplan/src/search/`): BFS, A*, GBFS, bidirectional BFS
-(`bibfs_uc`), bidirectional Dijkstra (`bidij`), NBS, BAE*, regression over subgoals, a
-multi-heap `Frontier` and meet detection with per-fact buckets. Every planner implements
-`Planner::solve(&Task, &SearchLimits) -> Result<SearchOutcome, MiniplanError>`.
-
-Adoption, step by step:
-
-1. A forward adapter `struct Forward<'t>(&'t Task)` implementing `Successors` with
-   `State = State`, `Action = OpId`, `Cost = u32` (operator costs are `u32`). Its
-   `successors` is the applicable-operator loop that `Astar::successors` and
-   `Gbfs::successors` contain today.
-2. A heuristic adapter from `&dyn miniplan::Heuristic` to `Heuristic<State, u32>`:
-   `HValue::INFINITY` maps to `None`. miniplan's `h_add` and `h_FF` are sums of `u32`
-   action costs, so their values are integers and the conversion is exact. Any other float
-   heuristic is rounded *up* (`ceil`), which keeps admissibility and consistency (see
-   [Cost](#cost)).
-3. `Bfs`, `Astar` and `Gbfs` keep their `Planner` impls and call `bfs`, `a_star`, `gbfs`.
-   `SearchLimits` becomes a closure `Budget` that checks `node_budget` and an `Instant`.
-   `SearchStats::{plan_cost, plan_length, elapsed}` are filled from the `Solution` and the
-   caller's clock, as `outcome::Budget` does today; `plan_from_ops` turns
-   `Solution::actions` into a `Plan`.
-4. With milestone 3, the bidirectional planners move: miniplan implements `Predecessors`
-   over `Subgoal` (its regression) and the meet capability over its fact buckets.
-
-Behaviour changes miniplan will see:
-
-- A* reopens closed states (miniplan's A* never does), so with inconsistent heuristics such
-  as `hadd`/`hff` it may return cheaper plans and may expand more.
-- Ties break by larger `g` then FIFO instead of heap order, so expansion counts shift.
-- `expanded` excludes the goal pop; `generated` counts all edges, not only opened ones.
-- Paths are rebuilt from parent links instead of cloning a `Vec<OpId>` per node, which
-  lowers memory per node.
-
-### Cross-crate needs
-
-Things other repos would need to change or provide. None of these are done here, except
-the move to `search-core`.
-
-- miniplan: forward `Successors` adapter and `u32` heuristic adapter with `ceil` rounding
-  (above).
-- miniplan: preferred operators (`Heuristic::preferred_ops`) exist in its trait but no
-  planner calls them today. If GBFS with preferred-operator queues moves here, `heuristic-search` needs an
-  optional capability like `PreferredActions` (emit preferred actions per state).
-- miniplan: meet detection by per-fact buckets must be expressible through the planned meet
-  capability without copying states into this crate.
-- miniplan: expansion and generation counts change after adoption (see above). Its tests
-  do not assert exact counts today, but benchmarks and logs comparing runs will shift.
-- `mapf-search` (planned): low-level path search needs time-expanded states and constraint
-  checks; both fit `Successors` and `Goal` as they are.
-- `planning-heuristics` (planned): adopts the exact same signature,
-  `fn estimate(&mut self, state: &S) -> Option<C>`, with `None` for proven dead ends, the
-  same `&mut H` and `Box<H>` blanket impls, and the same rule of rounding float values up
-  over integer costs. Its heuristics implement this crate's `Heuristic` behind an optional
-  feature, not the other way round.
-- `Stats` became `#[non_exhaustive]` with an `evaluations` counter. `saturating_sub` and
-  `to_f64` live in the local `CostExt`, since `search-core`'s `Cost` lacks them; they could
-  move there if another crate needs them.
-- `mapf-search` (planned): can reuse `FocalList`, `TieBreak` and `focal_search` with a
-  path-dependent `FocalKey` for ECBS-style conflict counts.
-- `search-core` (adopted): `Heuristic`, `Cost`, `Goal` and `Budget` moved into
-  `search-core`, as `MIGRATION.md` there describes. Breaking changes for users:
-  - `Cost for i64` and `Cost for f64` are gone; use `u64`, or `NonNegF64` (feature
-    `float`, edge costs wrapped with `NonNegF64::new`).
-  - `Cost::cmp_cost` is `Ord::cmp`; `Cost::times` is `Cost::saturating_times`.
-  - `Cost::saturating_sub` and `Cost::to_f64` moved to `CostExt`, which `ana_star`, `dps`,
-    `dibbs`, `bae_star` and `bidirectional_dijkstra` now require of the cost type.
-  - `Budget` is `Budget<Stats>`: write `impl Budget<Stats>` in bounds and impls.
-  - `Heuristic<S, C>` defaults `C = u32`; `Zero` derives `Hash`.
-- `Outcome::Cutoff` (new variant, breaking for exhaustive matches): `depth_limited_dfs`
-  returns it when the depth limit cut states off and no goal was found, and keeps
-  `LimitReached` for budget stops.
-  `Successors` follows if `width-search` or `multiobjective-search` need it.
-
 ## Testing strategy
 
 - Small hand-made graphs with known answers: cheapest versus fewest edges, start is goal,
@@ -749,30 +672,6 @@ the move to `search-core`.
 - `no_std` is checked by building for `thumbv7em-none-eabihf`.
 - The property-test oracle (Bellman-Ford in the test fixtures) is independent of the
   crate's own Dijkstra.
-- Later: differential tests against miniplan's planners on its PDDL fixtures, run from
-  miniplan once it depends on this crate; benchmarks (criterion) on grids and random graphs
-  before optimising the open list.
-
-## Milestones
-
-1. **Foundations** (done): capability traits, `Cost`, search space,
-   open list, BFS, Dijkstra, A*, WA*, GBFS, single- and multi-start, statistics, budgets,
-   path extraction, saturating keys, tests.
-2. **Rest of foundational + anytime**: done: DFS, depth-limited DFS, IDDFS, IDA*, ARA*,
-   ANA* (`Stats` is `#[non_exhaustive]`, improvements reported through a callback).
-3. **Bidirectional**: done, including the meet capability: `Predecessors`, bidirectional BFS
-   and Dijkstra, NBS, BAE*, DIBBS. miniplan's planners have not moved yet.
-4. **Bounded-suboptimal and multi-heuristic**: done: focal list, focal search, EES, DPS,
-   shared MHA*.
-5. **Expensive edges**: done: `EdgeEvaluator`, LazySP.
-6. **Dynamic graphs**: done: `DynamicGraph`, LPA*, D* Lite, AD*; Field D* (`FieldDStar`,
-   feature `float`) over grid corners.
-7. **More algorithms**: fringe search, RBFS, beam search,
-   beam-stack search, JPS (with `UniformGrid`, `Octile`, `EightConnected`), Theta* and
-   Lazy Theta* (with `LineOfSight`, feature `float`), SMA*.
-8. **Real-time search**: done: `LearnedHeuristic`, LRTA*, RTA*, LSS-LRTA*, RTAA*, the
-   limited-horizon Bellman update (`lhb_update`, `lhb_lrta_star`), learning-curve bench.
-9. **0.1.0**: API review, benchmarks, release.
 
 ## Open questions
 
@@ -785,8 +684,8 @@ the move to `search-core`.
   DIBBS only in side selection (cardinality). Confirm against the paper.
 - Deprecating the `astar`/`weighted_astar` aliases: they are plain re-exports of
   `a_star`/`weighted_a_star` for now, because `#[deprecated]` warns in every dependent
-  (`mapf-search` builds with `-D warnings` and calls `astar`). Deprecate them before 0.1,
-  once the dependents have moved.
+  (`mapf-search` builds with `-D warnings` and calls `astar`). Deprecate them once the
+  dependents have moved.
 
 - Real-time search: should a trial report where the agent stopped on `Unsolvable` (the
   dead end may not include `start` on graphs with irreversible edges)? Default: no, the

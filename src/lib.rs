@@ -155,11 +155,7 @@
 //! Incremental planners keep state between calls, so they are types ([`LpaStar`],
 //! [`DStarLite`], [`AdStar`], `FieldDStar`). `astar` and `weighted_astar` remain as aliases.
 //!
-//! See `docs/design.md` in the repository for the design and milestones.
-//!
-//! ## Status
-//!
-//! Pre-release. The API will change.
+//! See `docs/design.md` in the repository for the design.
 //!
 //! Repository: <https://github.com/sunsided/heuristic-search>
 
@@ -206,8 +202,7 @@ pub use best_first::{
     weighted_a_star_multi,
 };
 /// The names of [`a_star`] and [`weighted_a_star`] (and their `*_multi` forms) before
-/// every A* variant was named `*_star`. Kept as plain aliases, not deprecated yet, so
-/// dependents keep building warning-free; they will be deprecated before 0.1.
+/// every A* variant was named `*_star`, kept as plain aliases.
 pub use best_first::{
     a_star as astar, a_star_multi as astar_multi, weighted_a_star as weighted_astar,
     weighted_a_star_multi as weighted_astar_multi,
