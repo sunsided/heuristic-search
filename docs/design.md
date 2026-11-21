@@ -514,9 +514,9 @@ means the trial learned nothing, which is how callers detect convergence.
 | `lrta_star` | the successors | `h(s) = min c(s, s') + h(s')` (Korf's min, no max with the old value) | admissible, consistent |
 | `rta_star` | the successors | second-best `c + h`; the best with fewer than two live successors | nothing (inadmissible by design) |
 | `lss_lrta_star` | A*, `n` expansions | Dijkstra from OPEN into CLOSED, closed values start at infinity | admissible, consistent |
-| `lhb_lrta_star` | A*, `n` expansions | the paper's Eq. 5 by its Algorithm 1 | admissible |
+| `lhb_lrta_star` | A*, `n` expansions | the paper's Eq. 5 by its Algorithm 1 | admissible, consistent |
 | `rtaa_star` | A*, `n` expansions | `h(s) = f(best open) - g(s)` | admissible, consistent |
-| `lhb_update` | A*, `n` expansions, no move | Eq. 5, offline | admissible |
+| `lhb_update` | A*, `n` expansions, no move | Eq. 5, offline | admissible (consistent through the agent; tested there) |
 
 Engine: the three lookahead agents share one bounded A* (`Lookahead`) that reopens on
 cheaper paths and records *every* generated edge, not only parent links: a shortest-path
@@ -546,7 +546,7 @@ graphs with an uninformed table the agent can wander away forever; the budget st
 | Algorithm 1 searches for exactly `N` steps; nothing says what happens when the search expands a goal | the lookahead stops when A* selects a goal, so a goal is never interior | deliberate deviation: an interior goal under Eq. 5 takes 0 while its ancestors may route past it, and with the goal expanded admissibility could break |
 | Labels train a DNN by MSE (Eq. 4); states sampled by random walks from the goal | tabular: `lhb_update` writes the label into the table; callers choose the samples | out of scope (no function approximation) |
 | LHBL is offline; LSS-LRTA* is online real-time search | both: `lhb_update` offline, `lhb_lrta_star` the LHB update inside LSS-LRTA*'s agent | extension |
-| "LSS-LRTA* assumes consistent h-values"; LHB needs no consistency | Koenig and Sun's Dijkstra is a multi-source shortest-path computation and is correct for any seed values; consistency only makes its values monotone. Both stay admissible from an admissible table (tested with inconsistent tables) | the paper's claim holds for monotonicity, not for correctness |
+| "LSS-LRTA* assumes consistent h-values"; LHB needs no consistency | Koenig and Sun's Dijkstra is a multi-source shortest-path computation, correct for any seed values, and both stay admissible from an admissible table (tested with inconsistent tables). Without consistency LSS-LRTA*'s values can fall (a reopened state seeds the update with its stale value, see case 3 below), while LHB's partition by children avoids that case | partly confirmed: the difference is real only where A* reopens |
 | Fig. 1: `h_LHB` exact in one update where `h_SSB` is off (edges lost in the text extraction) | own instance `limited_horizon_update_beats_single_step`: single-step gives 2, LHB the exact 3 | own example, not the figure |
 | Evaluation: Rubik's Cube, 35-STP, Lights Out with DeepCubeA networks | not reproduced; tabular learning curves on mazes below | not reproduced |
 
@@ -559,8 +559,10 @@ graph. They write different values in exactly three cases:
 2. A goal with a nonzero value: LHB sets it to 0 (Eq. 5); LSS-LRTA* leaves open states
    alone. Test: `updates_differ_on_goals_with_nonzero_values`.
 3. A state expanded and then reopened by a cheaper path under an inconsistent table: it
-   has children, so LHB treats it as interior; LSS-LRTA* treats it as open (a seed). Not
-   reachable with a consistent table, where A* never reopens; no hand test.
+   has children, so LHB treats it as interior; LSS-LRTA* treats it as open (a seed), with
+   its old value. Not reachable with a consistent table, where A* never reopens. Test:
+   `updates_differ_on_reopened_states`, where LSS-LRTA* lowers a value from 5 to 1 (still
+   admissible) and LHB learns the exact costs.
 
 Elsewhere they agree value for value: the property test
 `lss_and_limited_horizon_agree_without_dead_ends` runs both agents trial for trial on
@@ -571,26 +573,26 @@ update counts. With a lookahead of one, both are LRTA*'s update.
 
 `cargo bench --bench learning` (harness off) prints these. Eight random 24×24
 4-connected mazes, about 30 % walls, start top left, goal bottom right, unit moves,
-Manhattan table, means over the mazes; mean optimum 46. A trial "converges" when it
+Manhattan table, means over the mazes; mean optimum 46.8. A trial "converges" when it
 changes no value; every converged path was checked against Dijkstra.
 
 | lookahead | LSS-LRTA* trials | LHB trials | RTAA* trials | LSS first-trial cost | RTAA* first-trial cost | LSS expansions | RTAA* expansions |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| LRTA* | 8 | | | 89 | | 744 | |
-| 1 | 8 | 8 | 8 | 89 | 89 | 744 | 744 |
-| 2 | 12 | 12 | 14 | 109 | 120 | 900 | 1120 |
-| 4 | 10 | 10 | 12 | 95 | 108 | 748 | 1060 |
-| 8 | 8 | 8 | 9 | 79 | 73 | 581 | 814 |
-| 16 | 5 | 5 | 6 | 61 | 62 | 412 | 564 |
-| 32 | 4 | 4 | 4 | 54 | 57 | 318 | 447 |
-| 64 | 3 | 3 | 2 | 52 | 53 | 249 | 291 |
-| 128 | 2 | 2 | 2 | 47 | 47 | 209 | 352 |
+| LRTA* | 8.2 | | | 90 | | 744 | |
+| 1 | 8.2 | 8.2 | 8.2 | 90 | 90 | 744 | 744 |
+| 2 | 12.2 | 12.2 | 14.5 | 109 | 121 | 901 | 1121 |
+| 4 | 10.2 | 10.2 | 12.9 | 95 | 109 | 749 | 1060 |
+| 8 | 8.0 | 8.0 | 9.1 | 80 | 74 | 582 | 815 |
+| 16 | 5.4 | 5.4 | 6.1 | 61 | 62 | 412 | 564 |
+| 32 | 4.0 | 4.0 | 4.5 | 54 | 57 | 318 | 448 |
+| 64 | 3.1 | 3.1 | 2.4 | 52 | 54 | 249 | 292 |
+| 128 | 2.4 | 2.4 | 2.4 | 47 | 47 | 210 | 353 |
 
 - LSS-LRTA* and LHB are identical on these mazes, as predicted: every cell has a
   successor, the goal's value is 0, and the Manhattan table is consistent.
 - Larger lookaheads converge in fewer trials, with cheaper first trials and fewer total
-  expansions; small lookaheads (2 and 4) are worse than 1 on these mazes, because the
-  agent commits to longer moves on little information.
+  expansions. Lookaheads 2 and 4 are worse than 1 on these mazes; our unmeasured guess is
+  that the agent commits to longer moves on little information.
 - RTAA* needs a few more trials and expansions than LSS-LRTA* at most lookaheads; its
   values are lower or equal, but its update needs no second search.
 
@@ -601,17 +603,18 @@ Dijkstra). Horizon 1 is the single-step Bellman update. The expansion column is 
 
 | horizon | sweeps | expansion bound |
 | --- | --- | --- |
-| 1 | 47 | 18816 |
-| 2 | 25 | 20168 |
-| 4 | 14 | 22457 |
-| 10 | 6 | 26846 |
-| 50 | 3 | 67200 |
-| 100 | 3 | 119137 |
+| 1 | 47.4 | 18816 |
+| 2 | 25.4 | 20168 |
+| 4 | 14.1 | 22458 |
+| 10 | 6.8 | 26846 |
+| 50 | 3.4 | 67200 |
+| 100 | 3.0 | 119138 |
 
 The sweep count falls roughly as `1 / horizon` down to a floor of a few sweeps, while the
-work per sweep grows with the horizon; horizons around 10 do the least total work here.
-This is the tabular analogue of the paper's finding that LHB labels need fewer samples
-than single-step labels.
+work per sweep grows with the horizon, so the expansion bound is smallest at horizon 1.
+Fewer sweeps for longer horizons is the tabular analogue of the paper's finding that LHB
+labels need fewer sampled states than single-step labels; per expansion, the single-step
+update is not worse here.
 
 Not implemented: real-time D* (Bond et al. 2010), which combines real-time search with
 D* Lite's repairs for changing graphs; the incremental planners already cover changing
@@ -740,7 +743,8 @@ the move to `search-core`.
   goals), consistency after every trial from consistent tables, completeness and work per
   step on random strongly connected graphs with positive costs (RTA* included, from
   arbitrary tables), convergence to the Dijkstra cost from consistent and from admissible
-  inconsistent tables, LSS and LHB agreement where their updates cannot differ, and offline
+  inconsistent tables (the latter beyond the classic theorems for the lookahead searches;
+  clean over 5000 random cases per property in one run), LSS and LHB agreement where their updates cannot differ, and offline
   LHB sweeps reaching exact costs.
 - Every search function has a doctest.
 - `no_std` is checked by building for `thumbv7em-none-eabihf`.

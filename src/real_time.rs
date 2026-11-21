@@ -6,8 +6,10 @@
 //! it spends at most a fixed amount of work (a lookahead of `n` expansions) and updates the
 //! values of the states it looked at in a [`LearnedHeuristic`], which the caller keeps. Run
 //! the next trial with the same table and the agent does better; with an admissible initial
-//! heuristic on a finite graph from which the goal stays reachable, repeated trials converge
-//! to cheapest paths and the table to exact costs along them.
+//! heuristic on a finite graph with positive edge costs from which the goal stays
+//! reachable, repeated trials converge to cheapest paths and the table to exact costs along
+//! them. That is proven for LRTA* and, from consistent tables, for the lookahead searches;
+//! from admissible but inconsistent tables it is tested on random graphs, not proven.
 //!
 //! | Search            | Lookahead               | Update of the expanded states                  |
 //! | ----------------- | ----------------------- | ---------------------------------------------- |

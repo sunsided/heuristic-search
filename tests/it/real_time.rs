@@ -261,6 +261,32 @@ fn updates_differ_on_goals_with_nonzero_values() {
     assert_eq!((lss.get(&0), lss.get(&1)), (Some(4), Some(3)));
 }
 
+/// A state reopened by the lookahead under an admissible, inconsistent table: interior for
+/// the limited-horizon update, open for LSS-LRTA*. Exact costs are `[7, 5, 6, 0]`; the
+/// first lookahead expands 0, 1 and 2, and 2 reopens 1. LSS-LRTA* seeds from 1's old value
+/// and lowers `h(2)` from 5 to 1; LHB routes through the leaf 3 and learns exact values.
+#[test]
+fn updates_differ_on_reopened_states() {
+    let graph = Graph::new(4, &[(0, 1, 3), (0, 2, 1), (2, 1, 1), (1, 3, 5)]);
+    let is_goal = |state: &usize| *state == 3;
+    let h = [0, 0, 5, 0];
+
+    let mut lss = LearnedHeuristic::new(heuristic_fn(|state: &usize| Some(h[*state])));
+    let result = lss_lrta_star(&graph, 0, &is_goal, &mut lss, 3, Limits::NONE);
+    assert_eq!(result.stats.reopened, 1);
+    assert_eq!(
+        (lss.get(&0), lss.get(&1), lss.get(&2)),
+        (Some(2), Some(5), Some(1))
+    );
+
+    let mut lhb = LearnedHeuristic::new(heuristic_fn(|state: &usize| Some(h[*state])));
+    lhb_lrta_star(&graph, 0, &is_goal, &mut lhb, 3, Limits::NONE);
+    assert_eq!(
+        (lhb.get(&0), lhb.get(&1), lhb.get(&2)),
+        (Some(7), Some(5), Some(6))
+    );
+}
+
 /// A start that is a goal ends the trial at once, and the update of a goal sets zero.
 #[test]
 fn goal_start_ends_at_once() {

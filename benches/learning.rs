@@ -229,41 +229,45 @@ fn print_online(mazes: &[Maze]) {
     );
     println!("| --- | --- | --- | --- | --- | --- | --- | --- |");
 
-    let lrta = mean(mazes, Learner::Lrta, 1);
+    let lrta = total(mazes, Learner::Lrta, 1);
     println!(
-        "| LRTA* | {} | | | {} | | {} | |",
-        lrta.trials, lrta.first_cost, lrta.expansions
+        "| LRTA* | {:.1} | | | {:.0} | | {:.0} | |",
+        per_maze(lrta.trials),
+        per_maze(lrta.first_cost),
+        per_maze(lrta.expansions)
     );
 
     for lookahead in LOOKAHEADS {
-        let lss = mean(mazes, Learner::Lss, lookahead);
-        let lhb = mean(mazes, Learner::Lhb, lookahead);
-        let rtaa = mean(mazes, Learner::Rtaa, lookahead);
+        let lss = total(mazes, Learner::Lss, lookahead);
+        let lhb = total(mazes, Learner::Lhb, lookahead);
+        let rtaa = total(mazes, Learner::Rtaa, lookahead);
         println!(
-            "| {lookahead} | {} | {} | {} | {} | {} | {} | {} |",
-            lss.trials,
-            lhb.trials,
-            rtaa.trials,
-            lss.first_cost,
-            rtaa.first_cost,
-            lss.expansions,
-            rtaa.expansions
+            "| {lookahead} | {:.1} | {:.1} | {:.1} | {:.0} | {:.0} | {:.0} | {:.0} |",
+            per_maze(lss.trials),
+            per_maze(lhb.trials),
+            per_maze(rtaa.trials),
+            per_maze(lss.first_cost),
+            per_maze(rtaa.first_cost),
+            per_maze(lss.expansions),
+            per_maze(rtaa.expansions)
         );
     }
 }
 
-/// The curve of `learner` with `lookahead`, averaged over `mazes`.
-fn mean(mazes: &[Maze], learner: Learner, lookahead: usize) -> Curve {
-    let sum = mazes
+/// The curve of `learner` with `lookahead`, summed over `mazes`.
+fn total(mazes: &[Maze], learner: Learner, lookahead: usize) -> Curve {
+    mazes
         .iter()
         .map(|maze| converge(learner, maze, lookahead))
-        .fold(Curve::default(), Curve::plus);
+        .fold(Curve::default(), Curve::plus)
+}
 
-    Curve {
-        trials: sum.trials / MAZES,
-        first_cost: sum.first_cost / MAZES,
-        expansions: sum.expansions / MAZES,
-    }
+/// `sum` divided by the number of mazes.
+fn per_maze(sum: u64) -> f64 {
+    let sum = u32::try_from(sum).expect("the sums are small");
+    let mazes = u32::try_from(MAZES).expect("few mazes");
+
+    f64::from(sum) / f64::from(mazes)
 }
 
 /// Prints the offline sweeps of the limited-horizon update per horizon; horizon 1 is the
@@ -280,9 +284,9 @@ fn print_offline(mazes: &[Maze]) {
             .map(|maze| offline_sweeps(maze, horizon))
             .fold((0, 0), |(a, b), (c, d)| (a + c, b + d));
         println!(
-            "| {horizon} | {} | {} |",
-            sweeps / MAZES,
-            expansions / MAZES
+            "| {horizon} | {:.1} | {:.0} |",
+            per_maze(sweeps),
+            per_maze(expansions)
         );
     }
 }
@@ -291,7 +295,7 @@ fn print_offline(mazes: &[Maze]) {
 fn main() {
     let mazes: Vec<Maze> = (0..MAZES).map(|seed| Maze::random(seed + 1)).collect();
     let optimum: u32 = mazes.iter().filter_map(Maze::optimum).sum();
-    println!("mean optimum {}", u64::from(optimum) / MAZES);
+    println!("mean optimum {:.1}", per_maze(u64::from(optimum)));
 
     print_online(&mazes);
     print_offline(&mazes);
