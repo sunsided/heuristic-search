@@ -380,9 +380,12 @@ Per-algorithm notes:
   the cheaper bordering cell's cost, diagonal ones at `√2` times the crossed cell's) with
   `min_cost` times the Euclidean distance, a consistent heuristic, and returns that path
   where it is cheaper. `g` itself is not used as the heuristic: corners beyond the
-  repair's frontier keep stale or no values. Since `g(start)` is at most the lattice
-  optimum, a finite `g(start)` implies a lattice path, so a path is returned exactly when
-  `interpolated_cost()` is finite. The A* runs outside the caller's budget.
+  repair's frontier keep stale or no values. An infinite `g(start)` rules out a lattice
+  path, since `g(start)` is at most the lattice optimum. A finite one implies a lattice
+  path: every finite case of the closed form takes its value from a neighbour with a
+  finite, strictly smaller value that a finite-cost lattice move reaches (straight to
+  `s1`, or diagonally across `c` to `s2`), so those moves lead to the goal. A path is
+  therefore returned exactly when `interpolated_cost()` is finite. The A* runs outside the caller's budget.
   Properties tested: `g(start)` equals an independent fixed-point sweep of the closed
   form and is at most Dijkstra over the 8-connected corner lattice (written separately in
   the tests); the path's cost equals its recomputation from geometry, is at least the

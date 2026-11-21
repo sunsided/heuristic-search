@@ -197,8 +197,11 @@ impl FieldDStar {
     /// 8-connected corner path, or `None` if `g(start)` is infinite.
     ///
     /// `g(start)` is at most the 8-connected optimum, so if it is infinite there is no
-    /// 8-connected path either; if it is finite, there is one, and the result is never
-    /// dearer than it.
+    /// 8-connected path either. If it is finite, there is one: `g(start)` is the closed
+    /// form's fixed point, and every finite case of [`interpolate`] uses a neighbour with a
+    /// finite, strictly smaller value that a lattice move of finite cost reaches (straight
+    /// to `s1` at `min(c, b)`, or diagonally across `c` to `s2`), so following those moves
+    /// reaches the goal. The result is never dearer than that path.
     fn path<G: CostGrid>(
         &self,
         grid: &G,
