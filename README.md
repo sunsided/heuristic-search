@@ -10,11 +10,26 @@
 
 Explicit-state heuristic graph search: A*, weighted and anytime, bounded-suboptimal, bidirectional, incremental and real-time search.
 
+## Who this is for
+
+Anyone who has a graph, or a problem that can be phrased as one, and needs a path through
+it: a planner that generates its states on the fly, a robot or a game character on a grid.
+The graph stays in your code; you describe it through small traits (`Successors`, and
+`Predecessors` for the bidirectional searches), pass the goal test and the heuristic as
+separate values, and get back a path, an outcome and the expansion counters. The crate
+knows nothing about PDDL, SAS+ or any other model, so domain-specific representations sit
+on top of it rather than in it.
+
+It is also meant for comparing algorithms on the same problem: every search uses the same
+traits, budgets and statistics, so trying IDA* or Weighted A* instead of A* changes the
+call, not the problem description. Symbolic (BDD), multi-objective, stochastic and
+width-based search are out of scope.
+
 ## Status
 
 Pre-release; the API will change. See [docs/design.md](https://github.com/sunsided/heuristic-search/blob/main/docs/design.md).
 
-Implemented on the `draft/initial` branch:
+Implemented:
 
 - Foundational: BFS, Dijkstra, A*, greedy best-first search (GBFS); DFS, depth-limited DFS,
   iterative deepening DFS, IDA*, IDA* with a bounded transposition table; depth cutoffs
@@ -52,8 +67,7 @@ Implemented on the `draft/initial` branch:
   `weighted_astar` remain as aliases
 - Shared traits: `Cost`, `Heuristic`, `Goal` and `Budget<Stats>` come from `search-core`
   and are re-exported from the crate root. Costs are the unsigned integers, `Decimal<K>`
-  and (feature `float`) `NonNegF64`; signed and raw `f64` costs were dropped. The design
-  document lists the breaking changes under "Cross-crate needs".
+  and (feature `float`) `NonNegF64`.
 
 ## Usage
 

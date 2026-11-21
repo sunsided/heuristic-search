@@ -1,7 +1,6 @@
 # heuristic-search: design
 
-Status: draft on branch `draft/initial`. Every algorithm of
-milestones 1 to 7 and real-time search is implemented; see [Milestones](#milestones).
+Status: draft. Every algorithm of milestones 1 to 7 and real-time search is implemented; see [Milestones](#milestones).
 
 ## Goal and scope
 
@@ -756,7 +755,7 @@ the move to `search-core`.
 
 ## Milestones
 
-1. **Foundations** (done on `draft/initial`): capability traits, `Cost`, search space,
+1. **Foundations** (done): capability traits, `Cost`, search space,
    open list, BFS, Dijkstra, A*, WA*, GBFS, single- and multi-start, statistics, budgets,
    path extraction, saturating keys, tests.
 2. **Rest of foundational + anytime**: done: DFS, depth-limited DFS, IDDFS, IDA*, ARA*,
