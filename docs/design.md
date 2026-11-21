@@ -375,18 +375,29 @@ Per-algorithm notes:
   21 % above the 8-connected optimum on 20 000 random grids; the lookahead brought that
   to about 2 % there. The reported cost is the path's true cost (segments times their
   cell's cost, or the cheaper cell along an edge); `interpolated_cost()` returns
-  `g(start)`.
+  `g(start)`. The walk alone can still end above the 8-connected optimum (figures below),
+  so `compute` also runs `a_star` over the 8-connected corner lattice (straight moves at
+  the cheaper bordering cell's cost, diagonal ones at `√2` times the crossed cell's) with
+  `min_cost` times the Euclidean distance, a consistent heuristic, and returns that path
+  where it is cheaper. `g` itself is not used as the heuristic: corners beyond the
+  repair's frontier keep stale or no values. Since `g(start)` is at most the lattice
+  optimum, a finite `g(start)` implies a lattice path, so a path is returned exactly when
+  `interpolated_cost()` is finite. The A* runs outside the caller's budget.
   Properties tested: `g(start)` equals an independent fixed-point sweep of the closed
-  form and is at most Dijkstra over the 8-connected corner lattice; the path's cost equals
-  its recomputation from geometry, is at least the straight line times the cheapest cost,
-  and is within 1.1 of the 8-connected optimum (observed over a one-off run of about a
-  million grids: 1.035 on grids up to 7 x 7 with costs in `[1, 5)`, 1.043 with costs in
-  `[1, 100)`, 1.027 on grids up to 20 x 20; the gap grows a little with cost contrast); on
-  uniform grids it is within 1.02 of Theta* run over the corners (observed 1.011; Theta*
-  there may only use corners whose four cells are free, so Field D* is often shorter);
-  incremental repair after random batches of cell changes and start moves matches fresh
-  runs in `g(start)`. The path's cost is not guaranteed to be at most the 8-connected optimum;
-  only `g` is. On the benchmark grid (65 x 65 corners), a plan plus a repair after the
+  form and is at most Dijkstra over the 8-connected corner lattice (written separately in
+  the tests); the path's cost equals its recomputation from geometry, is at least the
+  straight line times the cheapest cost, and is at most the 8-connected optimum. The
+  walk alone, measured over a one-off run of about a million grids, came within 1.035 of
+  that optimum on grids up to 7 x 7 with costs in `[1, 5)`, 1.043 with costs in
+  `[1, 100)`, 1.027 on grids up to 20 x 20; the gap grows a little with cost contrast. On
+  uniform grids the path is within 1.02 of Theta* run over the corners (observed 1.011;
+  Theta* there may only use corners whose four cells are free, so Field D* is often
+  shorter); incremental repair after random batches of cell changes and start moves
+  matches fresh runs in `g(start)`, and returns a path whenever `g(start)` is finite.
+  Exhaustive tests check solvability and both bounds on every 3 x 3 grid with cells of
+  cost 1, 2 or blocked (by default between three corner pairs; ignored variants: every
+  corner pair, costs 1, 3, 10 or blocked, and every 4 x 4 grid of costs 1, 2 or
+  blocked between opposite corners). On the benchmark grid (65 x 65 corners), a plan plus a repair after the
   gap moves: 9.1 ms, against 1.8 ms for 4-connected D* Lite; each expansion updates eight
   neighbours whose `rhs` reads eight `g` values from the hash index.
 - Grids: `UniformGrid` (width, height, `is_passable(x, y)`), cells `(x, y)`, 8-connected

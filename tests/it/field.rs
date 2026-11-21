@@ -419,12 +419,6 @@ fn euclidean(a: GridCell, b: GridCell) -> f64 {
     d(a.0, b.0).hypot(d(a.1, b.1))
 }
 
-/// The observed worst ratio of a Field D* path's cost to the cheapest 8-connected corner
-/// path, with margin: about 1.035 over 780 000 random grids like [`grids`], 1.043 with
-/// costs up to 100, 1.027 on grids up to 20 x 20. Interpolation is not exact, so the path
-/// can be dearer than the corner lattice's optimum; `g` never is.
-const EIGHT_CONNECTED_FACTOR: f64 = 1.1;
-
 /// The observed worst ratio of a Field D* path's length to Theta*'s on uniform grids, with
 /// margin: about 1.011 over 670 000 random grids, open or with obstacles.
 const THETA_FACTOR: f64 = 1.02;
@@ -486,13 +480,113 @@ fn check_path(
     Ok(())
 }
 
+/// Checks a found path with [`check_path`], and that both `g(start)` and the path's cost
+/// are at most the cheapest 8-connected corner path.
+fn check_bounds(
+    costs: &Costs,
+    start: GridCell,
+    goal: GridCell,
+    g: f64,
+    points: &[(f64, f64)],
+    cost: f64,
+) -> Result<(), TestCaseError> {
+    let optimum = eight_connected(costs, start, goal);
+    prop_assert!(at_most(g, optimum), "g {} above the 8-connected {}", g, optimum);
+    check_path(costs, start, goal, points, cost)?;
+    prop_assert!(
+        at_most(cost, optimum),
+        "path {} above the 8-connected {}",
+        cost,
+        optimum
+    );
+
+    Ok(())
+}
+
+/// Runs Field D* from `start` to `goal` on every `width` x `height` grid whose cells take
+/// one of `levels` (`None` is blocked), and checks each against the 8-connected optimum:
+/// solvable exactly when it is, and both `g(start)` and the path at most its cost.
+fn exhaustive(width: usize, height: usize, levels: &[Option<f64>], pairs: &[(GridCell, GridCell)]) {
+    let cells = width * height;
+    let count = levels.len().pow(u32::try_from(cells).unwrap());
+    for mut code in 0..count {
+        let mut grid = vec![vec![None; width]; height];
+        for cell in grid.iter_mut().flatten() {
+            *cell = levels[code % levels.len()];
+            code /= levels.len();
+        }
+
+        let costs = Costs { cells: grid };
+        for &(start, goal) in pairs {
+            let optimum = eight_connected(&costs, start, goal);
+            let checked = match field(&costs, start, goal) {
+                Some((g, points, cost)) => check_bounds(&costs, start, goal, g, &points, cost),
+                None if optimum.is_infinite() => Ok(()),
+                None => Err(TestCaseError::fail(format!("unsolvable, 8-connected {optimum}"))),
+            };
+            if let Err(error) = checked {
+                panic!("{error} on {costs:?} from {start:?} to {goal:?}");
+            }
+        }
+    }
+}
+
+/// Every start and goal corner pair of a `width` x `height` grid.
+fn all_pairs(width: usize, height: usize) -> Vec<(GridCell, GridCell)> {
+    let corners: Vec<GridCell> = (0..=height)
+        .flat_map(|y| (0..=width).map(move |x| (x, y)))
+        .collect();
+
+    corners
+        .iter()
+        .flat_map(|&a| corners.iter().map(move |&b| (a, b)))
+        .collect()
+}
+
+/// Every 3 x 3 grid with cells of cost 1, 2 or blocked, between opposite corners and
+/// between two edge midpoints.
+#[test]
+fn exhaustive_3x3() {
+    exhaustive(
+        3,
+        3,
+        &[Some(1.0), Some(2.0), None],
+        &[((0, 0), (3, 3)), ((0, 3), (3, 0)), ((0, 1), (3, 2))],
+    );
+}
+
+/// Every 3 x 3 grid with cells of cost 1, 2 or blocked, between every pair of corners.
+#[test]
+#[ignore = "about 5 million runs; use a release build"]
+fn exhaustive_3x3_all_pairs() {
+    exhaustive(3, 3, &[Some(1.0), Some(2.0), None], &all_pairs(3, 3));
+}
+
+/// Every 3 x 3 grid with cells of cost 1, 3, 10 or blocked, between every pair of corners.
+#[test]
+#[ignore = "about 67 million runs; use a release build"]
+fn exhaustive_3x3_high_contrast() {
+    exhaustive(3, 3, &[Some(1.0), Some(3.0), Some(10.0), None], &all_pairs(3, 3));
+}
+
+/// Every 4 x 4 grid with cells of cost 1, 2 or blocked, between opposite corners.
+#[test]
+#[ignore = "about 86 million runs; use a release build"]
+fn exhaustive_4x4() {
+    exhaustive(
+        4,
+        4,
+        &[Some(1.0), Some(2.0), None],
+        &[((0, 0), (4, 4)), ((0, 4), (4, 0))],
+    );
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
     /// On random weighted grids: `g(start)` is the fixed point of the closed form (an
     /// independent brute-force sweep) and at most the cheapest 8-connected corner path;
-    /// the path's cost is its recomputed cost, within [`EIGHT_CONNECTED_FACTOR`] of that
-    /// optimum.
+    /// the path's cost is its recomputed cost, and at most that optimum too.
     #[test]
     fn interpolated_cost_and_path((costs, start, goal) in grids()) {
         let optimum = eight_connected(&costs, start, goal);
@@ -504,14 +598,7 @@ proptest! {
         };
 
         prop_assert!(close(g, sweep), "g {} but the sweep gives {}", g, sweep);
-        prop_assert!(at_most(g, optimum), "g {} above the 8-connected {}", g, optimum);
-        check_path(&costs, start, goal, &points, cost)?;
-        prop_assert!(
-            at_most(cost, EIGHT_CONNECTED_FACTOR * optimum),
-            "path {} vs 8-connected {}",
-            cost,
-            optimum
-        );
+        check_bounds(&costs, start, goal, g, &points, cost)?;
     }
 
     /// On uniform grids, open or with obstacles: the path is no shorter than the straight
@@ -574,8 +661,10 @@ proptest! {
             };
 
             prop_assert!(close(g.get(), expected_g.get()), "repaired {} vs fresh {}", g, expected_g);
-            let solution = repaired.solution().unwrap();
-            check_path(&costs, planner.start(), goal, &solution.states, solution.cost.get())?;
+            let solution = repaired.solution();
+            prop_assert!(solution.is_some(), "g(start) is {} but no path was returned", g);
+            let solution = solution.unwrap();
+            check_bounds(&costs, planner.start(), goal, g.get(), &solution.states, solution.cost.get())?;
         }
     }
 }

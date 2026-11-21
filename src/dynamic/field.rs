@@ -11,15 +11,17 @@
 //!
 //! The interpolation needs a closed form per pair, so `rhs` comes from the incremental
 //! core's model hook ([`Searched::lookahead`]) rather than from single edges. The path is
-//! extracted by the same interpolation from the start ([`path`]).
+//! extracted by the same interpolation from the start ([`path`]), and replaced by the
+//! cheapest 8-connected corner path ([`lattice`]) where that is cheaper.
 
+mod lattice;
 mod path;
 
 use search_core::{Budget, Cost, NonNegF64};
 
 use crate::dynamic::incremental::{Estimate, Incremental, Searched};
 use crate::grid::{CostGrid, GridCell, sqrt};
-use crate::outcome::{Outcome, SearchResult, Stats};
+use crate::outcome::{Outcome, SearchResult, Solution, Stats};
 
 /// The result of [`FieldDStar::compute`]: the path as points `(x, y)` in grid
 /// coordinates, joined by straight segments, with its cost.
@@ -51,12 +53,14 @@ pub type FieldResult = SearchResult<(f64, f64), (), NonNegF64>;
 /// the start; its [`Solution::cost`](crate::Solution::cost) is the true cost of that path,
 /// the sum over its segments. Interpolation is not exact, so the path's true cost may
 /// differ a little from `g`, in either direction; it is never below the straight-line
-/// distance times the cheapest cell cost. The path's cost is not guaranteed to beat the
-/// cheapest 8-connected path: on about a million random grids up to 20 x 20 with a fifth
-/// of the cells blocked, it was at most 3.5 % above it with costs in `[1, 5)` and 4.3 %
-/// with costs in `[1, 100)`, so the gap grows a little with the cost contrast. On uniform
-/// grids it was at most 1.1 % longer than Theta*'s path over the corners. The property
-/// tests allow 10 % and 2 %.
+/// distance times the cheapest cell cost. The extracted path can cost a little more than
+/// the cheapest 8-connected path (on about a million random grids up to 20 x 20 with a
+/// fifth of the cells blocked, at most 3.5 % with costs in `[1, 5)` and 4.3 % with costs
+/// in `[1, 100)`), so [`FieldDStar::compute`] also runs A* over the 8-connected corner
+/// lattice and returns that path where it is cheaper. **The returned path therefore never
+/// costs more than the cheapest 8-connected path**, and a path is returned whenever
+/// [`FieldDStar::interpolated_cost`] is finite. On uniform grids it was at most 1.1 %
+/// longer than Theta*'s path over the corners; the property tests allow 2 %.
 ///
 /// Extraction walks from the start; at each point it takes the step with the smallest
 /// cost plus estimated remainder that strictly lowers the interpolated value. From a
@@ -130,6 +134,8 @@ pub struct FieldDStar {
     start: GridCell,
     /// The goal corner.
     goal: GridCell,
+    /// The lower bound on every cell cost.
+    min_cost: f64,
 }
 
 impl FieldDStar {
@@ -158,21 +164,25 @@ impl FieldDStar {
             core: Incremental::new(false, goal, start, heuristic, None),
             start,
             goal,
+            min_cost: min_cost.get(),
         }
     }
 
     /// Repairs the search after the latest changes and returns the interpolated path from
     /// the current start, or [`Outcome::Unsolvable`] if the goal cannot be reached.
     ///
-    /// The budget and the returned stats cover this call only; see [`FieldDStar::stats`]
-    /// for the totals. A search stopped by its budget continues where it stopped on the
-    /// next call.
+    /// The budget and the returned stats cover this call's repair only; see
+    /// [`FieldDStar::stats`] for the totals. A search stopped by its budget continues
+    /// where it stopped on the next call. Once the repair has settled, the path is
+    /// extracted and compared with the 8-connected A* (see [`FieldDStar`]) outside the
+    /// budget. That A* starts afresh on every call and may expand every corner once, so
+    /// after a small change it can cost more than the repair.
     pub fn compute<G: CostGrid>(&mut self, grid: &G, budget: impl Budget<Stats>) -> FieldResult {
         let (settled, stats) = self.core.repair(&Corners(grid), budget);
         let outcome = if settled {
             let core = &self.core;
             let g = |corner: GridCell| core.consistent_g(&corner).map_or(f64::INFINITY, f64::from);
-            match path::extract(grid, g, self.start, self.goal) {
+            match self.path(grid, g) {
                 Some(solution) => Outcome::Found(solution),
                 None => Outcome::Unsolvable,
             }
@@ -181,6 +191,37 @@ impl FieldDStar {
         };
 
         SearchResult { outcome, stats }
+    }
+
+    /// The cheaper of the interpolated path from the settled values `g` and the cheapest
+    /// 8-connected corner path, or `None` if `g(start)` is infinite.
+    ///
+    /// `g(start)` is at most the 8-connected optimum, so if it is infinite there is no
+    /// 8-connected path either; if it is finite, there is one, and the result is never
+    /// dearer than it.
+    fn path<G: CostGrid>(
+        &self,
+        grid: &G,
+        g: impl Fn(GridCell) -> f64,
+    ) -> Option<Solution<(f64, f64), (), NonNegF64>> {
+        if !g(self.start).is_finite() {
+            return None;
+        }
+
+        let interpolated = path::extract(grid, g, self.start, self.goal);
+        let lattice = lattice::cheapest(grid, self.start, self.goal, self.min_cost);
+        debug_assert!(
+            lattice.is_some(),
+            "a finite g(start) implies an 8-connected path"
+        );
+
+        match (interpolated, lattice) {
+            (Some(interpolated), Some(lattice)) if lattice.cost < interpolated.cost => {
+                Some(lattice)
+            }
+            (Some(interpolated), _) => Some(interpolated),
+            (None, lattice) => lattice,
+        }
     }
 
     /// The interpolated cost `g` from the current start to the goal, or `None` if the goal
