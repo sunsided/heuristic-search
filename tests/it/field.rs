@@ -491,7 +491,12 @@ fn check_bounds(
     cost: f64,
 ) -> Result<(), TestCaseError> {
     let optimum = eight_connected(costs, start, goal);
-    prop_assert!(at_most(g, optimum), "g {} above the 8-connected {}", g, optimum);
+    prop_assert!(
+        at_most(g, optimum),
+        "g {} above the 8-connected {}",
+        g,
+        optimum
+    );
     check_path(costs, start, goal, points, cost)?;
     prop_assert!(
         at_most(cost, optimum),
@@ -522,7 +527,9 @@ fn exhaustive(width: usize, height: usize, levels: &[Option<f64>], pairs: &[(Gri
             let checked = match field(&costs, start, goal) {
                 Some((g, points, cost)) => check_bounds(&costs, start, goal, g, &points, cost),
                 None if optimum.is_infinite() => Ok(()),
-                None => Err(TestCaseError::fail(format!("unsolvable, 8-connected {optimum}"))),
+                None => Err(TestCaseError::fail(format!(
+                    "unsolvable, 8-connected {optimum}"
+                ))),
             };
             if let Err(error) = checked {
                 panic!("{error} on {costs:?} from {start:?} to {goal:?}");
@@ -566,7 +573,12 @@ fn exhaustive_3x3_all_pairs() {
 #[test]
 #[ignore = "about 67 million runs; use a release build"]
 fn exhaustive_3x3_high_contrast() {
-    exhaustive(3, 3, &[Some(1.0), Some(3.0), Some(10.0), None], &all_pairs(3, 3));
+    exhaustive(
+        3,
+        3,
+        &[Some(1.0), Some(3.0), Some(10.0), None],
+        &all_pairs(3, 3),
+    );
 }
 
 /// Every 4 x 4 grid with cells of cost 1, 2 or blocked, between opposite corners.

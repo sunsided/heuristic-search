@@ -78,7 +78,11 @@ impl<G: CostGrid> Successors for Lattice<'_, G> {
                 cells[previous / 2].min(cells[next / 2])
             };
             if cost.is_finite() {
-                emit((), neighbour, NonNegF64::new(cost).expect("cell costs are positive"));
+                emit(
+                    (),
+                    neighbour,
+                    NonNegF64::new(cost).expect("cell costs are positive"),
+                );
             }
         }
     }
