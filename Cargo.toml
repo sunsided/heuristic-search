@@ -7,6 +7,7 @@ rust-version = "1.85"
 authors = ["Markus Mayer <widemeadows@gmail.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/sunsided/heuristic-search"
+homepage = "https://sunsided.github.io/planning-and-search/crates/heuristic-search/"
 readme = "README.md"
 keywords = ["search", "astar", "pathfinding", "heuristic", "planning"]
 categories = ["algorithms", "no-std"]
