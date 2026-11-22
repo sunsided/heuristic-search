@@ -10,6 +10,8 @@
 
 Explicit-state heuristic graph search: A*, weighted and anytime, bounded-suboptimal, bidirectional, incremental and real-time search.
 
+Part of the [planning and search crates](https://sunsided.github.io/planning-and-search/); see also this crate's [overview page](https://sunsided.github.io/planning-and-search/crates/heuristic-search/).
+
 ## Who this is for
 
 Anyone who has a graph, or a problem that can be phrased as one, and needs a path through
