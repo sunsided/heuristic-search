@@ -401,8 +401,10 @@ Per-algorithm notes:
   cost 1, 2 or blocked (by default between three corner pairs; ignored variants: every
   corner pair, costs 1, 3, 10 or blocked, and every 4 x 4 grid of costs 1, 2 or
   blocked between opposite corners). On the benchmark grid (65 x 65 corners), a plan plus a repair after the
-  gap moves: 9.1 ms, against 1.8 ms for 4-connected D* Lite; each expansion updates eight
-  neighbours whose `rhs` reads eight `g` values from the hash index.
+  gap moves: 10.9 ms, against 1.8 ms for 4-connected D* Lite; each expansion updates eight
+  neighbours whose `rhs` reads eight `g` values from the hash index, and the A* pass over
+  the 8-connected corner lattice that keeps the path within the lattice optimum adds about
+  a fifth.
 - Grids: `UniformGrid` (width, height, `is_passable(x, y)`), cells `(x, y)`, 8-connected
   **without corner cutting** (a diagonal move needs both orthogonal neighbours open).
   Costs are `Octile { straight, diagonal }`, the exact value `straight + diagonal * √2`:
