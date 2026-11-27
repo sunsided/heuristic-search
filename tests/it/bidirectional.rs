@@ -89,6 +89,9 @@ fn mm_stops_on_g_sum() {
     assert_eq!(result.stats.expanded, 3);
 }
 
+/// A heuristic over [`Graph`] states as a closure.
+type Estimate<'a> = &'a dyn Fn(&usize) -> Option<u64>;
+
 /// A [`Graph`] that records the state of every expansion: forward ones through
 /// [`Successors`], backward ones through [`Predecessors`].
 struct Recorder<'a> {
@@ -186,10 +189,10 @@ proptest! {
         }
     }
 
-    /// MM meets in the middle (Holte et al. 2016, Theorem 1): every state it expands has
-    /// `pr <= C*`, and as `pr >= 2g`, a cost from its side's root of at most `C* / 2`. The
-    /// true distance never exceeds the `g` at expansion, so `2 * distance <= C*` holds for
-    /// every expansion, with scaled and halved distances and with zero heuristics.
+    /// MM meets in the middle: every state it expands has `pr = max(g + h, 2g) <= C*`. The
+    /// true distance from its side's root never exceeds the `g` at expansion, so both
+    /// `2 * distance <= C*` and `distance + h <= C*` hold for every expansion, with
+    /// admissible scaled distances, consistent halved distances and zero heuristics.
     #[test]
     fn mm_meets_in_the_middle(
         (graph, goal) in graph_and_goal(),
@@ -205,28 +208,27 @@ proptest! {
             return Ok(());
         };
 
-        let forward = |s: &usize| to_goal[*s].map(|d| d * scales[*s] / 4);
-        let backward = |s: &usize| from_start[*s].map(|d| d * scales[(*s + 5) % 12] / 4);
-        let forward_c = |s: &usize| Some(to_goal[*s].map_or(0, |d| d / 2));
-        let backward_c = |s: &usize| Some(from_start[*s].map_or(0, |d| d / 2));
-        let goals_iter = || goals.iter().copied();
+        let scaled_f = |s: &usize| to_goal[*s].map(|d| d * scales[*s] / 4);
+        let scaled_b = |s: &usize| from_start[*s].map(|d| d * scales[(*s + 5) % 12] / 4);
+        let halved_f = |s: &usize| to_goal[*s].map(|d| d / 2);
+        let halved_b = |s: &usize| from_start[*s].map(|d| d / 2);
+        let zero = |_: &usize| Some(0);
+        let pairs: [(Estimate, Estimate); 3] =
+            [(&scaled_f, &scaled_b), (&halved_f, &halved_b), (&zero, &zero)];
 
-        for heuristics in 0..3 {
+        for (forward, backward) in pairs {
             let recorder = Recorder { graph: &graph, forward: RefCell::default(), backward: RefCell::default() };
-            let result = match heuristics {
-                0 => mm(&recorder, 0, goals_iter(), heuristic_fn(forward), heuristic_fn(backward), Limits::NONE),
-                1 => mm(&recorder, 0, goals_iter(), heuristic_fn(forward_c), heuristic_fn(backward_c), Limits::NONE),
-                _ => mm(&recorder, 0, goals_iter(), Zero, Zero, Limits::NONE),
-            };
+            let result = mm(&recorder, 0, goals.iter().copied(), heuristic_fn(forward), heuristic_fn(backward), Limits::NONE);
             prop_assert_eq!(result.solution().map(|s| s.cost), Some(optimal));
 
-            for &state in recorder.forward.borrow().iter() {
-                let distance = from_start[state].expect("expanded states are reachable");
-                prop_assert!(2 * distance <= optimal, "forward {} at {} of {}", state, distance, optimal);
-            }
-            for &state in recorder.backward.borrow().iter() {
-                let distance = to_goal[state].expect("expanded states reach a goal");
-                prop_assert!(2 * distance <= optimal, "backward {} at {} of {}", state, distance, optimal);
+            let sides = [(&recorder.forward, &from_start, forward), (&recorder.backward, &to_goal, backward)];
+            for (expanded, distances, h) in sides {
+                for &state in expanded.borrow().iter() {
+                    let distance = distances[state].expect("expanded states lie between start and goal");
+                    let h = h(&state).expect("dead ends are never expanded");
+                    prop_assert!(2 * distance <= optimal, "{} at {} of {}", state, distance, optimal);
+                    prop_assert!(distance + h <= optimal, "{} at {} + {} of {}", state, distance, h, optimal);
+                }
             }
         }
     }
