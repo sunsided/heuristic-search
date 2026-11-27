@@ -18,6 +18,7 @@ mod fringe;
 mod grid;
 #[cfg(feature = "parallel")]
 mod hda;
+mod hierarchical;
 mod jps;
 mod landmarks;
 mod lazy;

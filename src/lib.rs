@@ -100,6 +100,12 @@
 //!
 //! [`EightConnected`] makes a grid a plain graph for the other searches.
 //!
+//! [`hierarchical_a_star`] (HPA*) plans over a [`Hierarchy`] built once: a graph split
+//! into [`Regions`] (rooms of a floor plan, or the square [`GridClusters`] of a grid with a
+//! few entrance cells per border), searched first on the small graph of entrances, then
+//! refined by A* inside each region. `hierarchical_a_star_par` (feature `parallel`) runs
+//! the refinements across threads.
+//!
 //! [`mha_star`] (shared multi-heuristic A*) combines one consistent anchor heuristic with
 //! any number of inadmissible ones, within `w1 * w2` times the optimum.
 //!
@@ -161,7 +167,9 @@
 //!   the any-angle grid searches `theta_star` and `lazy_theta_star` and the Field D*
 //!   planner `FieldDStar` with its `CostGrid`, whose Euclidean costs are floats.
 //! - `parallel`: multi-threaded searches; needs `std`. Enables hash-distributed A*,
-//!   `hda_star`, and batches of independent queries on several threads, `solve_batch`.
+//!   `hda_star`, batches of independent queries on several threads, `solve_batch`, and
+//!   `hierarchical_a_star_par` and `hierarchical_a_star_par_multi`, which refine across
+//!   threads.
 //!
 //! ## Example
 //!
@@ -196,10 +204,10 @@
 //! Searches are snake-case functions; every A* variant ends in `_star` ([`a_star`],
 //! [`weighted_a_star`], [`ida_star`], [`ara_star`], [`ana_star`], [`mha_star`],
 //! [`bae_star`]). Suffixes compose in this order: `_tt` (a variant of the algorithm),
-//! `_multi` (several starts), `_meet` (a meet relation, always with several starts), `_in`
-//! (in a caller's [`Workspace`]). Incremental planners and other searches that keep state
-//! between calls are types ([`LpaStar`], [`DStarLite`], [`AdStar`], `FieldDStar`,
-//! [`RealTimeDStar`], [`AStarSearch`], [`FlowField`]).
+//! `_par` (refinement across threads), `_multi` (several starts), `_meet` (a meet relation,
+//! always with several starts), `_in` (in a caller's [`Workspace`]). Incremental planners
+//! and other searches that keep state between calls are types ([`LpaStar`], [`DStarLite`],
+//! [`AdStar`], `FieldDStar`, [`RealTimeDStar`], [`AStarSearch`], [`FlowField`]).
 //!
 //! See `docs/design.md` in the repository for the design.
 //!
@@ -235,6 +243,7 @@ mod fringe;
 mod grid;
 #[cfg(feature = "parallel")]
 mod hda;
+mod hierarchical;
 mod indexed_heap;
 mod keyed_set;
 mod landmarks;
@@ -297,6 +306,11 @@ pub use grid::{
 };
 #[cfg(feature = "parallel")]
 pub use hda::{hda_star, hda_star_multi};
+pub use hierarchical::{
+    GridClusters, Hierarchy, Regions, hierarchical_a_star, hierarchical_a_star_multi,
+};
+#[cfg(feature = "parallel")]
+pub use hierarchical::{hierarchical_a_star_par, hierarchical_a_star_par_multi};
 pub use landmarks::{LandmarkHeuristic, LandmarkSelection, Landmarks};
 pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp, lazy_sp_multi};
 pub use mha::{MhaWeights, mha_star, mha_star_multi};

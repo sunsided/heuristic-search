@@ -48,6 +48,10 @@ for the design behind it.
   cutting, with the exact octile cost `Octile` (`a + b√2`, compared without rounding);
   `EightConnected` makes a grid a graph for the other searches; any-angle Theta* and
   Lazy Theta* (`theta_star`, `lazy_theta_star`, feature `float`) on a `LineOfSight` grid
+- Hierarchical A* (`hierarchical_a_star`, HPA*): a `Hierarchy` built once over a graph
+  split into regions (rooms and doors, or square clusters of a grid with entrance cells on
+  their borders), A* on the abstract graph, then A* inside each region; refinement
+  across threads with `hierarchical_a_star_par` (feature `parallel`)
 - Every search also from several start states (`*_multi`; the incremental planners as
   `LpaStarMulti`, `DStarLiteMulti`, `AdStarMulti` with fixed starts)
 - Many queries per frame: reusable workspaces for the best-first searches (`Workspace`
@@ -125,7 +129,8 @@ assert_eq!(solution.cost, 3);
 
 The crate is `no_std` and needs only `alloc`. The feature `float` adds the float cost
 `NonNegF64`, the any-angle grid searches Theta* and Lazy Theta*, and Field D*. The
-feature `parallel` adds hash-distributed A* and `solve_batch` and needs `std`.
+feature `parallel` adds hash-distributed A*, `solve_batch` and `hierarchical_a_star_par`
+and needs `std`.
 
 ## MSRV
 
