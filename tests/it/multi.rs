@@ -7,7 +7,7 @@ use heuristic_search::{
     ara_star_multi, bae_star_multi, beam_search_multi, beam_stack_search_multi, bfs,
     bidirectional_bfs_multi, bidirectional_dijkstra_multi, depth_limited_dfs_multi, dfs_multi,
     dibbs_multi, dps_multi, ees_multi, focal_fn, focal_search_multi, fringe_search_multi,
-    heuristic_fn, ida_star_multi, iddfs_multi, lazy_sp_multi, mha_star_multi, nbs_multi,
+    heuristic_fn, ida_star_multi, iddfs_multi, lazy_sp_multi, mha_star_multi, mm_multi, nbs_multi,
     rbfs_multi, sma_star_multi,
 };
 use proptest::prelude::*;
@@ -64,6 +64,7 @@ proptest! {
             ("nbs", nbs_multi(&graph, s(), [goal], heuristic_fn(h), Zero, Limits::NONE)),
             ("dibbs", dibbs_multi(&graph, s(), [goal], heuristic_fn(h), Zero, Limits::NONE)),
             ("bae_star", bae_star_multi(&graph, s(), [goal], heuristic_fn(h), Zero, Limits::NONE)),
+            ("mm", mm_multi(&graph, s(), [goal], heuristic_fn(h), Zero, Limits::NONE)),
         ];
         for (name, result) in &results {
             prop_assert_eq!(checked(&graph, &starts, result, best), best, "{}", name);

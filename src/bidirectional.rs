@@ -1,6 +1,6 @@
 //! Bidirectional search from a start state forwards and from goal states backwards, until
 //! the frontiers meet: [`bidirectional_bfs`], [`bidirectional_dijkstra`], [`nbs()`],
-//! [`dibbs`] and [`bae_star`].
+//! [`dibbs`], [`bae_star`] and [`mm()`].
 //!
 //! The graph must implement [`Successors`] and [`Predecessors`] over the same states,
 //! actions and costs (the [`BidirectionalGraph`] bound). Goals are explicit states, not a
@@ -15,15 +15,18 @@
 //! | [`nbs()`]                    | a pair `(u, v)` with `lb(u, v) <= CLB`, both    | `CLB >= mu`                       | admissible `h` |
 //! | [`dibbs`]                  | the side with the smaller `b = 2g + h - h_opp` | `b_min_F + b_min_B >= 2 mu`       | consistent `h` |
 //! | [`bae_star`]               | the side with fewer open states, by `b`        | `b_min_F + b_min_B >= 2 mu`       | consistent `h` |
+//! | [`mm()`]                   | the side with the smaller `pr = max(f, 2g)`    | `mu <= max(pr_min, f_min_F, f_min_B, g_min_F + g_min_B)` | admissible `h` |
 //!
 //! The forward heuristic estimates the cost from a state to the nearest goal, the backward
 //! heuristic the cost from the start to a state. Each side reopens closed states when a
-//! cheaper path turns up.
+//! cheaper path turns up. [`mm()`] never expands a state whose `g` exceeds half the
+//! optimal cost, on either side; with [`Zero`](crate::Zero) heuristics it is MM0.
 
 mod bfs;
 mod frontier;
 mod meet;
 mod mixed;
+mod mm;
 mod nbs;
 
 pub use bfs::{bidirectional_bfs, bidirectional_bfs_meet, bidirectional_bfs_multi};
@@ -33,6 +36,7 @@ pub use frontier::{
 };
 pub use meet::{MeetFn, MeetRelation, MeetResult, ReplayError, meet_fn};
 pub use mixed::RegressionGraph;
+pub use mm::{mm, mm_meet, mm_multi};
 pub use nbs::{nbs, nbs_meet, nbs_multi};
 
 use meet::{Direction, Equality, Meeting, Meets};

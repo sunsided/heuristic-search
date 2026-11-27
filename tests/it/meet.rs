@@ -6,7 +6,8 @@
 
 use heuristic_search::{
     Heuristic, Limits, Predecessors, ReplayError, Solution, Successors, Zero, bae_star_meet, bfs,
-    bidirectional_bfs_meet, bidirectional_dijkstra_meet, dibbs_meet, dijkstra, meet_fn, nbs_meet,
+    bidirectional_bfs_meet, bidirectional_dijkstra_meet, dibbs_meet, dijkstra, meet_fn, mm_meet,
+    nbs_meet,
 };
 use proptest::prelude::*;
 
@@ -164,9 +165,11 @@ proptest! {
             nbs_meet(&task, [start], goals, Zero, Zero, meet_fn(satisfies), Limits::NONE),
             dibbs_meet(&task, [start], goals, Zero, Zero, meet_fn(satisfies), Limits::NONE),
             bae_star_meet(&task, [start], goals, Zero, Zero, meet_fn(satisfies), Limits::NONE),
+            mm_meet(&task, [start], goals, Zero, Zero, meet_fn(satisfies), Limits::NONE),
             nbs_meet(&task, [start], goals, to(), from(), meet_fn(satisfies), Limits::NONE),
             dibbs_meet(&task, [start], goals, to(), from(), meet_fn(satisfies), Limits::NONE),
             bae_star_meet(&task, [start], goals, to(), from(), meet_fn(satisfies), Limits::NONE),
+            mm_meet(&task, [start], goals, to(), from(), meet_fn(satisfies), Limits::NONE),
         ];
         for result in results {
             let result = result.expect("delete-free regression replays");
@@ -195,6 +198,7 @@ proptest! {
             nbs_meet(&graph, [0], [goal], Zero, Zero, meet_fn(equal), Limits::NONE),
             dibbs_meet(&graph, [0], [goal], Zero, Zero, meet_fn(equal), Limits::NONE),
             bae_star_meet(&graph, [0], [goal], Zero, Zero, meet_fn(equal), Limits::NONE),
+            mm_meet(&graph, [0], [goal], Zero, Zero, meet_fn(equal), Limits::NONE),
         ];
         for result in results {
             let result = result.expect("equality always replays");

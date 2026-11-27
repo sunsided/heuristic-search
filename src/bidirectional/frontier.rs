@@ -1,5 +1,5 @@
 //! Bidirectional best-first search with one open list per side:
-//! [`bidirectional_dijkstra`], [`dibbs`] and [`bae_star`].
+//! [`bidirectional_dijkstra`], [`dibbs`] and [`bae_star`]; [`mm`](crate::mm) shares the loop.
 
 use core::cmp::Reverse;
 use core::hash::Hash;
@@ -406,13 +406,16 @@ where
 
 /// How a [`Frontier`] search orders, picks a side and stops.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Rule {
+pub(super) enum Rule {
     /// Key `g`; smaller key expands; stop at `k_F + k_B >= mu`.
     Dijkstra,
     /// Key `b`; smaller key expands; stop at `k_F + k_B >= 2 mu`.
     Dibbs,
     /// Key `b`; the side with fewer open states expands; stop at `k_F + k_B >= 2 mu`.
     Bae,
+    /// Key `pr = max(f, 2g)`; smaller key expands; stop at
+    /// `mu <= max(min(k_F, k_B), f_min_F, f_min_B, g_min_F + g_min_B)`.
+    Mm,
 }
 
 /// Open-list order of one side: smallest key, then larger `g`, then node id.
@@ -717,11 +720,14 @@ where
 }
 
 /// A bidirectional search with one keyed open list per side.
-struct Frontier<'a, G: BidirectionalGraph, HF, HB, M> {
+pub(super) struct Frontier<'a, G: BidirectionalGraph, HF, HB, M> {
     /// Both sides, the heuristics, the counters and the best meet.
     core: Core<'a, G, HF, HB, M>,
     /// The open lists, indexed by [`Direction::index`].
     open: [KeyedSet<Key<<G as Successors>::Cost>>; 2],
+    /// For [`Rule::Mm`] only: the open nodes of each side keyed by `f` and by `g`, for the
+    /// stopping rule. Indexed by [`Direction::index`], then `0` for `f` and `1` for `g`.
+    bounds: [[KeyedSet<<G as Successors>::Cost>; 2]; 2],
     /// The ordering, side-selection and stopping rule.
     rule: Rule,
 }
@@ -737,10 +743,14 @@ where
     M: Meets<G::State>,
 {
     /// Opens the live seeds of both sides.
-    fn new(core: Core<'a, G, HF, HB, M>, rule: Rule) -> Self {
+    pub(super) fn new(core: Core<'a, G, HF, HB, M>, rule: Rule) -> Self {
         let mut search = Self {
             core,
             open: [KeyedSet::new(), KeyedSet::new()],
+            bounds: [
+                [KeyedSet::new(), KeyedSet::new()],
+                [KeyedSet::new(), KeyedSet::new()],
+            ],
             rule,
         };
 
@@ -754,7 +764,7 @@ where
     }
 
     /// Expands until the stopping rule holds, a side runs empty or the budget is used up.
-    fn run(mut self, mut budget: impl Budget<Stats>) -> GraphResult<G> {
+    pub(super) fn run(mut self, mut budget: impl Budget<Stats>) -> GraphResult<G> {
         let mut touched = Vec::new();
         loop {
             let (Some(forward), Some(backward)) = (
@@ -777,6 +787,9 @@ where
                 .first()
                 .expect("the side is not empty");
             self.open[direction.index()].remove(node);
+            for bound in &mut self.bounds[direction.index()] {
+                bound.remove(node);
+            }
             self.core.expand(direction, node, true, &mut touched);
             for id in touched.drain(..) {
                 self.open(direction, id);
@@ -799,7 +812,27 @@ where
                 .core
                 .mu()
                 .is_some_and(|mu| sum.cmp(&mu.saturating_times(2)).is_ge()),
+            // Epsilon, the smallest edge cost, is taken as zero: correct for every cost
+            // type, though a positive one would stop sooner.
+            Rule::Mm => self.core.proven(
+                forward
+                    .min(backward)
+                    .max(self.bound(Direction::Forward, 0))
+                    .max(self.bound(Direction::Backward, 0))
+                    .max(
+                        self.bound(Direction::Forward, 1)
+                            .saturating_add(self.bound(Direction::Backward, 1)),
+                    ),
+            ),
         }
+    }
+
+    /// The smallest `f` (`which == 0`) or `g` (`which == 1`) open on `direction`'s side;
+    /// zero if the side is empty.
+    fn bound(&self, direction: Direction, which: usize) -> <G as Successors>::Cost {
+        self.bounds[direction.index()][which]
+            .first()
+            .map_or(<G as Successors>::Cost::ZERO, |(key, _)| *key)
     }
 
     /// The direction to expand next.
@@ -809,7 +842,7 @@ where
         backward: <G as Successors>::Cost,
     ) -> Direction {
         let forward_first = match self.rule {
-            Rule::Dijkstra | Rule::Dibbs => forward.cmp(&backward).is_le(),
+            Rule::Dijkstra | Rule::Dibbs | Rule::Mm => forward.cmp(&backward).is_le(),
             Rule::Bae => self.open[0].len() <= self.open[1].len(),
         };
 
@@ -830,6 +863,13 @@ where
         let key = match self.rule {
             Rule::Dijkstra => g,
             Rule::Dibbs | Rule::Bae => (g + g + h).saturating_sub(h_opposite),
+            Rule::Mm => {
+                let f = g.saturating_add(h);
+                let bounds = &mut self.bounds[direction.index()];
+                bounds[0].insert(id, f);
+                bounds[1].insert(id, g);
+                f.max(g.saturating_times(2))
+            }
         };
 
         self.open[direction.index()].insert(id, (key, Reverse(g)));

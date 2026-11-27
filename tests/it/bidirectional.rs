@@ -1,9 +1,11 @@
 //! Bidirectional searches: hand-made cases and cross-checks against the distance oracle on
-//! random graphs with several goals.
+//! random graphs with several goals, and MM's meet-in-the-middle bound on its expansions.
+
+use std::cell::RefCell;
 
 use heuristic_search::{
-    Limits, Outcome, Zero, bae_star, bidirectional_bfs, bidirectional_dijkstra, dibbs,
-    heuristic_fn, nbs,
+    Limits, Outcome, Predecessors, Successors, Zero, bae_star, bidirectional_bfs,
+    bidirectional_dijkstra, dibbs, heuristic_fn, mm, nbs,
 };
 use proptest::prelude::*;
 
@@ -32,6 +34,7 @@ fn unsolvable_and_trivial() {
         nbs(&graph, 0, [2], Zero, Zero, Limits::NONE),
         dibbs(&graph, 0, [2], Zero, Zero, Limits::NONE),
         bae_star(&graph, 0, [2], Zero, Zero, Limits::NONE),
+        mm(&graph, 0, [2], Zero, Zero, Limits::NONE),
     ];
     assert!(results.iter().all(|r| r.outcome == Outcome::Unsolvable));
 
@@ -41,6 +44,7 @@ fn unsolvable_and_trivial() {
         nbs(&graph, 0, [1, 0], Zero, Zero, Limits::NONE),
         dibbs(&graph, 0, [1, 0], Zero, Zero, Limits::NONE),
         bae_star(&graph, 0, [1, 0], Zero, Zero, Limits::NONE),
+        mm(&graph, 0, [1, 0], Zero, Zero, Limits::NONE),
     ];
     for result in results {
         assert_eq!(result.solution().map(|s| s.cost), Some(0));
@@ -66,6 +70,59 @@ fn budget_stops_search() {
         nbs(&graph, 0, [2], Zero, Zero, none).outcome,
         Outcome::LimitReached
     );
+    assert_eq!(
+        mm(&graph, 0, [2], Zero, Zero, none).outcome,
+        Outcome::LimitReached
+    );
+}
+
+/// On a line of three unit edges MM0 stops after three expansions through the
+/// `g_min_F + g_min_B` term of its stopping rule; the other terms alone would need a
+/// fourth.
+#[test]
+fn mm_stops_on_g_sum() {
+    let graph = Graph::new(4, &[(0, 1, 1), (1, 2, 1), (2, 3, 1)]);
+
+    let result = mm(&graph, 0, [3], Zero, Zero, Limits::NONE);
+
+    assert_eq!(result.solution().map(|s| s.cost), Some(3));
+    assert_eq!(result.stats.expanded, 3);
+}
+
+/// A heuristic over [`Graph`] states as a closure.
+type Estimate<'a> = &'a dyn Fn(&usize) -> Option<u64>;
+
+/// A [`Graph`] that records the state of every expansion: forward ones through
+/// [`Successors`], backward ones through [`Predecessors`].
+struct Recorder<'a> {
+    /// The graph searched.
+    graph: &'a Graph,
+    /// States expanded forwards, in order.
+    forward: RefCell<Vec<usize>>,
+    /// States expanded backwards, in order.
+    backward: RefCell<Vec<usize>>,
+}
+
+impl Successors for Recorder<'_> {
+    type State = usize;
+    type Action = usize;
+    type Cost = u64;
+
+    fn successors(&self, state: &usize, emit: impl FnMut(usize, usize, u64)) {
+        self.forward.borrow_mut().push(*state);
+        self.graph.successors(state, emit);
+    }
+}
+
+impl Predecessors for Recorder<'_> {
+    type Node = usize;
+    type Action = usize;
+    type Cost = u64;
+
+    fn predecessors(&self, node: &usize, emit: impl FnMut(usize, usize, u64)) {
+        self.backward.borrow_mut().push(*node);
+        self.graph.predecessors(node, emit);
+    }
 }
 
 /// Bidirectional Dijkstra prefers three cheap edges over one expensive edge, and the path
@@ -117,6 +174,8 @@ proptest! {
             nbs(&graph, 0, goals_iter(), heuristic_fn(forward), heuristic_fn(backward), Limits::NONE),
             dibbs(&graph, 0, goals_iter(), heuristic_fn(forward_c), heuristic_fn(backward_c), Limits::NONE),
             bae_star(&graph, 0, goals_iter(), heuristic_fn(forward_c), heuristic_fn(backward_c), Limits::NONE),
+            mm(&graph, 0, goals_iter(), heuristic_fn(forward), heuristic_fn(backward), Limits::NONE),
+            mm(&graph, 0, goals_iter(), Zero, Zero, Limits::NONE),
         ];
         for (index, result) in results.iter().enumerate() {
             prop_assert_eq!(result.solution().map(|s| s.cost), to_goal[0], "algorithm {}", index);
@@ -126,6 +185,50 @@ proptest! {
             if let Some(solution) = result.solution() {
                 assert_valid_path(&graph, 0, solution);
                 prop_assert!(goals.contains(solution.goal()));
+            }
+        }
+    }
+
+    /// MM meets in the middle: every state it expands has `pr = max(g + h, 2g) <= C*`. The
+    /// true distance from its side's root never exceeds the `g` at expansion, so both
+    /// `2 * distance <= C*` and `distance + h <= C*` hold for every expansion, with
+    /// admissible scaled distances, consistent halved distances and zero heuristics.
+    #[test]
+    fn mm_meets_in_the_middle(
+        (graph, goal) in graph_and_goal(),
+        extra_goals in prop::collection::vec(0_usize..12, 0..3),
+        scales in prop::collection::vec(0_u64..=4, 12),
+    ) {
+        let nodes = graph.edges.len();
+        let mut goals = vec![goal];
+        goals.extend(extra_goals.into_iter().map(|g| g % nodes));
+        let to_goal = nearest(&graph, &goals);
+        let from_start = distances_from(&graph, 0);
+        let Some(optimal) = to_goal[0] else {
+            return Ok(());
+        };
+
+        let scaled_f = |s: &usize| to_goal[*s].map(|d| d * scales[*s] / 4);
+        let scaled_b = |s: &usize| from_start[*s].map(|d| d * scales[(*s + 5) % 12] / 4);
+        let halved_f = |s: &usize| to_goal[*s].map(|d| d / 2);
+        let halved_b = |s: &usize| from_start[*s].map(|d| d / 2);
+        let zero = |_: &usize| Some(0);
+        let pairs: [(Estimate, Estimate); 3] =
+            [(&scaled_f, &scaled_b), (&halved_f, &halved_b), (&zero, &zero)];
+
+        for (forward, backward) in pairs {
+            let recorder = Recorder { graph: &graph, forward: RefCell::default(), backward: RefCell::default() };
+            let result = mm(&recorder, 0, goals.iter().copied(), heuristic_fn(forward), heuristic_fn(backward), Limits::NONE);
+            prop_assert_eq!(result.solution().map(|s| s.cost), Some(optimal));
+
+            let sides = [(&recorder.forward, &from_start, forward), (&recorder.backward, &to_goal, backward)];
+            for (expanded, distances, h) in sides {
+                for &state in expanded.borrow().iter() {
+                    let distance = distances[state].expect("expanded states lie between start and goal");
+                    let h = h(&state).expect("dead ends are never expanded");
+                    prop_assert!(2 * distance <= optimal, "{} at {} of {}", state, distance, optimal);
+                    prop_assert!(distance + h <= optimal, "{} at {} + {} of {}", state, distance, h, optimal);
+                }
             }
         }
     }
