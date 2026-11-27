@@ -8,7 +8,7 @@ use heuristic_search::{
 };
 use proptest::prelude::*;
 
-use crate::fixtures::{Cell, Graph, Grid, manhattan};
+use crate::fixtures::{Cell, Graph, Grid, distances_from, manhattan};
 
 /// A mutable directed graph as a list of `(from, to, cost)` edges over nodes `0..nodes`.
 #[derive(Debug, Clone)]
@@ -607,6 +607,39 @@ proptest! {
         }
     }
 
+    /// With the exact distances as a consistent, nonzero heuristic, start moves raise
+    /// D* Lite's `km` and cost re-keys under the global share; the agent still reaches the
+    /// goal within the limit per step, and with unlimited expansions along a cheapest path.
+    #[test]
+    fn rtd_star_reaches_the_goal_with_an_informed_heuristic(
+        (graph, start, goal) in connected_scenario(),
+        expansions in 1_usize..12,
+    ) {
+        let snapshot = graph.snapshot();
+        let exact: Vec<Vec<u64>> = (0..graph.nodes)
+            .map(|from| {
+                distances_from(&snapshot, from)
+                    .into_iter()
+                    .map(|d| d.expect("strongly connected"))
+                    .collect()
+            })
+            .collect();
+        let distance = |a: &usize, b: &usize| exact[*a][*b];
+
+        for share in LOCAL_SHARES {
+            let mut agent = RealTimeDStar::new(&graph, start, goal, distance, share);
+            prop_assert_eq!(drive(&mut agent, &graph, expansions), AgentStep::Arrived);
+            let trial = agent.into_trial();
+            prop_assert!(trial.trial.max_step_expansions <= expansions as u64);
+            prop_assert_eq!(trial.solution().map(|s| *s.goal()), Some(goal));
+        }
+
+        let mut agent = RealTimeDStar::new(&graph, start, goal, distance, Weight::new(1, 2));
+        prop_assert_eq!(drive(&mut agent, &graph, usize::MAX), AgentStep::Arrived);
+        let cost = agent.into_trial().solution().map(|s| s.cost);
+        prop_assert_eq!(cost, optimum(&graph, start, goal));
+    }
+
     /// With unlimited expansions every step is fully informed and the agent follows a
     /// cheapest path, or waits where no path exists.
     #[test]
@@ -767,4 +800,28 @@ fn rtd_star_rejects_local_shares_above_one() {
         edges: vec![(0, 1, 1)],
     };
     let _ = RealTimeDStar::new(&graph, 0, 1, |_: &usize, _: &usize| 0, Weight::new(3, 2));
+}
+
+/// The agent stands in a pocket that is cut off for one step, so the lookahead proves it a
+/// dead end; once an exit appears and is reported, the agent leaves and arrives, for
+/// every local share.
+#[test]
+fn rtd_star_leaves_a_pocket_once_an_exit_appears() {
+    for share in LOCAL_SHARES {
+        // 0 <-> 1 is the pocket; 2 -> 3 is the way to the goal 3.
+        let mut graph = Edges {
+            nodes: 4,
+            edges: vec![(0, 1, 1), (1, 0, 1), (2, 3, 1)],
+        };
+        let mut agent = RealTimeDStar::new(&graph, 0, 3, |_: &usize, _: &usize| 0, share);
+        assert_eq!(agent.step(&graph, 8), AgentStep::Waiting, "{share:?}");
+
+        graph.edges.push((1, 2, 1));
+        agent.edge_changed(&graph, &1, &2);
+        assert_eq!(
+            drive(&mut agent, &graph, 8),
+            AgentStep::Arrived,
+            "{share:?}"
+        );
+    }
 }

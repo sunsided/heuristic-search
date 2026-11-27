@@ -66,11 +66,13 @@ pub enum AgentStep {
 /// informed, so the agent follows D* Lite's cheapest path for the current costs. The
 /// learned values of the local search last for the planner's lifetime; they assume the
 /// costs at the time they were learned and can overestimate after costs fall, which the
-/// global search corrects once it reaches the agent.
+/// global search corrects once it reaches the agent. Learned dead ends are forgotten after
+/// every reported change, since a new edge may connect them to the goal.
 ///
-/// On a finite graph with positive edge costs from which the goal stays reachable, the
-/// agent reaches the goal (the paper's Theorem 2: the global search reaches the agent
-/// after finitely many steps). As for [`DStarLite`](crate::DStarLite), `heuristic(a, b)`
+/// In a static finite graph with positive edge costs from which the goal is reachable, the
+/// global search reaches the agent after finitely many steps if its share is large enough
+/// (the paper's Theorem 2), and from then on every step is fully informed. In changing
+/// graphs there is no such guarantee. As for [`DStarLite`](crate::DStarLite), `heuristic(a, b)`
 /// estimates the cost from `a` to `b` and must be consistent for the costs at every point
 /// in time; the local search uses `heuristic(v, goal)`. [`RealTimeDStar::into_trial`]
 /// reports the run as the real-time searches report a trial.
@@ -135,6 +137,8 @@ pub struct RealTimeDStar<V, C, D> {
     trial: TrialStats,
     /// Whether the last step found no way to the goal.
     waiting: bool,
+    /// Whether an edge changed since the last lookahead, so learned dead ends may be stale.
+    changed: bool,
 }
 
 impl<V, C, D> RealTimeDStar<V, C, D>
@@ -171,6 +175,7 @@ where
             stats: Stats::default(),
             trial: TrialStats::default(),
             waiting: false,
+            changed: false,
         }
     }
 
@@ -234,6 +239,7 @@ where
         to: &V,
     ) {
         self.core.edge_changed(graph, from, to);
+        self.changed = true;
     }
 
     /// The vertex the agent stands on.
@@ -310,6 +316,10 @@ where
         local: usize,
         stats: &mut Stats,
     ) -> (Option<(V, C)>, u64) {
+        if core::mem::take(&mut self.changed) {
+            self.table.forget_dead_ends();
+        }
+
         let goal = &self.goal;
         let heuristic = self.core.heuristic();
         let table = core::mem::replace(&mut self.table, LearnedHeuristic::new(Zero));

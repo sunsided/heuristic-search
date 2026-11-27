@@ -852,15 +852,20 @@ learned values. Both share one closure: the table keeps only learned values and 
 heuristic as its base for the duration of each lookahead (`LearnedHeuristic::rebase`),
 so `RealTimeDStar` needs no `Clone` or shared ownership of the heuristic. Learned values
 can overestimate after costs fall (the paper's point that LSS-LRTA* does not handle cost
-decreases); fully informed steps ignore them.
+decreases); fully informed steps ignore them. Learned dead ends are dropped after any
+reported edge change: an appearing edge can connect them to the goal, and with a local
+share of `1` (no global search) a stale dead end would keep the agent waiting forever.
+This is not in the paper, whose local search is not described as learning dead ends.
 
 Completeness (the paper's Theorem 2): in a static finite graph from which the goal is
-reachable, with a global share of at least one expansion and a consistent heuristic,
-D* Lite eventually reaches the agent, and from then on every step is fully informed (the
-moved-to vertex is settled at once: its key is at most the old start's). With a local
-share of `1` the global search gets nothing and the agent is LSS-LRTA* moving one edge per
-lookahead; the tests check that it reaches the goal too. In changing graphs there is no
-guarantee (the paper's example of doors that close as the agent approaches).
+reachable, if the global share exceeds the re-key expansions the start's moves cause,
+D* Lite eventually reaches the agent. From then on every step is fully informed: with a
+consistent heuristic the moved-to vertex is settled at once, since its key is at most the
+old start's. The tests find arrival for every limit from 1 and every share on random
+graphs, with zero and with exact-distance heuristics; that is tested, not proven, for
+the small shares. With a local share of `1` the global search gets nothing and the agent
+is LSS-LRTA* moving one edge per lookahead. In changing graphs there is no guarantee (the
+paper's example of doors that close as the agent approaches).
 
 ## Naming
 
@@ -933,7 +938,10 @@ rejected: they are not one-shot searches.
   edges, one per step, within the limit per step; with unlimited expansions every step is
   fully informed and the travelled cost equals Dijkstra's (or the agent waits where no
   path exists); with random cost changes, additions and removals between steps it still
-  arrives; and on a grid with toggled walls it waits while the goal is enclosed.
+  arrives; with exact distances as the heuristic (so start moves raise `km`) it arrives
+  and, unlimited, travels Dijkstra's cost; it leaves a pocket it had learned as a dead end
+  once an exit appears; and on a grid with toggled walls it waits while the goal is
+  enclosed.
 - Every search function has a doctest.
 - `no_std` is checked by building for `thumbv7em-none-eabihf`.
 - The property-test oracle (Bellman-Ford in the test fixtures) is independent of the
