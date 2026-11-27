@@ -25,6 +25,7 @@ mod multi;
 mod properties;
 mod rbfs;
 mod real_time;
+mod send_sync;
 mod sma;
 mod small_graphs;
 #[cfg(feature = "float")]
