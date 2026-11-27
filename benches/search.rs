@@ -3,7 +3,8 @@
 //! D* Lite and AD* repairs after the wall changes; and the depth-first searches on a
 //! small open grid, where tree searches meet many transpositions; Jump Point Search
 //! against A* on the 8-connected version of the wall grid, and (feature `float`) Theta*
-//! and Lazy Theta* there, and Field D*'s plan and repair over the grid's corners.
+//! and Lazy Theta* there, and Field D*'s plan and repair over the grid's corners;
+//! (feature `parallel`) hash-distributed A* against A* on both versions of the grid.
 //!
 //! Run with `cargo bench`.
 
@@ -209,6 +210,44 @@ fn bench_jps(c: &mut Criterion, grid: &Grid) {
             ))
         });
     });
+}
+
+/// Hash-distributed A* on 1, 2 and 4 threads against A* (`a_star grid` and `a_star
+/// eight-connected grid`), on the 4-connected and the 8-connected wall grid.
+#[cfg(feature = "parallel")]
+fn bench_hda_star(c: &mut Criterion, grid: &Grid) {
+    use heuristic_search::hda_star;
+
+    let (start, goal) = ((0, 0), (0, SIZE - 1));
+    for threads in [1, 2, 4] {
+        c.bench_function(&format!("hda_star grid threads={threads}"), |b| {
+            b.iter(|| {
+                black_box(hda_star(
+                    grid,
+                    START,
+                    &at_goal,
+                    to_goal(),
+                    threads,
+                    Limits::NONE,
+                ))
+            });
+        });
+        c.bench_function(
+            &format!("hda_star eight-connected grid threads={threads}"),
+            |b| {
+                b.iter(|| {
+                    black_box(hda_star(
+                        &EightConnected(grid),
+                        start,
+                        &|cell: &Cell| *cell == goal,
+                        OctileDistance(goal),
+                        threads,
+                        Limits::NONE,
+                    ))
+                });
+            },
+        );
+    }
 }
 
 /// Theta* and Lazy Theta* on the 8-connected grid, around the wall.
@@ -583,6 +622,8 @@ fn main() {
     bench_fringe_search(&mut c, &grid);
     bench_beam(&mut c, &grid);
     bench_jps(&mut c, &grid);
+    #[cfg(feature = "parallel")]
+    bench_hda_star(&mut c, &grid);
     #[cfg(feature = "float")]
     bench_theta_star(&mut c, &grid);
     bench_focal_search(&mut c, &grid);

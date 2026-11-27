@@ -64,6 +64,8 @@ for the design behind it.
   LRTA*, RTA*, LSS-LRTA* (A* lookahead, Dijkstra update), RTAA*, and the limited-horizon
   Bellman update of Hadar et al. 2025 (`lhb_update` offline, `lhb_lrta_star` inside the
   LSS-LRTA* agent); learning curves in `benches/learning.rs` and the design notes
+- Parallel (feature `parallel`): hash-distributed A* (`hda_star`), one A* search over
+  several threads that own the states by hash, with the same optimal cost as A*
 - Naming: every A* variant is `*_star` (`a_star`, `weighted_a_star`, ...)
 - Shared traits: `Cost`, `Heuristic`, `Goal` and `Budget<Stats>` come from `search-core`
   and are re-exported from the crate root. Costs are the unsigned integers, `Decimal<K>`
@@ -107,7 +109,8 @@ assert_eq!(solution.cost, 3);
 ```
 
 The crate is `no_std` and needs only `alloc`. The feature `float` adds the float cost
-`NonNegF64`, the any-angle grid searches Theta* and Lazy Theta*, and Field D*.
+`NonNegF64`, the any-angle grid searches Theta* and Lazy Theta*, and Field D*. The
+feature `parallel` adds hash-distributed A* and needs `std`.
 
 ## MSRV
 

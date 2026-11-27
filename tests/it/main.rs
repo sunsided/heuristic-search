@@ -12,6 +12,8 @@ mod field;
 mod fixtures;
 mod fringe;
 mod grid;
+#[cfg(feature = "parallel")]
+mod hda;
 mod jps;
 mod lazy;
 mod meet;
