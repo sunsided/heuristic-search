@@ -623,9 +623,9 @@ where
     Engine::new(graph, goal, heuristic, Order::H, workspace).run(starts, budget)
 }
 
-/// How the engine orders its open list.
-#[derive(Clone, Copy)]
-enum Order {
+/// How the engine orders its open list; also the order of the real-time lookaheads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Order {
     /// By path cost `g` only (Dijkstra). The heuristic is still asked, for dead ends.
     G,
     /// By `denominator * g + numerator * h` ([`Weight`]), which sorts like `g + w * h`.
@@ -639,7 +639,7 @@ impl Order {
     ///
     /// Saturates for integer costs, so keys near the maximum of the cost type tie instead of
     /// overflowing.
-    fn key<C: Cost>(self, g: C, h: C) -> C {
+    pub(crate) fn key<C: Cost>(self, g: C, h: C) -> C {
         match self {
             Self::G => g,
             Self::Weighted(weight) => g
@@ -650,7 +650,7 @@ impl Order {
     }
 
     /// Returns `true` if a cheaper path to a known state replaces the old one.
-    fn reopens(self) -> bool {
+    pub(crate) fn reopens(self) -> bool {
         !matches!(self, Self::H)
     }
 }

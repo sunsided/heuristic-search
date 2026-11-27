@@ -1,11 +1,12 @@
 //! Real-time search: hand-checked updates, the differences between LSS-LRTA*'s update and
-//! the limited-horizon Bellman update, and property tests on random graphs for
-//! admissibility, consistency, convergence to cheapest paths (against Dijkstra),
-//! completeness and bounded work per step.
+//! the limited-horizon Bellman update, the GBFS and BWAS search phases, and property tests
+//! on random graphs for admissibility, consistency, convergence to cheapest paths (against
+//! Dijkstra), completeness and bounded work per step.
 
 use heuristic_search::{
-    Heuristic, LearnedHeuristic, Limits, Outcome, TrialResult, Zero, dijkstra, heuristic_fn,
-    lhb_lrta_star, lhb_update, lrta_star, lss_lrta_star, rta_star, rtaa_star,
+    Heuristic, LearnedHeuristic, Limits, Outcome, TrialResult, Weight, Zero, dijkstra,
+    heuristic_fn, lhb_bwa_star, lhb_gbfs, lhb_lrta_star, lhb_update, lrta_star, lss_lrta_star,
+    rta_star, rtaa_star,
 };
 use proptest::prelude::*;
 
@@ -30,12 +31,16 @@ enum Agent {
     Lss(usize),
     /// [`lhb_lrta_star`] with this lookahead.
     Lhb(usize),
+    /// [`lhb_gbfs`] with this lookahead.
+    LhbGbfs(usize),
+    /// [`lhb_bwa_star`] with this lookahead, weight and batch size.
+    LhbBwa(usize, Weight, usize),
     /// [`rtaa_star`] with this lookahead.
     Rtaa(usize),
 }
 
 /// The searches whose learned values stay admissible, with several lookaheads.
-const LEARNERS: [Agent; 10] = [
+const LEARNERS: [Agent; 17] = [
     Agent::Lrta,
     Agent::Lss(1),
     Agent::Lss(3),
@@ -43,6 +48,13 @@ const LEARNERS: [Agent; 10] = [
     Agent::Lhb(1),
     Agent::Lhb(3),
     Agent::Lhb(8),
+    Agent::LhbGbfs(1),
+    Agent::LhbGbfs(3),
+    Agent::LhbGbfs(8),
+    Agent::LhbBwa(3, Weight::ONE, 2),
+    Agent::LhbBwa(8, Weight::ONE, 3),
+    Agent::LhbBwa(8, Weight::new(5, 3), 1),
+    Agent::LhbBwa(8, Weight::new(5, 3), 4),
     Agent::Rtaa(1),
     Agent::Rtaa(3),
     Agent::Rtaa(8),
@@ -65,6 +77,10 @@ impl Agent {
             Self::Rta => rta_star(graph, start, &is_goal, table, budget),
             Self::Lss(n) => lss_lrta_star(graph, start, &is_goal, table, n, budget),
             Self::Lhb(n) => lhb_lrta_star(graph, start, &is_goal, table, n, budget),
+            Self::LhbGbfs(n) => lhb_gbfs(graph, start, &is_goal, table, n, budget),
+            Self::LhbBwa(n, weight, batch) => {
+                lhb_bwa_star(graph, start, &is_goal, table, n, weight, batch, budget)
+            }
             Self::Rtaa(n) => rtaa_star(graph, start, &is_goal, table, n, budget),
         }
     }
@@ -73,7 +89,22 @@ impl Agent {
     fn lookahead(self) -> u64 {
         match self {
             Self::Lrta | Self::Rta => 1,
-            Self::Lss(n) | Self::Lhb(n) | Self::Rtaa(n) => n as u64,
+            Self::Lss(n)
+            | Self::Lhb(n)
+            | Self::LhbGbfs(n)
+            | Self::LhbBwa(n, ..)
+            | Self::Rtaa(n) => n as u64,
+        }
+    }
+
+    /// The weight `w` such that a trial that learns nothing costs at most `w` times the
+    /// optimum, or `None` if there is no such bound: GBFS ignores path costs, and a batch
+    /// expands states out of order.
+    fn converged_bound(self) -> Option<Weight> {
+        match self {
+            Self::LhbGbfs(_) | Self::LhbBwa(_, _, 2..) => None,
+            Self::LhbBwa(_, weight, _) => Some(weight),
+            _ => Some(Weight::ONE),
         }
     }
 
@@ -81,7 +112,7 @@ impl Agent {
     /// goal that the limited-horizon update sets to zero.
     fn max_updates(self) -> u64 {
         match self {
-            Self::Lhb(n) => n as u64 + 1,
+            Self::Lhb(_) | Self::LhbGbfs(_) | Self::LhbBwa(..) => self.lookahead() + 1,
             _ => self.lookahead(),
         }
     }
@@ -137,7 +168,8 @@ fn dijkstra_cost(graph: &Graph, start: usize, goal: usize) -> Option<u64> {
 /// Runs trials of `agent` from `start` until one changes no value, checking every trial's
 /// path, work bound and admissibility, and returns the number of trials.
 ///
-/// The converged trial's cost must be the cheapest cost.
+/// The converged trial's cost must be within [`Agent::converged_bound`] of the cheapest
+/// cost.
 fn converge<H: Heuristic<usize, u64>>(
     agent: Agent,
     graph: &Graph,
@@ -157,12 +189,17 @@ fn converge<H: Heuristic<usize, u64>>(
         assert_admissible(table, &exact);
 
         if result.trial.updates == 0 {
-            assert_eq!(
-                Some(solution.cost),
-                exact[start],
-                "{agent:?} converged off-optimum"
-            );
-            assert_eq!(Some(solution.cost), dijkstra_cost(graph, start, goal));
+            let optimum = exact[start].expect("strongly connected");
+            assert_eq!(Some(optimum), dijkstra_cost(graph, start, goal));
+            if let Some(weight) = agent.converged_bound() {
+                assert!(
+                    solution.cost * u64::from(weight.denominator())
+                        <= optimum * u64::from(weight.numerator()),
+                    "{agent:?} converged at {} against the optimum {optimum}",
+                    solution.cost
+                );
+            }
+
             return trial;
         }
     }
@@ -336,6 +373,112 @@ fn budget_stops_a_trial() {
     assert_eq!(result.stats.expanded, 50);
 }
 
+/// GBFS moves towards the smallest value, not the cheapest path: from `0` it heads for `2`
+/// (value 0, edge cost 4) where A* heads for `1`. Both learn the exact `h(0) = 2`. The
+/// table then stops changing while GBFS keeps taking the detour: a trial that learns
+/// nothing need not be cheapest when the search phase ignores path costs.
+#[test]
+fn gbfs_phase_follows_the_values() {
+    let graph = Graph::new(4, &[(0, 1, 1), (0, 2, 4), (1, 3, 1), (2, 3, 1)]);
+    let is_goal = |state: &usize| *state == 3;
+    let h = [0, 1, 0, 0];
+
+    let mut a_star = LearnedHeuristic::new(heuristic_fn(|state: &usize| Some(h[*state])));
+    let result = lhb_lrta_star(&graph, 0, &is_goal, &mut a_star, 1, Limits::NONE);
+    assert_eq!(
+        result.solution().map(|path| path.states.clone()),
+        Some(vec![0, 1, 3])
+    );
+    assert_eq!(a_star.get(&0), Some(2));
+
+    let mut greedy = LearnedHeuristic::new(heuristic_fn(|state: &usize| Some(h[*state])));
+    let result = lhb_gbfs(&graph, 0, &is_goal, &mut greedy, 1, Limits::NONE);
+    assert_eq!(
+        result.solution().map(|path| path.states.clone()),
+        Some(vec![0, 2, 3])
+    );
+    assert_eq!((greedy.get(&0), greedy.get(&2)), (Some(2), Some(1)));
+
+    let result = lhb_gbfs(&graph, 0, &is_goal, &mut greedy, 1, Limits::NONE);
+    assert_eq!(result.trial.updates, 0);
+    assert_eq!(result.solution().map(|path| path.cost), Some(5));
+}
+
+/// A batch takes several open states before expanding any; when a goal is among them, the
+/// step stops without expanding the batch. With a batch of two, `1` and the goal `2` are
+/// taken together after `0`, so only `0` is expanded; a batch of one expands `1` first.
+#[test]
+fn bwa_star_stops_on_a_goal_in_the_batch() {
+    let graph = Graph::new(3, &[(0, 1, 1), (0, 2, 1), (1, 2, 1)]);
+    let is_goal = |state: &usize| *state == 2;
+
+    for (batch, expanded) in [(1, 2), (2, 1)] {
+        let mut table = LearnedHeuristic::new(Zero);
+        let result = lhb_bwa_star(
+            &graph,
+            0,
+            &is_goal,
+            &mut table,
+            8,
+            Weight::ONE,
+            batch,
+            Limits::NONE,
+        );
+
+        assert_eq!(
+            result.solution().map(|path| path.states.clone()),
+            Some(vec![0, 2])
+        );
+        assert_eq!(result.stats.expanded, expanded, "batch {batch}");
+        assert_eq!(table.get(&0), Some(1));
+    }
+}
+
+/// The budget stops GBFS and BWAS trials that cannot finish, after exactly the allowed
+/// expansions.
+#[test]
+fn budget_stops_search_phase_trials() {
+    let graph = Graph::new(3, &[(0, 1, 1), (1, 0, 1), (2, 0, 1)]);
+    let is_goal = |state: &usize| *state == 2;
+
+    for agent in [
+        Agent::LhbGbfs(1),
+        Agent::LhbBwa(1, Weight::ONE, 3),
+        Agent::LhbBwa(1, Weight::integer(2), 1),
+    ] {
+        let mut table = LearnedHeuristic::new(Zero);
+        let budget = Limits::expansions(50);
+        let result = match agent {
+            Agent::LhbGbfs(n) => lhb_gbfs(&graph, 0, &is_goal, &mut table, n, budget),
+            Agent::LhbBwa(n, weight, batch) => {
+                lhb_bwa_star(&graph, 0, &is_goal, &mut table, n, weight, batch, budget)
+            }
+            _ => unreachable!("only search-phase agents"),
+        };
+
+        assert_eq!(result.outcome, Outcome::LimitReached, "{agent:?}");
+        assert_eq!(result.stats.expanded, 50, "{agent:?}");
+    }
+}
+
+/// A batch of zero cannot make progress.
+#[test]
+#[should_panic(expected = "a batch needs at least one state")]
+fn bwa_star_rejects_an_empty_batch() {
+    let graph = Graph::new(2, &[(0, 1, 1)]);
+    let mut table = LearnedHeuristic::new(Zero);
+    lhb_bwa_star(
+        &graph,
+        0,
+        &|state: &usize| *state == 1,
+        &mut table,
+        4,
+        Weight::ONE,
+        0,
+        Limits::NONE,
+    );
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(128))]
 
@@ -466,6 +609,33 @@ proptest! {
 
             for state in 0..graph.edges.len() {
                 prop_assert_eq!(lss.get(&state), lhb.get(&state));
+            }
+        }
+    }
+
+    /// BWAS with weight one and a batch of one is A*: its agent is `lhb_lrta_star`, trial
+    /// for trial, from admissible, usually inconsistent tables.
+    #[test]
+    fn bwa_star_with_weight_one_and_batch_one_is_lhb_lrta_star(
+        (graph, goal) in strongly_connected_graph_and_goal(),
+        scales in prop::collection::vec(0_u64..=4, 12),
+        start in 0_usize..12,
+        lookahead in 1_usize..10,
+    ) {
+        let start = start % graph.edges.len();
+        let exact = distances_to(&graph, goal);
+        let base = |state: &usize| exact[*state].map(|d| d * scales[*state] / 4);
+        let mut a_star = LearnedHeuristic::new(heuristic_fn(base));
+        let mut bwas = LearnedHeuristic::new(heuristic_fn(base));
+
+        for _ in 0..5 {
+            let by_a_star = Agent::Lhb(lookahead).trial(&graph, start, goal, &mut a_star);
+            let by_bwas =
+                Agent::LhbBwa(lookahead, Weight::ONE, 1).trial(&graph, start, goal, &mut bwas);
+            prop_assert_eq!(&by_a_star, &by_bwas);
+
+            for state in 0..graph.edges.len() {
+                prop_assert_eq!(a_star.get(&state), bwas.get(&state));
             }
         }
     }
