@@ -19,7 +19,9 @@ In scope:
 - dynamic graphs: LPA*, D* Lite, AD*; Field D* on grids with per-cell costs;
 - real-time search with learned tables: LRTA*, RTA*, LSS-LRTA*, RTAA*, and the
   limited-horizon Bellman update (LHB);
-- parallel (feature `parallel`): hash-distributed A* (HDA*).
+- parallel (feature `parallel`): hash-distributed A* (HDA*);
+- many queries: reusable workspaces, resumable A*, flow fields (backward Dijkstra from a
+  goal set) and parallel batches.
 
 Out of scope: symbolic (BDD) search, multi-objective search, width/novelty search,
 stochastic search, factored (decoupled) search. Those have their own crates in the
@@ -268,7 +270,8 @@ clock; annotate its argument (`|stats: &Stats| ...`). Searches take `impl Budget
 plus a `hashbrown::HashTable<NodeId>` that hashes the state each id points to. Each state is
 stored once; there is no second copy as a map key. Parent links make solution extraction a
 walk to the root. Node ids are dense, so per-node side data (heuristic value, closed flag)
-lives in parallel `Vec`s owned by the algorithm.
+lives in parallel `Vec`s owned by the algorithm (for the best-first searches, by their
+`Workspace`).
 
 ### Open list
 
@@ -552,6 +555,92 @@ A* (Kishimoto, Fukunaga and Botea): one A* search over `threads` scoped threads
   mutex (`Send`). A panic on one thread stops the others through a drop guard, and the
   scope then propagates it.
 
+## Many queries
+
+Games and simulations ask for paths for many agents per frame. Four tools share work
+between queries; none changes the searches themselves.
+
+### Workspaces
+
+```rust
+pub struct Workspace<S, A, C> { /* space, open list, h, closed, successor buffer */ }
+pub fn a_star_in<G, T, H>(workspace: &mut Workspace<G::State, G::Action, G::Cost>,
+                          graph: &G, start: G::State, goal: &T, heuristic: H,
+                          budget: impl Budget<Stats>) -> GraphResult<G>;
+```
+
+The best-first engine runs inside a `Workspace` that holds everything it allocates: the
+search space (arena and hash index), the open list, the per-node `h` and closed flags and
+the successor buffer. The one-shot searches create a fresh workspace and call the `_in`
+variant, so there is one code path and the results are identical by construction (a
+property test also compares whole results, counters included, across a reused
+workspace). A search clears the workspace when it starts, not when it ends, because a
+start-is-goal return or a budget stop leaves it in use. The heap's push counter is not
+reset: tie-breaking only compares counters within one search. A workspace keeps the
+capacity of the largest search it served; drop it to free that memory. All eight
+best-first functions have an `_in` variant (`a_star_in`, `dijkstra_in`,
+`weighted_a_star_in`, `gbfs_in` and their `_multi_in` forms). The other families keep their
+own state types and have none.
+
+### Resumable A*
+
+`AStarSearch` owns a workspace and its heuristic and is seeded at construction. Each
+`compute(graph, goal, budget)` continues the same run and returns `LimitReached` while it
+is paused. As for the incremental planners, the graph and goal are passed per call
+(storing `&goal` would not work with a temporary `&|s| ...`), and the budget and the
+returned stats cover that call, so `Limits::expansions(n)` means `n` expansions per frame;
+`stats()` gives the totals. To make pausing lossless the engine loop peeks the next live
+entry, tests it for the goal, asks the budget, and pops only to expand; re-pushing a popped
+entry would change its tie-break counter. The one-shot searches run the same loop, so
+the expansion order, outcome and total counters of a resumed search equal one `a_star`
+call. A finished search returns its outcome again on every further call without
+expanding: a found goal stays at the top of the open list, and a start that is a goal is
+remembered. This needs nothing from `search-core`: `Budget<Stats>` is asked as before.
+
+### Flow fields
+
+```rust
+impl<S, A, C> FlowField<S, A, C> {
+    pub fn build<G: Predecessors<Node = S, Action = A, Cost = C>>(
+        graph: &G, goals: impl IntoIterator<Item = S>, budget: impl Budget<Stats>) -> Self;
+    pub fn cost(&self, state: &S) -> Option<C>;
+    pub fn next(&self, state: &S) -> Option<(&A, &S, C)>;
+    pub fn path(&self, start: &S) -> Option<Solution<S, A, C>>;
+}
+```
+
+A flow field is `dijkstra_multi_in` over the graph's predecessors (an adapter that turns
+`Predecessors` into `Successors`) from every goal, with a goal test that never holds, so
+it runs until the open list is empty or the budget stops it. The finished workspace is
+the field: a state's `g` is its cost to the nearest goal, and its parent link is a forward
+edge (`Predecessors` reports the forward action and cost), so `next` is one hop and
+`path` is the existing walk to the root. Only expanded states are answered: with
+non-negative costs their `g` is final, and so is every ancestor's; states generated but
+not expanded before a budget stop have tentative costs and are reported as unknown.
+`is_complete` tells "no goal reachable" apart from "not settled yet". The name avoids
+`FieldDStar` and `FieldResult`, which are Field D*.
+
+`EightConnected` implements `Predecessors` so fields run on grids: the corner rule needs
+the same cells for a move and its reverse, so the predecessors are the successors with
+the step negated.
+
+### Batches
+
+`solve_batch(queries, threads, init, solve)` (feature `parallel`, `std`) runs scoped
+threads (`std::thread::scope`). Each thread builds its own state with `init`, typically a
+`Workspace`, and draws query indices from an atomic counter, so uneven queries balance
+across threads; answers are written back by index, so they come back in input order.
+`threads` is clamped to `1..=queries.len()`, and one thread runs on the caller. A panic in
+a worker is resumed on the caller after the scope has joined the others. No pool and no
+work stealing: no dependency beyond `std`.
+
+### Send and Sync
+
+Nothing in the crate uses `Rc`, `Cell` or raw pointers, so every graph adapter, result,
+learned table, planner, workspace and closure-built heuristic, goal, meet relation and
+focal key is `Send + Sync` exactly when its type parameters are. `tests/it/send_sync.rs`
+asserts this at compile time, generically over the parameters.
+
 ## Real-time search
 
 Module `real_time`. An agent plans a bounded amount, moves, and learns: every function runs
@@ -683,7 +772,8 @@ Every A* variant is a snake-case function ending in `_star`: `a_star`, `weighted
 `dijkstra`, `gbfs`, `dfs`, `iddfs`, `nbs`, `dibbs`, `ees`, `dps`, `lazy_sp`,
 `focal_search`). Suffixes compose in a fixed order: `_tt` for an algorithm variant,
 `_multi` for several starts, `_meet` for a meet relation (which always takes several
-starts, so there is no `_meet_multi`). Incremental planners keep state between calls and
+starts, so there is no `_meet_multi`), `_in` for a search in a caller's `Workspace`
+(`a_star_multi_in`). Incremental planners keep state between calls and
 are types: `LpaStar`, `DStarLite`, `AdStar`, `FieldDStar`. Renaming them to `*_star`-style functions was
 rejected: they are not one-shot searches.
 
@@ -726,6 +816,15 @@ rejected: they are not one-shot searches.
   inconsistent tables (the latter beyond the classic theorems for the lookahead searches;
   clean over 5000 random cases per property in one run), LSS and LHB agreement where their updates cannot differ, and offline
   LHB sweeps reaching exact costs.
+- Many queries (`tests/it/workspace.rs`, `flow.rs`, `batch.rs`, `send_sync.rs`): one
+  workspace reused across random queries, budget stops and starts that are goals returns
+  whole results equal to fresh searches; resumable A* in calls of 1 to 3 expansions
+  equals one `a_star` call in outcome and total counters; flow field costs equal the
+  Bellman-Ford distance to the nearest goal, `next` is a forward edge on a cheapest path,
+  and a budget-cut field answers exactly its expanded states, which are the closest ones;
+  `EightConnected` predecessors equal its reversed successors, and grid fields agree with
+  A*; batches equal the sequential searches at 0 to 5 threads, in order; panics reach the
+  caller; Send and Sync are asserted at compile time.
 - Every search function has a doctest.
 - `no_std` is checked by building for `thumbv7em-none-eabihf`.
 - The property-test oracle (Bellman-Ford in the test fixtures) is independent of the
@@ -736,8 +835,8 @@ rejected: they are not one-shot searches.
 - Goal test on generation for best-first search is a common speedup for GBFS. Add it as an
   option, or keep expansion-time tests everywhere except BFS?
 - Should `Stats` count heuristic evaluations, which dominate run time in planning?
-- Is a stepping API (resume a search after a budget stop) needed, for example for
-  portfolios that interleave planners? (The incremental planners already resume.)
+- Resumable searches beyond A* (`AStarSearch`): Weighted A*, GBFS and Dijkstra run the same
+  engine and could resume the same way. Default: A* only until a caller needs more.
 - BAE*: the citation (Sadhukhan 2013) is unverified, and the implementation differs from
   DIBBS only in side selection (cardinality). Confirm against the paper.
 - Real-time search: should a trial report where the agent stopped on `Unsolvable` (the
@@ -754,6 +853,10 @@ rejected: they are not one-shot searches.
 
 - E. W. Dijkstra. A note on two problems in connexion with graphs. Numerische
   Mathematik 1, 1959.
+- A. Treuille, S. Cooper, Z. Popović. Continuum crowds. ACM Transactions on Graphics
+  25(3), 2006 (SIGGRAPH 2006). (a potential field from the goals that steers every agent)
+- E. Emerson. Crowd pathfinding and steering using flow field tiles. In S. Rabin (ed.),
+  Game AI Pro, chapter 23, CRC Press, 2013. (flow fields in games)
 - S. Russell. Efficient memory-bounded search methods. ECAI 1992. (SMA*)
 - R. Zhou, E. A. Hansen. Beam-stack search: integrating backtracking with beam search.
   ICAPS 2005.

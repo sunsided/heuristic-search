@@ -2,6 +2,8 @@
 //! algorithms against each other.
 
 mod anytime;
+#[cfg(feature = "parallel")]
+mod batch;
 mod beam;
 mod bidirectional;
 mod bounded;
@@ -10,6 +12,7 @@ mod dynamic;
 #[cfg(feature = "float")]
 mod field;
 mod fixtures;
+mod flow;
 mod fringe;
 mod grid;
 #[cfg(feature = "parallel")]
@@ -22,7 +25,9 @@ mod multi;
 mod properties;
 mod rbfs;
 mod real_time;
+mod send_sync;
 mod sma;
 mod small_graphs;
 #[cfg(feature = "float")]
 mod theta;
+mod workspace;

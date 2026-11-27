@@ -50,6 +50,12 @@ for the design behind it.
   Lazy Theta* (`theta_star`, `lazy_theta_star`, feature `float`) on a `LineOfSight` grid
 - Every search also from several start states (`*_multi`; the incremental planners as
   `LpaStarMulti`, `DStarLiteMulti`, `AdStarMulti` with fixed starts)
+- Many queries per frame: reusable workspaces for the best-first searches (`Workspace`
+  with `a_star_in`, `dijkstra_in`, ...), resumable A* under a per-call budget
+  (`AStarSearch`), flow fields from a goal set shared by every agent heading there
+  (`FlowField`, also on `EightConnected` grids), and batches of queries on several
+  threads (`solve_batch`, feature `parallel`); graphs, heuristics, planners and results
+  are `Send + Sync` when their parameters are
 - Weighted and anytime: Weighted A*, ARA*, ANA*
 - Bounded-suboptimal: focal search (with a public focal list and tie-breaking), EES, DPS
 - Bidirectional: bidirectional BFS and Dijkstra, NBS, DIBBS, BAE*; meets by a user
@@ -110,7 +116,7 @@ assert_eq!(solution.cost, 3);
 
 The crate is `no_std` and needs only `alloc`. The feature `float` adds the float cost
 `NonNegF64`, the any-angle grid searches Theta* and Lazy Theta*, and Field D*. The
-feature `parallel` adds hash-distributed A* and needs `std`.
+feature `parallel` adds hash-distributed A* and `solve_batch` and needs `std`.
 
 ## MSRV
 
