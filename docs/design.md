@@ -695,7 +695,11 @@ own state types and have none.
 
 ### Resumable A*
 
-`AStarSearch` owns a workspace and its heuristic and is seeded at construction. Each
+`AStarSearch` owns a workspace, its heuristic and its open-list order, and is seeded at
+construction, because the start keys depend on the order. `new` resumes A*,
+`new_weighted` Weighted A* and `new_gbfs` GBFS; `new` with `Zero` resumes Dijkstra, since
+`g + 0` sorts and breaks ties like `g`. The type keeps its A* name rather than gaining
+three siblings that differ only in a constructor. Each
 `compute(graph, goal, budget)` continues the same run and returns `LimitReached` while it
 is paused. As for the incremental planners, the graph and goal are passed per call
 (storing `&goal` would not work with a temporary `&|s| ...`), and the budget and the
@@ -1088,8 +1092,6 @@ rejected: they are not one-shot searches.
 - Goal test on generation for best-first search is a common speedup for GBFS. Add it as an
   option, or keep expansion-time tests everywhere except BFS?
 - Should `Stats` count heuristic evaluations, which dominate run time in planning?
-- Resumable searches beyond A* (`AStarSearch`): Weighted A*, GBFS and Dijkstra run the same
-  engine and could resume the same way. Default: A* only until a caller needs more.
 - BAE*: the citation (Sadhukhan 2013) is unverified, and the implementation differs from
   DIBBS only in side selection (cardinality). Confirm against the paper.
 - Real-time search: should a trial report where the agent stopped on `Unsolvable` (the

@@ -55,8 +55,8 @@ for the design behind it.
 - Every search also from several start states (`*_multi`; the incremental planners as
   `LpaStarMulti`, `DStarLiteMulti`, `AdStarMulti` with fixed starts)
 - Many queries per frame: reusable workspaces for the best-first searches (`Workspace`
-  with `a_star_in`, `dijkstra_in`, ...), resumable A* under a per-call budget
-  (`AStarSearch`), flow fields from a goal set shared by every agent heading there
+  with `a_star_in`, `dijkstra_in`, ...), resumable A*, Weighted A*, GBFS and Dijkstra
+  under a per-call budget (`AStarSearch`), flow fields from a goal set shared by every agent heading there
   (`FlowField`, also on `EightConnected` grids), and batches of queries on several
   threads (`solve_batch`, feature `parallel`); graphs, heuristics, planners and results
   are `Send + Sync` when their parameters are
