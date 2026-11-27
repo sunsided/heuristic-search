@@ -582,11 +582,10 @@ Per-algorithm notes:
     64x64 benchmark grid with a wall and sparse random graphs of 25 to 5000 nodes. The
     settled limit is the one that binds; more than 16 hops changed no count anywhere.
     On the city, 64 settled states gave 122 136 shortcuts and 354 settled states per
-    query; 256 gives 108 379 and 292, against 107 880 and 287 with 1000 or 2000, and
-    builds no slower, because fewer shortcuts keep the later witness searches small.
-    With 8 hops and 32 states the build took 2.5 times as long and added 198 001
-    shortcuts. The grid
-    gains slightly (18 481 to 18 234 shortcuts). Sparse random graphs build about
+    query; 256 gives 108 379 and 292, against 107 880 and 287 with 64 hops and 1000
+    settled states, and builds no slower, because fewer shortcuts keep the later witness
+    searches small. With 8 hops and 32 states the build took 2.5 times as long and added
+    198 001 shortcuts. The grid gains slightly (18 481 to 18 234 shortcuts). Sparse random graphs build about
     1.7 times as long for about 15 % fewer shortcuts and equal query work: few
     shortcuts there have witnesses, so the larger searches mostly run to the limit.
   - **Query**: bidirectional Dijkstra relaxing only edges towards higher ranks, labels in
