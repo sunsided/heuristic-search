@@ -4,6 +4,7 @@
 use core::cmp::Reverse;
 use core::hash::Hash;
 
+use alloc::collections::BinaryHeap;
 use alloc::vec::Vec;
 
 use search_core::{Budget, Cost, Heuristic, Zero};
@@ -421,6 +422,9 @@ pub(super) enum Rule {
 /// Open-list order of one side: smallest key, then larger `g`, then node id.
 type Key<C> = (C, Reverse<C>);
 
+/// A lazy-deletion min-heap of `(value, node)` for one term of [`Rule::Mm`]'s stopping rule.
+type Bound<C> = BinaryHeap<Reverse<(C, NodeId)>>;
+
 /// [`bidirectional_dijkstra`] that meets by a [`MeetRelation`] instead of state equality, from several
 /// starts at once.
 ///
@@ -725,9 +729,16 @@ pub(super) struct Frontier<'a, G: BidirectionalGraph, HF, HB, M> {
     core: Core<'a, G, HF, HB, M>,
     /// The open lists, indexed by [`Direction::index`].
     open: [KeyedSet<Key<<G as Successors>::Cost>>; 2],
-    /// For [`Rule::Mm`] only: the open nodes of each side keyed by `f` and by `g`, for the
-    /// stopping rule. Indexed by [`Direction::index`], then `0` for `f` and `1` for `g`.
-    bounds: [[KeyedSet<<G as Successors>::Cost>; 2]; 2],
+    /// For [`Rule::Mm`] only: min-heaps of `(f, node)` and `(g, node)` for the stopping
+    /// rule, indexed by [`Direction::index`], then `0` for `f` and `1` for `g`. Empty
+    /// until the first meet, when the stopping rule first needs them (see
+    /// [`Frontier::bounded`]). Entries are deleted lazily: one whose node is closed or has
+    /// been re-keyed is dropped when it reaches the top, so expanding a node costs no
+    /// removal here.
+    bounds: [[Bound<<G as Successors>::Cost>; 2]; 2],
+    /// Whether [`Frontier::bounds`] hold an entry for every open node. Set at the first
+    /// meet: before it the stopping rule cannot hold, so the heaps are not kept.
+    bounded: bool,
     /// The ordering, side-selection and stopping rule.
     rule: Rule,
 }
@@ -748,9 +759,10 @@ where
             core,
             open: [KeyedSet::new(), KeyedSet::new()],
             bounds: [
-                [KeyedSet::new(), KeyedSet::new()],
-                [KeyedSet::new(), KeyedSet::new()],
+                [BinaryHeap::new(), BinaryHeap::new()],
+                [BinaryHeap::new(), BinaryHeap::new()],
             ],
+            bounded: false,
             rule,
         };
 
@@ -787,9 +799,6 @@ where
                 .first()
                 .expect("the side is not empty");
             self.open[direction.index()].remove(node);
-            for bound in &mut self.bounds[direction.index()] {
-                bound.remove(node);
-            }
             self.core.expand(direction, node, true, &mut touched);
             for id in touched.drain(..) {
                 self.open(direction, id);
@@ -803,7 +812,11 @@ where
     }
 
     /// Returns `true` if the keys `forward` and `backward` prove the best meet optimal.
-    fn stops(&self, forward: <G as Successors>::Cost, backward: <G as Successors>::Cost) -> bool {
+    fn stops(
+        &mut self,
+        forward: <G as Successors>::Cost,
+        backward: <G as Successors>::Cost,
+    ) -> bool {
         let sum = forward.saturating_add(backward);
 
         match self.rule {
@@ -812,27 +825,75 @@ where
                 .core
                 .mu()
                 .is_some_and(|mu| sum.cmp(&mu.saturating_times(2)).is_ge()),
-            // Epsilon, the smallest edge cost, is taken as zero: correct for every cost
-            // type, though a positive one would stop sooner.
-            Rule::Mm => self.core.proven(
-                forward
-                    .min(backward)
-                    .max(self.bound(Direction::Forward, 0))
-                    .max(self.bound(Direction::Backward, 0))
-                    .max(
+            // The stop is `mu <= max(C, f_min_F, f_min_B, g_min_F + g_min_B)`, tested term
+            // by term so that the bounds are only looked up when the cheaper terms do not
+            // decide. Epsilon, the smallest edge cost, is taken as zero: correct for every
+            // cost type, though a positive one would stop sooner.
+            Rule::Mm => {
+                let Some(mu) = self.core.mu() else {
+                    return false;
+                };
+                let reaches = |bound: <G as Successors>::Cost| bound.cmp(&mu).is_ge();
+                if reaches(forward.min(backward)) {
+                    return true;
+                }
+
+                self.track();
+                reaches(self.bound(Direction::Forward, 0))
+                    || reaches(self.bound(Direction::Backward, 0))
+                    || reaches(
                         self.bound(Direction::Forward, 1)
                             .saturating_add(self.bound(Direction::Backward, 1)),
-                    ),
-            ),
+                    )
+            }
+        }
+    }
+
+    /// Fills the bound heaps with every open node, once; [`Frontier::open`] keeps them
+    /// current from then on.
+    fn track(&mut self) {
+        if self.bounded {
+            return;
+        }
+
+        self.bounded = true;
+        for direction in [Direction::Forward, Direction::Backward] {
+            for id in 0..self.core.side(direction).space.len() {
+                if self.open[direction.index()].key(id).is_some() {
+                    for which in 0..2 {
+                        let value = self.value(direction, which, id);
+                        self.bounds[direction.index()][which].push(Reverse((value, id)));
+                    }
+                }
+            }
         }
     }
 
     /// The smallest `f` (`which == 0`) or `g` (`which == 1`) open on `direction`'s side;
-    /// zero if the side is empty.
-    fn bound(&self, direction: Direction, which: usize) -> <G as Successors>::Cost {
-        self.bounds[direction.index()][which]
-            .first()
-            .map_or(<G as Successors>::Cost::ZERO, |(key, _)| *key)
+    /// zero if the side is empty. Drops the stale entries above it from the heap.
+    fn bound(&mut self, direction: Direction, which: usize) -> <G as Successors>::Cost {
+        while let Some(&Reverse((key, id))) = self.bounds[direction.index()][which].peek() {
+            if self.open[direction.index()].key(id).is_some()
+                && self.value(direction, which, id) == key
+            {
+                return key;
+            }
+            self.bounds[direction.index()][which].pop();
+        }
+
+        <G as Successors>::Cost::ZERO
+    }
+
+    /// The current `f` (`which == 0`) or `g` (`which == 1`) of the open node `id` on
+    /// `direction`'s side.
+    fn value(&self, direction: Direction, which: usize, id: NodeId) -> <G as Successors>::Cost {
+        let g = self.core.g(direction, id);
+        if which == 0 {
+            let (h, _) = self.core.h(direction, id).expect("open nodes are live");
+            g.saturating_add(h)
+        } else {
+            g
+        }
     }
 
     /// The direction to expand next.
@@ -865,9 +926,11 @@ where
             Rule::Dibbs | Rule::Bae => (g + g + h).saturating_sub(h_opposite),
             Rule::Mm => {
                 let f = g.saturating_add(h);
-                let bounds = &mut self.bounds[direction.index()];
-                bounds[0].insert(id, f);
-                bounds[1].insert(id, g);
+                if self.bounded {
+                    let bounds = &mut self.bounds[direction.index()];
+                    bounds[0].push(Reverse((f, id)));
+                    bounds[1].push(Reverse((g, id)));
+                }
                 f.max(g.saturating_times(2))
             }
         };

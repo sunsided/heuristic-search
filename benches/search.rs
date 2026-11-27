@@ -18,10 +18,10 @@ use criterion::Criterion;
 use heuristic_search::{
     AdStar, ContractionHierarchy, DStarLite, DynamicGraph, EdgeSelector, EesEstimates,
     EightConnected, FocalList, GridCell, Hierarchy, LandmarkSelection, Landmarks, Limits,
-    MhaWeights, Octile, OctileDistance, Predecessors, Successors, UniformGrid, Weight, a_star,
-    ana_star, ara_star, beam_search, beam_stack_search, dfs, dps, ees, focal_fn, focal_search,
-    fringe_search, heuristic_fn, hierarchical_a_star, ida_star, ida_star_tt, iddfs, jps, lazy_sp,
-    lss_lrta_star, mha_star, nbs, rbfs, sma_star,
+    MhaWeights, Octile, OctileDistance, Predecessors, Successors, UniformGrid, Weight, Zero,
+    a_star, ana_star, ara_star, beam_search, beam_stack_search, bidirectional_dijkstra, dfs, dps,
+    ees, focal_fn, focal_search, fringe_search, heuristic_fn, hierarchical_a_star, ida_star,
+    ida_star_tt, iddfs, jps, lazy_sp, lss_lrta_star, mha_star, mm, nbs, rbfs, sma_star,
 };
 
 /// Side length of the benchmark grid.
@@ -620,6 +620,24 @@ fn bench_nbs(c: &mut Criterion, grid: &Grid) {
     });
 }
 
+/// MM with the Manhattan heuristic in both directions and MM0, next to bidirectional
+/// Dijkstra: MM0 expands like it, so the two times show what MM's stopping rule costs.
+fn bench_mm(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("mm grid", |b| {
+        b.iter(|| {
+            let forward = heuristic_fn(|cell: &Cell| Some(manhattan(cell, &GOAL)));
+            let backward = heuristic_fn(|cell: &Cell| Some(manhattan(&START, cell)));
+            black_box(mm(grid, START, [GOAL], forward, backward, Limits::NONE))
+        });
+    });
+    c.bench_function("mm0 grid", |b| {
+        b.iter(|| black_box(mm(grid, START, [GOAL], Zero, Zero, Limits::NONE)));
+    });
+    c.bench_function("bidirectional_dijkstra grid", |b| {
+        b.iter(|| black_box(bidirectional_dijkstra(grid, START, [GOAL], Limits::NONE)));
+    });
+}
+
 /// D* Lite: one full plan, then the repair after the wall's gap closes and another opens.
 fn bench_d_star_lite(c: &mut Criterion) {
     c.bench_function("d_star_lite replan grid", |b| {
@@ -845,6 +863,7 @@ fn main() {
     bench_focal_list(&mut c);
     bench_focal_list_churn(&mut c);
     bench_nbs(&mut c, &grid);
+    bench_mm(&mut c, &grid);
     bench_d_star_lite(&mut c);
     #[cfg(feature = "float")]
     bench_field_d_star(&mut c);

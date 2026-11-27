@@ -531,8 +531,12 @@ Per-algorithm notes:
   instead). DIBBS and BAE* both order by `2g + h - h_opposite` and stop at
   `b_F + b_B >= 2 mu`; DIBBS expands the side with the smaller `b`, BAE* the side with fewer
   open states. MM orders by `pr = max(f, 2g)`, expands the side with the smaller `pr`, and
-  keeps each side's open states also keyed by `f` and by `g` for its stopping rule
-  `mu <= max(pr_min, f_min_F, f_min_B, g_min_F + g_min_B + epsilon)`. `epsilon`, the
+  stops at `mu <= max(pr_min, f_min_F, f_min_B, g_min_F + g_min_B + epsilon)`. The minima
+  of `f` and `g` come from lazy-deletion heaps per side, filled at the first meet (before it
+  the rule cannot hold) and looked up only when `pr_min` alone does not reach `mu`. A stale
+  entry (a closed or re-keyed node) is dropped when it reaches the top, so an expansion
+  removes nothing from them and MM0 costs about as much per expansion as bidirectional
+  Dijkstra. `epsilon`, the
   smallest edge cost, is zero: `Cost` cannot know it, zero is always correct, and a caller
   parameter would break the shared signature of the bidirectional searches. MM0 is `mm` with
   `Zero` heuristics, not a function of its own. Bidirectional BFS runs the core on a
