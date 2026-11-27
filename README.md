@@ -67,6 +67,9 @@ for the design behind it.
   for A*, the anytime planners and (towards the target and from the source) the
   bidirectional searches
 - Expensive edge evaluation: LazySP
+- Preprocessed queries: contraction hierarchies (`ContractionHierarchy`) for many exact
+  queries on a finite graph with static costs; shortcuts unpack into the graph's own
+  actions, and ranks and upward search spaces are readable for visualisation
 - Dynamic graphs: LPA*, D* Lite, AD* (start moves keyed by D* Lite's `km`); Field D*
   (`FieldDStar`, feature `float`) over the corners of a `CostGrid` with per-cell costs,
   interpolated any-angle paths through cell edges, cell-change repair and a moving start

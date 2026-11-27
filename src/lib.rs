@@ -112,6 +112,12 @@
 //! are admissible and consistent on directed graphs, towards a target for any search and
 //! from a source for the backward side of the bidirectional searches.
 //!
+//! [`ContractionHierarchy`] (contraction hierarchies) preprocesses a finite graph with
+//! static edge costs once, adding shortcuts in an order of importance, and then answers
+//! many exact cheapest-path queries with a bidirectional Dijkstra that only climbs the
+//! hierarchy; solutions carry the graph's own actions. Its ranks and upward search spaces
+//! are readable for visualisation.
+//!
 //! [`lazy_sp`] (`LazySP`) finds cheapest paths when true edge costs are expensive, evaluating
 //! them through an [`EdgeEvaluator`] only on candidate paths.
 //!
@@ -210,6 +216,7 @@ mod best_first;
 mod bfs;
 mod bidirectional;
 mod bounded;
+mod contraction;
 mod cost;
 mod depth_first;
 mod dynamic;
@@ -256,6 +263,7 @@ pub use bounded::{
     EesEstimates, FocalFn, FocalKey, dps, dps_multi, ees, ees_multi, focal_fn, focal_search,
     focal_search_multi,
 };
+pub use contraction::{ContractionHierarchy, WitnessLimits};
 pub use cost::{CostExt, Weight};
 pub use depth_first::{
     depth_limited_dfs, depth_limited_dfs_multi, dfs, dfs_multi, ida_star, ida_star_multi,
