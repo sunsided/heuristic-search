@@ -18,6 +18,7 @@ mod grid;
 #[cfg(feature = "parallel")]
 mod hda;
 mod jps;
+mod landmarks;
 mod lazy;
 mod meet;
 mod mha;

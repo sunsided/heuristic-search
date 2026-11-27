@@ -336,6 +336,32 @@ Per-algorithm notes:
   oracle (cheapest path within an edge count) for memory 1 to 14, plus a one-off
   100 000-case stress run on 16-node graphs, all terminating within the budget. Successors
   must come in a stable order, since forgotten children are found again by position.
+- ALT (`Landmarks`) stores, per state and landmark `l`, `d(l, v)` and `d(v, l)` as
+  `Option<C>` in one row-major table over dense state ids (a `hashbrown` index maps states
+  to ids). The bound on `d(u, w)` is the largest of `d(l, w) - d(l, u)` and
+  `d(u, l) - d(w, l)` over the landmarks, with `CostExt::saturating_sub`; a term with a
+  missing distance is skipped, so nothing infinite is subtracted and unsigned costs cannot
+  underflow. Each term is consistent and so is their maximum with `0`. When `l` reaches
+  `u` but not `w` (or `w` reaches `l` but `u` does not), `w` is unreachable from `u` and
+  the estimate is `None`, which every search treats as a dead end. The tables come from
+  exhaustive Dijkstra runs over the crate's `SearchSpace` and lazy open list, forward over
+  `Successors` and backward over `Predecessors` (`BidirectionalGraph`); the best-first
+  engine itself keeps its search space private and stops at a goal. The graph traits
+  cannot list states, so `build` takes a start state: farthest-first picks the state with
+  the largest round trip `d(l, v) + d(v, l)` to the start, then to the nearest landmark
+  (no round trip counts as infinite). Avoidance
+  (Goldberg and Werneck) grows the shortest-path tree from the start, weighs each state
+  by `d(r, v)` minus its current bound, sums the weights per subtree (zero for subtrees
+  holding a landmark), and follows the heaviest child from the heaviest vertex down to a
+  leaf. The papers root the tree at a random vertex; without a random source the root is
+  the start, every round, and the choice falls back to farthest-first once every weight
+  is zero. Active landmarks rank the landmarks once per query by the bound each gives
+  between the query's start and target and keep the best `k`; a fixed subset keeps the
+  heuristic consistent. Tested on random directed graphs against the Bellman-Ford oracle:
+  every bound is admissible, `None` only without a path, consistent along every edge in
+  both directions (also with active subsets); A* with ALT matches Dijkstra's cost, never
+  reopens and expands only states within the optimal cost; NBS, DIBBS and BAE* with both
+  adapters match the optimum.
 - Theta* and Lazy Theta* need the `float` feature: path lengths are sums of square roots,
   which no exact cost type here represents, so costs are `NonNegF64`. `f64::sqrt` is not in
   `core` at the MSRV, so a private Newton iteration (exponent-halving guess, iterated until
@@ -915,5 +941,9 @@ rejected: they are not one-shot searches.
 - S. Koenig, X. Sun. Comparing real-time and incremental heuristic search for real-time
   situated agents. Autonomous Agents and Multi-Agent Systems 18(3), 2009. (LSS-LRTA*)
 - S. Koenig, M. Likhachev. Real-time adaptive A*. AAMAS 2006. (RTAA*)
+- A. V. Goldberg, C. Harrelson. Computing the shortest path: A* search meets graph
+  theory. SODA 2005. (ALT, farthest landmark selection)
+- A. V. Goldberg, R. F. Werneck. Computing point-to-point shortest paths from external
+  memory. ALENEX 2005. (avoidance landmark selection)
 - G. Hadar, F. Agostinelli, S. S. Shperberg. Beyond single-step updates: reinforcement
   learning of heuristics with limited-horizon search. arXiv:2511.10264, 2025. (LHB)
