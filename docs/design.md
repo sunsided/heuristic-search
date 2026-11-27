@@ -573,11 +573,22 @@ Per-algorithm notes:
     it grew past the next one (lazy updates). Ties go to the smaller index, so builds are
     deterministic; all adjacency is in `Vec`s, never hash-map iteration order.
   - **Witness searches** are Dijkstra from `u` on the remaining states without `v`,
-    bounded by the dearest `u -> v -> w`, by `WitnessLimits` (default 16 hops and 64
+    bounded by the dearest `u -> v -> w`, by `WitnessLimits` (default 16 hops and 256
     settled states) and by a hop count per label. Any path found at most as cheap is a
     witness, settled or not; a search cut off by a limit adds the shortcut, which costs
     space but never correctness. With limits of zero every bypassed pair gets a
     shortcut; the property tests run those too.
+  - **Default limits** come from a sweep over a 22 600-node city road network, the
+    64x64 benchmark grid with a wall and sparse random graphs of 25 to 5000 nodes. The
+    settled limit is the one that binds; more than 16 hops changed no count anywhere.
+    On the city, 64 settled states gave 122 136 shortcuts and 354 settled states per
+    query; 256 gives 108 379 and 292, against 107 880 and 287 with 1000 or 2000, and
+    builds no slower, because fewer shortcuts keep the later witness searches small.
+    With 8 hops and 32 states the build took 2.5 times as long and added 198 001
+    shortcuts. The grid
+    gains slightly (18 481 to 18 234 shortcuts). Sparse random graphs build about
+    1.7 times as long for about 15 % fewer shortcuts and equal query work: few
+    shortcuts there have witnesses, so the larger searches mostly run to the limit.
   - **Query**: bidirectional Dijkstra relaxing only edges towards higher ranks, labels in
     per-query hash maps so a query costs what it touches, a meeting checked on every
     label improvement (roots included), and each side stops when its minimum reaches the
