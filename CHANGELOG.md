@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/sunsided/heuristic-search/compare/v0.3.0...v0.4.0) - 2026-11-27
+
+### Breaking
+
+- `hierarchical_a_star_par` and `hierarchical_a_star_par_multi` take `budget: impl Budget<Stats> + Send`: the refining threads share the budget ([#41](https://github.com/sunsided/heuristic-search/pull/41))
+
+### Changed
+
+- Budget the refinement of hierarchical A* queries ([#41](https://github.com/sunsided/heuristic-search/pull/41))
+- Resume Weighted A*, GBFS and Dijkstra like A* ([#40](https://github.com/sunsided/heuristic-search/pull/40))
+- Make the refinement budget tests stop inside refinement
+- Budget the refinement of hierarchical A* queries
+- Resume Weighted A*, GBFS and Dijkstra like A*
+- Rebuild a flow field in place for a moving goal
+
 ## [0.3.0](https://github.com/sunsided/heuristic-search/compare/v0.2.2...v0.3.0) - 2026-11-27
 
 ### Added
