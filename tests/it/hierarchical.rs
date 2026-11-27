@@ -1,7 +1,8 @@
 //! Hierarchical A*: on random grids the HPA* abstraction finds a path exactly when the
 //! oracle does, never cheaper; with every border cell as an entrance the path is optimal;
 //! every path replays on the grid; generated floor plans (rooms joined by doors) bound the
-//! average suboptimality; and the edge cases of start, goal, starts and budget.
+//! average suboptimality; the budget bounds refinement too; and the edge cases of start,
+//! goal, starts and budget.
 
 use heuristic_search::{
     EightConnected, GridCell, GridStep, Hierarchy, Limits, Octile, Outcome, Solution, Successors,
@@ -312,6 +313,27 @@ fn outcomes() {
     );
 }
 
+/// An expansion budget bounds the whole query, refinement included: a query that fits is
+/// unchanged, and one that does not stops after exactly as many expansions as allowed.
+#[test]
+fn budget_covers_refinement() {
+    let map = floor_plan(6, 6, 3);
+    let graph = EightConnected(&map);
+    let hierarchy = Hierarchy::grid(&map, 7);
+    let (start, goal) = ((1, 1), (40, 40));
+    let query = |budget| hierarchical_a_star(&graph, &hierarchy, start, goal, distance, budget);
+
+    let unlimited = query(Limits::NONE);
+    let total = unlimited.stats.expanded;
+    assert_eq!(query(Limits::expansions(total)), unlimited);
+    // The last expansions are refinement, so `total - 1` stops inside the last segment.
+    for limit in [total - 1, total.saturating_sub(50), total / 2] {
+        let stopped = query(Limits::expansions(limit));
+        assert_eq!(stopped.outcome, Outcome::LimitReached, "limit {limit}");
+        assert_eq!(stopped.stats.expanded, limit);
+    }
+}
+
 /// A cluster size of zero is rejected.
 #[test]
 #[should_panic(expected = "clusters need at least one cell")]
@@ -347,6 +369,29 @@ mod parallel {
                 hierarchical_a_star_multi(&graph, &hierarchy, [start, goal], (0, 0), distance, Limits::NONE)
             );
         }
+    }
+
+    /// A budget that runs out during refinement stops the parallel query, and one that
+    /// fits leaves it unchanged.
+    #[test]
+    fn floor_plan_budget() {
+        let map = floor_plan(6, 6, 3);
+        let graph = EightConnected(&map);
+        let hierarchy = Hierarchy::grid(&map, 7);
+        let (start, goal) = ((1, 1), (40, 40));
+        let query =
+            |budget| hierarchical_a_star_par(&graph, &hierarchy, start, goal, distance, budget);
+
+        let unlimited = query(Limits::NONE);
+        let total = unlimited.stats.expanded;
+        assert_eq!(query(Limits::expansions(total)), unlimited);
+        // Planning takes 88 of the 152 expansions, so `total - 1` stops in the last segment.
+        // The estimated refinement work is too small for threads, so the calling thread
+        // refines under the exact budget; `threaded_refinement_respects_budget` in
+        // `src/hierarchical/query.rs` forces threads.
+        let stopped = query(Limits::expansions(total - 1));
+        assert_eq!(stopped.outcome, heuristic_search::Outcome::LimitReached);
+        assert_eq!(stopped.stats.expanded, total - 1);
     }
 
     /// A long path across a floor plan, with many segments to share among threads.

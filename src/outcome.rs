@@ -37,6 +37,18 @@ impl Stats {
             evaluations: self.evaluations + other.evaluations,
         }
     }
+
+    /// The counters of `self` beyond `earlier`, an earlier reading of the same counters.
+    #[cfg(feature = "parallel")]
+    #[must_use]
+    pub(crate) fn since(self, earlier: Self) -> Self {
+        Self {
+            expanded: self.expanded - earlier.expanded,
+            generated: self.generated - earlier.generated,
+            reopened: self.reopened - earlier.reopened,
+            evaluations: self.evaluations - earlier.evaluations,
+        }
+    }
 }
 
 /// A path from the start state to a goal state.

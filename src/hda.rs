@@ -58,7 +58,7 @@ use crate::problem::{Successors, collect_successors};
 use crate::space::{NodeId, SearchSpace};
 
 /// How many expansions a thread makes between two checks of the shared budget.
-const BUDGET_INTERVAL: u64 = 64;
+pub(crate) const BUDGET_INTERVAL: u64 = 64;
 
 /// Hash-distributed A* (HDA*) on `threads` threads, from `start` to the cheapest state that
 /// satisfies `goal`.
@@ -313,7 +313,7 @@ fn owner_of<S: Hash>(owners: &DefaultHashBuilder, threads: usize, state: &S) -> 
 
 /// Locks `mutex`, also when another thread panicked while holding it; the search is then
 /// stopping anyway.
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
