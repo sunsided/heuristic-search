@@ -83,15 +83,58 @@ where
     where
         G: Predecessors<Node = S, Action = A, Cost = C>,
     {
-        let mut work = Workspace::new();
-        let never = |_: &S| false;
-        let result = dijkstra_multi_in(&mut work, &Backward(graph), goals, &never, budget);
+        let mut field = Self {
+            work: Workspace::new(),
+            stats: Stats::default(),
+            complete: false,
+        };
+        field.rebuild(graph, goals, budget);
 
-        Self {
-            work,
-            stats: result.stats,
-            complete: matches!(result.outcome, Outcome::Unsolvable),
-        }
+        field
+    }
+
+    /// Replaces the field with one for `goals`, as [`FlowField::build`] would, but reuses
+    /// the memory of the current field, so a goal that moves every frame does not allocate
+    /// once the field has reached its size.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use heuristic_search::{FlowField, Limits, Predecessors};
+    ///
+    /// /// A path `0 - 1 - 2 - 3`, both directions at cost 1; the action is the target.
+    /// struct Line;
+    ///
+    /// impl Predecessors for Line {
+    ///     type Node = u8;
+    ///     type Action = u8;
+    ///     type Cost = u32;
+    ///
+    ///     fn predecessors(&self, node: &u8, mut emit: impl FnMut(u8, u8, u32)) {
+    ///         if *node > 0 { emit(*node, node - 1, 1) }
+    ///         if *node < 3 { emit(*node, node + 1, 1) }
+    ///     }
+    /// }
+    ///
+    /// let mut field = FlowField::build(&Line, [3], Limits::NONE);
+    /// assert_eq!(field.cost(&0), Some(3));
+    ///
+    /// field.rebuild(&Line, [1], Limits::NONE);
+    /// assert_eq!(field.cost(&0), Some(1));
+    /// assert_eq!(field.cost(&3), Some(2));
+    /// ```
+    pub fn rebuild<G>(
+        &mut self,
+        graph: &G,
+        goals: impl IntoIterator<Item = S>,
+        budget: impl Budget<Stats>,
+    ) where
+        G: Predecessors<Node = S, Action = A, Cost = C>,
+    {
+        let never = |_: &S| false;
+        let result = dijkstra_multi_in(&mut self.work, &Backward(graph), goals, &never, budget);
+        self.stats = result.stats;
+        self.complete = matches!(result.outcome, Outcome::Unsolvable);
     }
 
     /// The cheapest cost from `state` to a goal, or `None` if no goal is reachable from
