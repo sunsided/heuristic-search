@@ -619,10 +619,16 @@ A* (Kishimoto, Fukunaga and Botea): one A* search over `threads` scoped threads
   across the arenas after the threads are joined, summing the cost along the links.
 - Goals are tested on pop. A popped goal updates the incumbent (a `Mutex<Option<..>>` of
   cost and link) if cheaper and is not expanded; no thread expands a node with `f >= U`.
-  Among equally cheap paths, the one returned depends on timing.
+  Each thread caches `U` and reads it again only when a shared improvement counter has
+  moved, so a pop takes no lock; a stale `U` is never below the current one, so it only
+  prunes less. Among equally cheap paths, the one returned depends on timing.
 - Termination: one `AtomicUsize` counts threads that are not idle plus messages sent and
-  not yet recorded. A sender counts a message before sending it; a receiver uncounts it
-  after recording it; an idle thread woken by a message counts itself back in first. A
+  not yet recorded. An expanding thread adds all its successors in one `fetch_add`
+  before sending any and subtracts the ones it owns itself afterwards; a receiver drains
+  its inbox, records every message and then subtracts them in one `fetch_sub`. Counting
+  too high for a while only delays the end. An idle thread woken by a message leaves the
+  counter alone: counting itself back in and uncounting the message cancel out. So the
+  shared cache line is written a few times per expansion, not twice per message. A
   thread goes idle when its inbox is empty and its open list has no `f < U`, and
   uncounts itself. Only that can bring the counter to zero, and zero is absorbing, so
   the thread that reaches it knows no work remains anywhere and sends `Stop` to every
@@ -634,6 +640,18 @@ A* (Kishimoto, Fukunaga and Botea): one A* search over `threads` scoped threads
   of its expansions, so `Limits::expansions(n)` overshoots by at most about 64 per thread.
   The returned `Stats` are the exact sums over the threads, and include re-expansions of
   states reached first by a costlier path, which a single thread would not make.
+- Re-expansions are inherent to HDA*: a thread pops the best node of its own open list,
+  not the global best, so even with a consistent `h` it can expand a node before its
+  cheapest path arrives from another thread (Fukunaga et al., survey section 6.6). They
+  grow when threads progress unevenly. On a 512 x 512 game map with 8-connected octile
+  moves, where A* expands 45 102 states, a loaded 20-CPU machine gave medians of about
+  60 000 to 70 000 expanded states on two, four and eight threads, with single runs up to
+  three times A*'s. In the runs far above the median one thread had run ahead, expanding
+  thousands of states with `f >= C*` before the goal was found, most likely while another
+  thread was descheduled. Running more threads than free cores makes this the rule: eight
+  threads pinned to two cores expand about 17 times as many states as A*. Hashing blocks
+  of cells to one owner keeps successors local; on that map it lowered the count on two
+  threads and raised it on four and eight.
 - The heuristic is cloned per thread (`H: Clone + Send`), since `estimate` takes `&mut
   self`; the graph and goal are shared by reference (`Sync`), the budget moves into the
   mutex (`Send`). A panic on one thread stops the others through a drop guard, and the
@@ -1131,6 +1149,8 @@ rejected: they are not one-shot searches.
   sequential planning. ICAPS 2009. (HDA*)
 - A. Kishimoto, A. Fukunaga, A. Botea. Evaluation of a simple, scalable, parallel
   best-first search strategy. Artificial Intelligence 195, 2013. (HDA*)
+- A. Fukunaga, A. Botea, Y. Jinnai, A. Kishimoto. A survey of parallel A*.
+  arXiv:1708.05296, 2017. (HDA* overheads, work distribution)
 - R. E. Korf. Real-time heuristic search. Artificial Intelligence 42(2-3), 1990. (LRTA*,
   RTA*)
 - S. Koenig, X. Sun. Comparing real-time and incremental heuristic search for real-time

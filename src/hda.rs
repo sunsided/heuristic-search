@@ -12,11 +12,16 @@
 //! with `f < U`) and no message is in flight.
 //!
 //! That moment is detected with one shared counter, `work`: the number of threads that
-//! are not idle plus the number of messages sent and not yet recorded. A thread counts a
-//! message before sending it and uncounts it after recording it; an idle thread that
-//! receives a message counts itself back in first. Only a thread going idle can bring the
+//! are not idle plus the number of messages sent and not yet recorded. A thread counts all
+//! successors of an expansion in one step before sending any, and uncounts the ones it
+//! keeps afterwards; it uncounts the messages it receives in one step after recording
+//! them. An idle thread woken by a message leaves the counter as it is: counting itself
+//! back in and uncounting the message cancel out. Only a thread going idle can bring the
 //! counter to zero, and once it is zero nothing can raise it again, so the thread that
 //! brings it to zero stops the search.
+//!
+//! Each thread reads the incumbent again only after it has improved, which a shared
+//! counter tells, so the threads do not take a shared lock for every pop.
 //!
 //! Parent links name the owner thread and the node in that thread's table, so the path is
 //! put together from the tables of all threads after the search ends.
@@ -72,7 +77,10 @@ const BUDGET_INTERVAL: u64 = 64;
 ///
 /// [`Stats`] are the sums over all threads. A state may be expanded again when a cheaper
 /// path to it arrives after its expansion, so [`Stats::reopened`] can be above `0` even
-/// with a consistent heuristic. The `budget` is shared by the threads behind a lock, so it
+/// with a consistent heuristic. How many depends on how evenly the threads progress: a
+/// thread that is descheduled or slower lets the others run ahead on paths that turn out
+/// costlier, so on a loaded machine, or with more threads than free cores, the counts grow
+/// and vary from run to run. The `budget` is shared by the threads behind a lock, so it
 /// must be [`Send`]; it is asked with the summed counters
 /// before the first expansion of each thread and then after every 64 expansions of that
 /// thread, so a search stopped by [`Limits::max_expansions`](crate::Limits::max_expansions)
@@ -214,6 +222,7 @@ where
         stopped: AtomicBool::new(false),
         limit_reached: AtomicBool::new(false),
         incumbent: Mutex::new(None),
+        improvements: AtomicUsize::new(0),
         budget: Mutex::new((Stats::default(), budget)),
     };
 
@@ -264,6 +273,8 @@ where
                         inbox,
                         partition,
                         buffer: Vec::new(),
+                        bound: None,
+                        improvements: 0,
                     };
                     worker.run();
                     drop(guard);
@@ -396,6 +407,8 @@ struct Shared<'a, G: Successors, T: ?Sized, B> {
     limit_reached: AtomicBool,
     /// The cheapest goal found so far.
     incumbent: Mutex<Option<Incumbent<G::Cost>>>,
+    /// How often the incumbent has improved, so threads read it again only when it did.
+    improvements: AtomicUsize,
     /// The counters reported so far by all threads, and the budget asked with them.
     budget: Mutex<(Stats, B)>,
 }
@@ -549,6 +562,10 @@ struct Worker<'s, 'a, G: Successors, T: ?Sized, H, B> {
     partition: GraphPartition<G, H>,
     /// Successors of the node being expanded; reused between expansions.
     buffer: Vec<(G::Action, G::State, G::Cost)>,
+    /// The incumbent's cost `U` as last read; never below the current one.
+    bound: Option<G::Cost>,
+    /// [`Shared::improvements`] when [`Worker::bound`] was read.
+    improvements: usize,
 }
 
 impl<G, T, H, B> Worker<'_, '_, G, T, H, B>
@@ -566,7 +583,13 @@ where
                 return;
             }
 
-            match self.partition.pop_below(self.shared.bound()) {
+            let improvements = self.shared.improvements.load(Ordering::SeqCst);
+            if improvements != self.improvements {
+                self.improvements = improvements;
+                self.bound = self.shared.bound();
+            }
+
+            match self.partition.pop_below(self.bound) {
                 Some(id) => self.visit(id),
                 None => {
                     if !self.idle() {
@@ -579,23 +602,29 @@ where
 
     /// Records every message waiting in the inbox. Returns `false` on [`Message::Stop`].
     fn receive_pending(&mut self) -> bool {
+        let mut received = 0;
         while let Ok(message) = self.inbox.try_recv() {
             if !self.receive(message) {
                 return false;
             }
+            received += 1;
+        }
+
+        // Uncounted only after all of them are recorded, in one step.
+        if received > 0 {
+            self.shared.work.fetch_sub(received, Ordering::SeqCst);
         }
 
         true
     }
 
-    /// Records one message and uncounts it. Returns `false` on [`Message::Stop`].
+    /// Records one message without uncounting it. Returns `false` on [`Message::Stop`].
     fn receive(&mut self, message: GraphMessage<G>) -> bool {
         let Message::State(state, g, parent) = message else {
             return false;
         };
 
         self.partition.record(state, g, Some(parent));
-        self.shared.work.fetch_sub(1, Ordering::SeqCst);
 
         true
     }
@@ -609,13 +638,10 @@ where
         }
 
         match self.inbox.recv() {
-            Ok(message @ Message::State(..)) => {
-                // Count this thread back in before uncounting the message, so `work` cannot
-                // touch zero in between.
-                self.shared.work.fetch_add(1, Ordering::SeqCst);
-                self.receive(message)
-            }
-            Ok(Message::Stop) | Err(_) => false,
+            // Counting this thread back in and uncounting the message cancel out, so `work`
+            // is left as it is and cannot touch zero in between.
+            Ok(message) => self.receive(message),
+            Err(_) => false,
         }
     }
 
@@ -631,6 +657,7 @@ where
             let mut incumbent = lock(&self.shared.incumbent);
             if incumbent.is_none_or(|incumbent| node.g.cmp(&incumbent.cost).is_lt()) {
                 *incumbent = Some(Incumbent { cost: node.g, at });
+                self.shared.improvements.fetch_add(1, Ordering::SeqCst);
             }
             return;
         }
@@ -679,15 +706,22 @@ where
             thread: partition.index,
             node: id,
         };
+        // Every successor is counted as a message before any is sent; those kept here are
+        // uncounted afterwards. Counting too many for a while only delays the end.
+        let counted = self.buffer.len();
+        if threads > 1 && counted > 0 {
+            self.shared.work.fetch_add(counted, Ordering::SeqCst);
+        }
+        let mut kept = 0;
         for (action, state, cost) in self.buffer.drain(..) {
             let parent = (from, action, cost);
             let owner = owner_of(&self.shared.owners, threads, &state);
             if owner == partition.index {
                 partition.record(state, g + cost, Some(parent));
+                kept += 1;
                 continue;
             }
 
-            self.shared.work.fetch_add(1, Ordering::SeqCst);
             if self.shared.senders[owner]
                 .send(Message::State(state, g + cost, parent))
                 .is_err()
@@ -695,6 +729,9 @@ where
                 // The owner has returned, so the search has ended; the count is moot.
                 return;
             }
+        }
+        if threads > 1 && kept > 0 {
+            self.shared.work.fetch_sub(kept, Ordering::SeqCst);
         }
     }
 }
