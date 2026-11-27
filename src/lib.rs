@@ -27,6 +27,23 @@
 //! start states at once. So does every other search below; the incremental planners have
 //! multi-start types ([`LpaStarMulti`] and so on) with fixed starts.
 //!
+//! Many queries on one graph share work:
+//!
+//! - [`Workspace`] keeps the memory of a best-first search for the next one. The `*_in`
+//!   variants ([`a_star_in`], [`dijkstra_in`], [`a_star_multi_in`] and so on) search in a
+//!   caller's workspace and return the same result as the search without one, reusing the
+//!   workspace's allocations.
+//! - [`AStarSearch`]: A* that stops when its budget runs out and continues where it stopped
+//!   on the next call, to spread one search over several frames.
+//! - [`FlowField`]: one backward Dijkstra search from a goal set over [`Predecessors`] that
+//!   gives every state its cost to the nearest goal and its next step, for any number of
+//!   agents heading there.
+//! - `solve_batch` (feature `parallel`): independent queries solved on several threads,
+//!   with one state such as a [`Workspace`] per thread, answered in input order.
+//!
+//! Graphs, heuristics, planners, workspaces and results are `Send` and `Sync` whenever
+//! their type parameters are.
+//!
 //! Depth-first searches need memory only for the current path (except [`dfs`]):
 //!
 //! - [`dfs`]: graph depth-first search, some path.
@@ -121,7 +138,7 @@
 //!   the any-angle grid searches `theta_star` and `lazy_theta_star` and the Field D*
 //!   planner `FieldDStar` with its `CostGrid`, whose Euclidean costs are floats.
 //! - `parallel`: multi-threaded searches; needs `std`. Enables hash-distributed A*,
-//!   `hda_star`.
+//!   `hda_star`, and batches of independent queries on several threads, `solve_batch`.
 //!
 //! ## Example
 //!
@@ -156,9 +173,10 @@
 //! Searches are snake-case functions; every A* variant ends in `_star` ([`a_star`],
 //! [`weighted_a_star`], [`ida_star`], [`ara_star`], [`ana_star`], [`mha_star`],
 //! [`bae_star`]). Suffixes compose in this order: `_tt` (a variant of the algorithm),
-//! `_multi` (several starts), `_meet` (a meet relation, always with several starts).
-//! Incremental planners keep state between calls, so they are types ([`LpaStar`],
-//! [`DStarLite`], [`AdStar`], `FieldDStar`).
+//! `_multi` (several starts), `_meet` (a meet relation, always with several starts), `_in`
+//! (in a caller's [`Workspace`]). Incremental planners and other searches that keep state
+//! between calls are types ([`LpaStar`], [`DStarLite`], [`AdStar`], `FieldDStar`,
+//! [`AStarSearch`], [`FlowField`]).
 //!
 //! See `docs/design.md` in the repository for the design.
 //!
