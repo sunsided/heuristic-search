@@ -33,8 +33,9 @@
 //!   variants ([`a_star_in`], [`dijkstra_in`], [`a_star_multi_in`] and so on) search in a
 //!   caller's workspace and return the same result as the search without one, reusing the
 //!   workspace's allocations.
-//! - [`AStarSearch`]: A* that stops when its budget runs out and continues where it stopped
-//!   on the next call, to spread one search over several frames.
+//! - [`AStarSearch`]: A* (or Weighted A*, GBFS, Dijkstra) that stops when its budget runs
+//!   out and continues where it stopped on the next call, to spread one search over
+//!   several frames.
 //! - [`FlowField`]: one backward Dijkstra search from a goal set over [`Predecessors`] that
 //!   gives every state its cost to the nearest goal and its next step, for any number of
 //!   agents heading there.

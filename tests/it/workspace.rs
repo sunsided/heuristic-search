@@ -1,16 +1,17 @@
-//! Reusable workspaces and resumable A*: searches in one reused [`Workspace`] return exactly
-//! what fresh searches return, and [`AStarSearch`] spread over many small budgets returns
-//! what one [`a_star`] call does, with the same total counters.
+//! Reusable workspaces and resumable searches: searches in one reused [`Workspace`] return
+//! exactly what fresh searches return, and [`AStarSearch`] spread over many small budgets
+//! returns what one call of the matching search ([`a_star`], [`dijkstra`],
+//! [`weighted_a_star`], [`gbfs`]) does, with the same total counters.
 
 use heuristic_search::{
-    AStarSearch, Limits, Outcome, Stats, Weight, Workspace, a_star, a_star_in, a_star_multi,
-    a_star_multi_in, dijkstra, dijkstra_in, dijkstra_multi, dijkstra_multi_in, gbfs, gbfs_in,
-    gbfs_multi, gbfs_multi_in, heuristic_fn, weighted_a_star, weighted_a_star_in,
+    AStarSearch, Heuristic, Limits, Outcome, Stats, Weight, Workspace, Zero, a_star, a_star_in,
+    a_star_multi, a_star_multi_in, dijkstra, dijkstra_in, dijkstra_multi, dijkstra_multi_in, gbfs,
+    gbfs_in, gbfs_multi, gbfs_multi_in, heuristic_fn, weighted_a_star, weighted_a_star_in,
     weighted_a_star_multi, weighted_a_star_multi_in,
 };
 use proptest::prelude::*;
 
-use crate::fixtures::{distances_to, graph_and_goal};
+use crate::fixtures::{Graph, distances_to, graph_and_goal};
 
 proptest! {
     /// One workspace serves a sequence of queries with different starts, goals and budgets,
@@ -72,39 +73,90 @@ proptest! {
         }
     }
 
-    /// Resumed in calls of at most `per_call` expansions, the search expands the same states
-    /// as one A* call: the same outcome and the same total counters. Every call stays within
-    /// its own budget, and a finished search returns its outcome again without expanding.
+    /// Resumed in calls of at most `per_call` expansions, A*, Dijkstra (A* with `Zero`),
+    /// Weighted A* and GBFS each expand the same states as their one-shot function, from
+    /// one start or two: the same outcome and the same total counters. Every call stays
+    /// within its own budget, and a finished search returns its outcome again without
+    /// expanding.
     #[test]
-    fn resumable_a_star_matches_a_star(
+    fn resumable_search_matches_one_shot(
         (graph, goal) in graph_and_goal(),
         start in 0_usize..12,
+        second in prop::option::of(0_usize..12),
         scales in prop::collection::vec(0_u64..=4, 12),
         per_call in 1_u64..4,
     ) {
-        let start = start % graph.edges.len();
+        let nodes = graph.edges.len();
+        let starts: Vec<usize> =
+            core::iter::once(start).chain(second).map(|s| s % nodes).collect();
         let exact = distances_to(&graph, goal);
         // Admissible, usually inconsistent: exercises reopening across calls.
-        let h = |state: &usize| Some(exact[*state].map_or(0, |d| d * scales[*state] / 4));
+        let h = heuristic_fn(|state: &usize| Some(exact[*state].map_or(0, |d| d * scales[*state] / 4)));
         let is_goal = |state: &usize| *state == goal;
+        let weight = Weight::new(3, 2);
+        let s = starts.iter().copied();
 
-        let one_shot = a_star(&graph, start, &is_goal, heuristic_fn(h), Limits::NONE);
-        let mut search = AStarSearch::new(&graph, start, &is_goal, heuristic_fn(h));
-        let finished = loop {
-            let result = search.compute(&graph, &is_goal, Limits::expansions(per_call));
-            prop_assert!(result.stats.expanded <= per_call);
-            if !matches!(result.outcome, Outcome::LimitReached) {
-                break result;
-            }
-        };
+        let cases = [
+            (
+                AStarSearch::new_multi(&graph, s.clone(), &is_goal, h),
+                a_star_multi(&graph, s.clone(), &is_goal, h, Limits::NONE),
+            ),
+            (
+                AStarSearch::new_weighted_multi(&graph, s.clone(), &is_goal, h, weight),
+                weighted_a_star_multi(&graph, s.clone(), &is_goal, h, weight, Limits::NONE),
+            ),
+            (
+                AStarSearch::new_gbfs_multi(&graph, s.clone(), &is_goal, h),
+                gbfs_multi(&graph, s.clone(), &is_goal, h, Limits::NONE),
+            ),
+        ];
+        let dijkstra_case = (
+            AStarSearch::new_multi(&graph, s.clone(), &is_goal, Zero),
+            dijkstra_multi(&graph, s.clone(), &is_goal, Limits::NONE),
+        );
+        if let [single] = starts[..] {
+            let one = AStarSearch::new_weighted(&graph, single, &is_goal, h, weight);
+            prop_assert_eq!(resume(one, &graph, &is_goal, per_call)?, resume(
+                AStarSearch::new_weighted_multi(&graph, [single], &is_goal, h, weight),
+                &graph, &is_goal, per_call,
+            )?);
+            let one = AStarSearch::new_gbfs(&graph, single, &is_goal, h);
+            prop_assert_eq!(resume(one, &graph, &is_goal, per_call)?, resume(
+                AStarSearch::new_gbfs_multi(&graph, [single], &is_goal, h),
+                &graph, &is_goal, per_call,
+            )?);
+        }
 
-        prop_assert_eq!(&finished.outcome, &one_shot.outcome);
-        prop_assert_eq!(search.stats(), one_shot.stats);
-
-        let again = search.compute(&graph, &is_goal, Limits::NONE);
-        prop_assert_eq!(again.outcome, one_shot.outcome);
-        prop_assert_eq!(again.stats, Stats::default());
+        for (search, one_shot) in cases {
+            prop_assert_eq!(resume(search, &graph, &is_goal, per_call)?, (one_shot.outcome, one_shot.stats));
+        }
+        let (search, one_shot) = dijkstra_case;
+        prop_assert_eq!(resume(search, &graph, &is_goal, per_call)?, (one_shot.outcome, one_shot.stats));
     }
+}
+
+/// The outcome and total counters of `search` run to the end in calls of at most
+/// `per_call` expansions; checks every call's budget and that a finished search repeats
+/// its outcome without expanding.
+fn resume<H: Heuristic<usize, u64>>(
+    mut search: AStarSearch<usize, usize, u64, H>,
+    graph: &Graph,
+    is_goal: &impl Fn(&usize) -> bool,
+    per_call: u64,
+) -> Result<(Outcome<usize, usize, u64>, Stats), TestCaseError> {
+    let finished = loop {
+        let result = search.compute(graph, is_goal, Limits::expansions(per_call));
+        prop_assert!(result.stats.expanded <= per_call);
+        if !matches!(result.outcome, Outcome::LimitReached) {
+            break result;
+        }
+    };
+
+    let again = search.compute(graph, is_goal, Limits::NONE);
+    prop_assert_eq!(&again.outcome, &finished.outcome);
+    prop_assert_eq!(again.stats, Stats::default());
+
+    Ok((finished.outcome, search.stats()))
 }
 
 /// A start that is a goal is found without expanding, on every call.
