@@ -31,9 +31,9 @@ use crate::problem::Successors;
 /// cells are a selection), and it is found whenever any path exists.
 ///
 /// [`Stats`] add up the connecting, abstract and refining searches, but not the searches
-/// that built the hierarchy. The `budget` sees those running totals while connecting and
-/// on the abstract graph. Refinement is not budgeted: each refining search stays inside
-/// one region and is known to succeed.
+/// that built the hierarchy. The `budget` sees those running totals throughout, refinement
+/// included, so a query never runs past it; when it runs out the query returns
+/// [`Outcome::LimitReached`] and the partial path is dropped.
 ///
 /// # Panics
 ///
@@ -149,13 +149,13 @@ where
     R: Regions<G::State>,
     D: Fn(&G::State, &G::State) -> G::Cost,
 {
-    match plan(graph, hierarchy, starts, goal, &distance, budget) {
+    let mut budget = budget;
+    match plan(graph, hierarchy, starts, goal, &distance, &mut budget) {
         Err(result) => result,
         Ok((segments, stats, _)) => {
-            let refined = segments
-                .iter()
-                .map(|(from, to)| refine(graph, hierarchy, from, to, &distance))
-                .collect();
+            let refined = refine_all(graph, hierarchy, &segments, &distance, |s: &Stats| {
+                budget.exhausted(&stats.plus(*s))
+            });
             join(refined, stats)
         }
     }
@@ -169,8 +169,14 @@ where
 /// each, the edges are split into one contiguous share per such thread, capped by the
 /// available cores, and run under [`std::thread::scope`] with the first share on the
 /// calling thread; otherwise the calling thread refines them all and no thread is
-/// spawned. The result, statistics included, is the same as that of
-/// [`hierarchical_a_star`].
+/// spawned. Unless the budget runs out, the result, statistics included, is the same as
+/// that of [`hierarchical_a_star`].
+///
+/// The threads share the `budget` behind a lock, so it must be [`Send`]. Each asks it with
+/// the counters summed over all threads before its first refining expansion and then every
+/// 64 expansions, as [`hda_star`](crate::hda_star) does; once it is exhausted every thread
+/// stops. On the threaded path a query may therefore run a little past the budget, and
+/// where it stops depends on thread timing.
 ///
 /// It pays off when refinement dominates a query: long paths through large regions, or a
 /// weak `distance` (`|_, _| 0` makes every refinement Dijkstra's algorithm). With small
@@ -190,7 +196,7 @@ pub fn hierarchical_a_star_par<G, R, D>(
     start: G::State,
     goal: G::State,
     distance: D,
-    budget: impl Budget<Stats>,
+    budget: impl Budget<Stats> + Send,
 ) -> GraphResult<G>
 where
     G: Successors + Sync,
@@ -221,7 +227,7 @@ pub fn hierarchical_a_star_par_multi<G, R, D>(
     starts: impl IntoIterator<Item = G::State>,
     goal: G::State,
     distance: D,
-    budget: impl Budget<Stats>,
+    budget: impl Budget<Stats> + Send,
 ) -> GraphResult<G>
 where
     G: Successors + Sync,
@@ -231,8 +237,9 @@ where
     R: Regions<G::State> + Sync,
     D: Fn(&G::State, &G::State) -> G::Cost + Sync,
 {
+    let mut budget = budget;
     let (segments, stats, per_search) =
-        match plan(graph, hierarchy, starts, goal, &distance, budget) {
+        match plan(graph, hierarchy, starts, goal, &distance, &mut budget) {
             Err(result) => return result,
             Ok(plan) => plan,
         };
@@ -244,6 +251,7 @@ where
         hierarchy,
         &segments,
         &distance,
+        (stats, &mut budget),
         per_search,
         cores,
         EXPANSIONS_PER_THREAD,
@@ -261,18 +269,25 @@ where
 const EXPANSIONS_PER_THREAD: u64 = 1000;
 
 /// Refines `segments` in path order, across at most `cores()` threads (the calling thread
-/// included), each carrying an estimated `per_thread` expansions or more.
+/// included), each carrying an estimated `per_thread` expansions or more. `budget` is the
+/// query's budget with the counters spent before refinement.
 ///
 /// The work is estimated as `per_search` expansions for every segment inside one region;
 /// a segment between two regions is a single expansion. If the estimate does not fill two
 /// threads, the calling thread refines everything and no thread is spawned; otherwise the
-/// segments are split into contiguous shares, all but the first on spawned threads.
+/// segments are split into contiguous shares, all but the first on spawned threads, which
+/// share the budget as described at [`hierarchical_a_star_par`].
 #[cfg(feature = "parallel")]
-fn refine_par<G, R, D>(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the two tuning knobs are parameters so the tests can force threads"
+)]
+fn refine_par<G, R, D, B>(
     graph: &G,
     hierarchy: &Hierarchy<G::State, G::Cost, R>,
     segments: &[(G::State, G::State)],
     distance: &D,
+    (spent, budget): (Stats, &mut B),
     per_search: u64,
     cores: impl FnOnce() -> usize,
     per_thread: u64,
@@ -284,12 +299,12 @@ where
     G::Cost: Send + Sync,
     R: Regions<G::State> + Sync,
     D: Fn(&G::State, &G::State) -> G::Cost + Sync,
+    B: Budget<Stats> + Send,
 {
-    let refine_all = |part: &[(G::State, G::State)]| {
-        part.iter()
-            .map(|(from, to)| refine(graph, hierarchy, from, to, distance))
-            .collect::<Vec<_>>()
-    };
+    use core::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Mutex;
+
+    use crate::hda::{BUDGET_INTERVAL, lock};
 
     let regions = &hierarchy.regions;
     let inside = segments
@@ -302,16 +317,49 @@ where
         .min(usize::try_from(estimate / per_thread.max(1)).unwrap_or(usize::MAX));
     let threads = if threads < 2 { 1 } else { threads.min(cores()) };
     if threads < 2 {
-        return refine_all(segments);
+        return refine_all(graph, hierarchy, segments, distance, |s: &Stats| {
+            budget.exhausted(&spent.plus(*s))
+        });
     }
+
+    // The counters reported by all threads with the budget, and whether it ran out.
+    let reports = Mutex::new((spent, budget));
+    let stopped = AtomicBool::new(false);
+    let refine_share = |part: &[(G::State, G::State)]| {
+        // The share's counters last reported, `None` before the first report.
+        let mut reported: Option<Stats> = None;
+        let budget = |counters: &Stats| {
+            if stopped.load(Ordering::Relaxed) {
+                return true;
+            }
+            let last = reported.unwrap_or_default();
+            if reported.is_some() && counters.expanded < last.expanded + BUDGET_INTERVAL {
+                return false;
+            }
+            reported = Some(*counters);
+
+            let mut reports = lock(&reports);
+            let (total, budget) = &mut *reports;
+            *total = total.plus(counters.since(last));
+            let exhausted = budget.exhausted(total);
+            if exhausted {
+                stopped.store(true, Ordering::Relaxed);
+            }
+
+            exhausted
+        };
+
+        refine_all(graph, hierarchy, part, distance, budget)
+    };
 
     let mut shares = segments.chunks(segments.len().div_ceil(threads));
     let first = shares.next().unwrap_or_default();
+    let refine_share = &refine_share;
     std::thread::scope(|scope| {
         let handles: Vec<_> = shares
-            .map(|part| scope.spawn(move || refine_all(part)))
+            .map(|part| scope.spawn(move || refine_share(part)))
             .collect();
-        let mut refined = refine_all(first);
+        let mut refined = refine_share(first);
         for handle in handles {
             refined.extend(
                 handle
@@ -344,7 +392,7 @@ fn plan<G, R, D>(
     starts: impl IntoIterator<Item = G::State>,
     goal: G::State,
     distance: &D,
-    mut budget: impl Budget<Stats>,
+    budget: &mut impl Budget<Stats>,
 ) -> Plan<G>
 where
     G: Successors,
@@ -457,21 +505,58 @@ fn ended<S, A, C>(outcome: Outcome<S, A, C>, stats: Stats) -> SearchResult<S, A,
     SearchResult { outcome, stats }
 }
 
-/// A refined abstract edge: its path in the graph and the counters of finding it.
-type Refined<G> = (
-    Solution<<G as Successors>::State, <G as Successors>::Action, <G as Successors>::Cost>,
-    Stats,
-);
+/// A refined abstract edge: its path in the graph, or `None` if the budget stopped the
+/// refinement, and the counters of finding it.
+type Segment<S, A, C> = (Option<Solution<S, A, C>>, Stats);
+
+/// A [`Segment`] of the graph `G`.
+type Refined<G> =
+    Segment<<G as Successors>::State, <G as Successors>::Action, <G as Successors>::Cost>;
+
+/// Refines `segments` in path order on the calling thread, until the first one that
+/// `budget` stops. The budget is asked with the counters of all refinements so far.
+fn refine_all<G, R, D>(
+    graph: &G,
+    hierarchy: &Hierarchy<G::State, G::Cost, R>,
+    segments: &[(G::State, G::State)],
+    distance: &D,
+    mut budget: impl FnMut(&Stats) -> bool,
+) -> Vec<Refined<G>>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    R: Regions<G::State>,
+    D: Fn(&G::State, &G::State) -> G::Cost,
+{
+    let mut done = Stats::default();
+    let mut refined = Vec::with_capacity(segments.len());
+    for (from, to) in segments {
+        let segment = refine(graph, hierarchy, from, to, distance, |inner: &Stats| {
+            budget(&done.plus(*inner))
+        });
+        done = done.plus(segment.1);
+        let stopped = segment.0.is_none();
+        refined.push(segment);
+        if stopped {
+            break;
+        }
+    }
+
+    refined
+}
 
 /// The path of the abstract edge `from -> to` in `graph`, with the counters of finding it:
 /// A* inside the region if both lie in one, else the cheapest graph edge between them
-/// (the first of equally cheap ones).
+/// (the first of equally cheap ones). `None` if `budget`, asked with the counters of this
+/// refinement, runs out first.
 fn refine<G, R, D>(
     graph: &G,
     hierarchy: &Hierarchy<G::State, G::Cost, R>,
     from: &G::State,
     to: &G::State,
     distance: &D,
+    mut budget: impl Budget<Stats>,
 ) -> Refined<G>
 where
     G: Successors,
@@ -485,10 +570,15 @@ where
 
     let regions = &hierarchy.regions;
     if regions.region(from) == regions.region(to) {
-        let result = hierarchy.local(graph, from, to, distance, |_: &Stats| false);
-        let stats = result.stats;
-
-        return (result.into_solution().expect(STALE), stats);
+        let result = hierarchy.local(graph, from, to, distance, budget);
+        return match result.outcome {
+            Outcome::Found(solution) => (Some(solution), result.stats),
+            Outcome::LimitReached => (None, result.stats),
+            Outcome::Unsolvable | Outcome::Cutoff => panic!("{STALE}"),
+        };
+    }
+    if budget.exhausted(&Stats::default()) {
+        return (None, Stats::default());
     }
 
     let mut stats = Stats {
@@ -509,29 +599,35 @@ where
         cost,
     };
 
-    (solution, stats)
+    (Some(solution), stats)
 }
 
 /// Concatenates the refined segments, in path order, into one solution, and adds their
-/// counters to `stats`.
-fn join<S, A, C: Cost>(
-    segments: Vec<(Solution<S, A, C>, Stats)>,
-    mut stats: Stats,
-) -> SearchResult<S, A, C> {
+/// counters to `stats`; [`Outcome::LimitReached`] if the budget stopped any of them.
+fn join<S, A, C: Cost>(segments: Vec<Segment<S, A, C>>, mut stats: Stats) -> SearchResult<S, A, C> {
     let mut path = Solution {
         states: Vec::new(),
         actions: Vec::new(),
         cost: C::ZERO,
     };
+    let mut complete = true;
     for (segment, counters) in segments {
+        stats = stats.plus(counters);
+        let Some(segment) = segment else {
+            complete = false;
+            continue;
+        };
         let skip = usize::from(!path.states.is_empty());
         path.states.extend(segment.states.into_iter().skip(skip));
         path.actions.extend(segment.actions);
         path.cost = path.cost + segment.cost;
-        stats = stats.plus(counters);
     }
 
-    ended(Outcome::Found(path), stats)
+    if complete {
+        ended(Outcome::Found(path), stats)
+    } else {
+        ended(Outcome::LimitReached, stats)
+    }
 }
 
 /// The abstract graph of one query: the hierarchy's edges between entrances plus the
@@ -559,14 +655,13 @@ impl<C: Cost> Successors for Abstract<'_, C> {
 #[cfg(all(test, feature = "parallel"))]
 mod tests {
     //! The threaded refinement against the sequential one, with the work threshold forced
-    //! down so that even small maps use threads.
-
-    use alloc::vec::Vec;
+    //! down so that even small maps use threads, with and without a budget.
 
     use crate::Limits;
     use proptest::prelude::*;
 
-    use super::{Hierarchy, plan, refine, refine_par};
+    use super::{Hierarchy, join, plan, refine_all, refine_par};
+    use crate::Stats;
     use crate::grid::{EightConnected, GridCell, Octile, UniformGrid};
 
     /// A 12 x 12 grid whose walls are the set bits of `walls`, row-major.
@@ -603,13 +698,43 @@ mod tests {
             let hierarchy = Hierarchy::grid(&map, size);
             let graph = EightConnected(&map);
             let distance = |a: &GridCell, b: &GridCell| Octile::between(*a, *b);
-            if let Ok((segments, _, _)) = plan(&graph, &hierarchy, [start], goal, &distance, Limits::NONE) {
-                let sequential: Vec<_> = segments
-                    .iter()
-                    .map(|(from, to)| refine(&graph, &hierarchy, from, to, &distance))
-                    .collect();
-                let threaded = refine_par(&graph, &hierarchy, &segments, &distance, u64::MAX, || cores, 1);
+            if let Ok((segments, stats, _)) = plan(&graph, &hierarchy, [start], goal, &distance, &mut |_: &Stats| false) {
+                let sequential = refine_all(&graph, &hierarchy, &segments, &distance, |_: &Stats| false);
+                let threaded = refine_par(&graph, &hierarchy, &segments, &distance, (stats, &mut |_: &Stats| false), u64::MAX, || cores, 1);
                 prop_assert_eq!(threaded, sequential);
+            }
+        }
+
+        /// Under an expansion budget that may run out during refinement, the threaded
+        /// refinement either stops or, if it finds the path, finds the unlimited one; and
+        /// it always finds it when the whole query fits the budget.
+        #[test]
+        fn threaded_refinement_respects_budget(
+            walls in proptest::array::uniform3(any::<u64>().prop_map(|w| w & w.rotate_left(7))),
+            size in 1_usize..5,
+            cores in 2_usize..6,
+            start in (0_usize..12, 0_usize..12),
+            goal in (0_usize..12, 0_usize..12),
+            percent in 0_u64..=120,
+        ) {
+            let map = Map { walls };
+            let hierarchy = Hierarchy::grid(&map, size);
+            let graph = EightConnected(&map);
+            let distance = |a: &GridCell, b: &GridCell| Octile::between(*a, *b);
+            if let Ok((segments, stats, _)) = plan(&graph, &hierarchy, [start], goal, &distance, &mut |_: &Stats| false) {
+                let unlimited = join(refine_all(&graph, &hierarchy, &segments, &distance, |_: &Stats| false), stats);
+                let mut limit = Limits::expansions(unlimited.stats.expanded * percent / 100);
+                let threaded = join(
+                    refine_par(&graph, &hierarchy, &segments, &distance, (stats, &mut limit), u64::MAX, || cores, 1),
+                    stats,
+                );
+                if percent >= 100 {
+                    prop_assert_eq!(threaded, unlimited);
+                } else if threaded.solution().is_some() {
+                    prop_assert_eq!(threaded, unlimited);
+                } else {
+                    prop_assert_eq!(threaded.outcome, crate::Outcome::LimitReached);
+                }
             }
         }
     }

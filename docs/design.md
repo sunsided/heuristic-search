@@ -795,9 +795,15 @@ pub fn hierarchical_a_star_par(...)                              // feature `par
   abstract node. Searches towards different targets need different heuristics, so the
   caller passes a pairwise estimate `distance(a, b)` instead of a `Heuristic`.
 - **Budget and stats.** `Stats` add up the connecting, abstract and refining searches; the
-  build is not counted. The budget sees the running totals while connecting and on the
-  abstract graph. Refinement is not budgeted: each search stays in one region and is known
-  to succeed, and an unbudgeted refinement keeps the parallel and sequential results equal.
+  build is not counted. The budget sees the running totals throughout, refinement
+  included, so a per-frame budget bounds the whole query; a refinement it stops ends the
+  query with `LimitReached` and the partial path is dropped (no resume, as for the other
+  one-shot searches). The parallel variant shares the budget between the refining threads
+  the way HDA* does: behind a lock, asked with the summed counters every 64 expansions per
+  thread, with a flag that stops every thread once it is exhausted. That needs the budget
+  to be `Send`, may overshoot by up to 64 expansions per thread, and makes the stopping
+  point depend on timing; when the budget does not run out, the parallel and sequential
+  results stay equal.
 - **Parallel refinement.** The refinements are independent. `hierarchical_a_star_par`
   estimates their work before starting: each abstract edge inside a region is taken to
   cost the mean expansions of the searches that connected the start and goal, which are
