@@ -20,8 +20,10 @@ use crate::problem::Successors;
 /// Felner, Sharon and Sturtevant 2016).
 ///
 /// Orders each side by `pr = max(f, 2g)` with `f = g + h`, and expands the side whose
-/// smallest `pr` is smaller. With `C` the smaller of the two, it stops once the cheapest
-/// meet `mu <= max(C, f_min_F, f_min_B, g_min_F + g_min_B + epsilon)`. `epsilon` is the
+/// smallest `pr` is smaller. With `C = min(pr_min_F, pr_min_B)`, the smaller of the two
+/// sides' smallest `pr`, it stops once the cheapest meet
+/// `mu <= max(C, f_min_F, f_min_B, g_min_F + g_min_B + epsilon)`; each term is a lower
+/// bound on the optimal cost. `epsilon` is the
 /// smallest edge cost, which a generic [`Cost`](crate::Cost) cannot know; it is taken as
 /// zero, which is correct for every cost type but may expand more states than a positive
 /// `epsilon` would.
