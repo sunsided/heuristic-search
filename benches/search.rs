@@ -1,7 +1,8 @@
-//! Benchmarks for the hot paths: A*, the anytime, bounded-suboptimal and multi-heuristic
-//! searches, `LazySP` and focal search on a grid with a wall; the focal list itself; NBS;
-//! D* Lite and AD* repairs after the wall changes; and the depth-first searches on a
-//! small open grid, where tree searches meet many transpositions; Jump Point Search
+//! Benchmarks for the hot paths: A* (with the Manhattan heuristic and with ALT landmark
+//! bounds), the anytime, bounded-suboptimal and multi-heuristic searches, `LazySP` and
+//! focal search on a grid with a wall; the focal list itself; NBS; D* Lite and AD* repairs
+//! after the wall changes; and the depth-first searches on a small open grid, where tree
+//! searches meet many transpositions; Jump Point Search
 //! against A* on the 8-connected version of the wall grid, and (feature `float`) Theta*
 //! and Lazy Theta* there, and Field D*'s plan and repair over the grid's corners;
 //! (feature `parallel`) hash-distributed A* against A* on both versions of the grid.
@@ -12,11 +13,11 @@ use std::hint::black_box;
 
 use criterion::Criterion;
 use heuristic_search::{
-    AdStar, DStarLite, DynamicGraph, EdgeSelector, EesEstimates, EightConnected, FocalList, Limits,
-    MhaWeights, OctileDistance, Predecessors, Successors, UniformGrid, Weight, a_star, ana_star,
-    ara_star, beam_search, beam_stack_search, dfs, dps, ees, focal_fn, focal_search, fringe_search,
-    heuristic_fn, ida_star, ida_star_tt, iddfs, jps, lazy_sp, lss_lrta_star, mha_star, nbs, rbfs,
-    sma_star,
+    AdStar, DStarLite, DynamicGraph, EdgeSelector, EesEstimates, EightConnected, FocalList,
+    LandmarkSelection, Landmarks, Limits, MhaWeights, OctileDistance, Predecessors, Successors,
+    UniformGrid, Weight, a_star, ana_star, ara_star, beam_search, beam_stack_search, dfs, dps, ees,
+    focal_fn, focal_search, fringe_search, heuristic_fn, ida_star, ida_star_tt, iddfs, jps,
+    lazy_sp, lss_lrta_star, mha_star, nbs, rbfs, sma_star,
 };
 
 /// Side length of the benchmark grid.
@@ -141,6 +142,38 @@ fn bench_a_star(c: &mut Criterion, grid: &Grid) {
                 h,
                 Limits::NONE,
             ))
+        });
+    });
+}
+
+/// A* with ALT landmark bounds (eight farthest-first landmarks, built once outside the
+/// timing) against the same A* with the Manhattan heuristic in [`bench_a_star`], with all
+/// landmarks and with the best two per query. Prints the expansions of each once.
+fn bench_alt(c: &mut Criterion, grid: &Grid) {
+    let landmarks = Landmarks::build(grid, START, 8, LandmarkSelection::Farthest);
+    let manhattan = a_star(grid, START, &at_goal, to_goal(), Limits::NONE);
+    let alt = a_star(
+        grid,
+        START,
+        &at_goal,
+        landmarks.heuristic_to(&GOAL),
+        Limits::NONE,
+    );
+    println!(
+        "expansions: a_star manhattan {}, a_star alt {}",
+        manhattan.stats.expanded, alt.stats.expanded
+    );
+
+    c.bench_function("a_star alt grid", |b| {
+        b.iter(|| {
+            let h = landmarks.heuristic_to(&GOAL);
+            black_box(a_star(grid, START, &at_goal, h, Limits::NONE))
+        });
+    });
+    c.bench_function("a_star alt active=2 grid", |b| {
+        b.iter(|| {
+            let h = landmarks.heuristic_to(&GOAL).active(&START, 2);
+            black_box(a_star(grid, START, &at_goal, h, Limits::NONE))
         });
     });
 }
@@ -619,6 +652,7 @@ fn main() {
     let mut c = Criterion::default().configure_from_args();
 
     bench_a_star(&mut c, &grid);
+    bench_alt(&mut c, &grid);
     bench_fringe_search(&mut c, &grid);
     bench_beam(&mut c, &grid);
     bench_jps(&mut c, &grid);

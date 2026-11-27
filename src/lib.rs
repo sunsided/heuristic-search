@@ -104,6 +104,12 @@
 //! `hda_star` (feature `parallel`) is hash-distributed A* (HDA*): one A* search over
 //! several threads, each owning the states that hash to it; the same cost as [`a_star`].
 //!
+//! [`Landmarks`] precomputes ALT lower bounds (A*, landmarks, triangle inequality) for
+//! many queries on one graph: exact distances to and from a few landmark states, picked
+//! farthest-first or by avoidance ([`LandmarkSelection`]). Its [`LandmarkHeuristic`]s
+//! are admissible and consistent on directed graphs, towards a target for any search and
+//! from a source for the backward side of the bidirectional searches.
+//!
 //! [`lazy_sp`] (`LazySP`) finds cheapest paths when true edge costs are expensive, evaluating
 //! them through an [`EdgeEvaluator`] only on candidate paths.
 //!
@@ -213,6 +219,7 @@ mod grid;
 mod hda;
 mod indexed_heap;
 mod keyed_set;
+mod landmarks;
 mod lazy;
 mod mha;
 mod open_list;
@@ -271,6 +278,7 @@ pub use grid::{
 };
 #[cfg(feature = "parallel")]
 pub use hda::{hda_star, hda_star_multi};
+pub use landmarks::{LandmarkHeuristic, LandmarkSelection, Landmarks};
 pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp, lazy_sp_multi};
 pub use mha::{MhaWeights, mha_star, mha_star_multi};
 pub use outcome::{Limits, Outcome, SearchResult, Solution, Stats};

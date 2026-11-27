@@ -62,6 +62,10 @@ for the design behind it.
   relation (`MeetRelation`) between states and backward nodes of their own type (such
   as subgoals), with path replay or a typed `ReplayError`
 - Multiple heuristics: shared MHA*
+- Landmark heuristics: ALT lower bounds (`Landmarks`) from forward and backward
+  distance tables, farthest-first or avoidance selection, active landmarks per query;
+  for A*, the anytime planners and (towards the target and from the source) the
+  bidirectional searches
 - Expensive edge evaluation: LazySP
 - Dynamic graphs: LPA*, D* Lite, AD* (start moves keyed by D* Lite's `km`); Field D*
   (`FieldDStar`, feature `float`) over the corners of a `CostGrid` with per-cell costs,
