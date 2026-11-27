@@ -117,6 +117,7 @@
 //! - `float`: re-exports the checked float cost `NonNegF64` from `search-core`, and enables
 //!   the any-angle grid searches `theta_star` and `lazy_theta_star` and the Field D*
 //!   planner `FieldDStar` with its `CostGrid`, whose Euclidean costs are floats.
+//! - `parallel`: multi-threaded searches; needs `std`.
 //!
 //! ## Example
 //!
@@ -163,6 +164,8 @@
 #![forbid(unsafe_code)]
 
 extern crate alloc;
+#[cfg(feature = "parallel")]
+extern crate std;
 
 /// Doctests for the code examples in README.md (not part of the API).
 #[cfg(doctest)]
