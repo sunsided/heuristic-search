@@ -177,6 +177,8 @@ extern crate std;
 mod readme_doctests {}
 
 mod anytime;
+#[cfg(feature = "parallel")]
+mod batch;
 mod beam;
 mod best_first;
 mod bfs;
@@ -206,6 +208,8 @@ mod space;
 pub use anytime::{
     AnytimeGraphResult, AnytimeResult, ana_star, ana_star_multi, ara_star, ara_star_multi,
 };
+#[cfg(feature = "parallel")]
+pub use batch::solve_batch;
 pub use beam::{beam_search, beam_search_multi, beam_stack_search, beam_stack_search_multi};
 pub use best_first::{
     AStarSearch, GraphResult, Workspace, a_star, a_star_in, a_star_multi, a_star_multi_in,

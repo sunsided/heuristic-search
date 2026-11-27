@@ -2,6 +2,8 @@
 //! algorithms against each other.
 
 mod anytime;
+#[cfg(feature = "parallel")]
+mod batch;
 mod beam;
 mod bidirectional;
 mod bounded;
