@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.1](https://github.com/sunsided/heuristic-search/compare/v0.3.0...v0.3.1) - 2026-11-27
+## [0.4.0](https://github.com/sunsided/heuristic-search/compare/v0.3.0...v0.4.0) - 2026-11-27
+
+### Breaking
+
+- `hierarchical_a_star_par` and `hierarchical_a_star_par_multi` take `budget: impl Budget<Stats> + Send`: the refining threads share the budget ([#41](https://github.com/sunsided/heuristic-search/pull/41))
 
 ### Changed
 
