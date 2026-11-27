@@ -327,7 +327,7 @@ fn budget_covers_refinement() {
     let total = unlimited.stats.expanded;
     assert_eq!(query(Limits::expansions(total)), unlimited);
     // The last expansions are refinement, so `total - 1` stops inside the last segment.
-    for limit in [total - 1, total - 50, total / 2] {
+    for limit in [total - 1, total.saturating_sub(50), total / 2] {
         let stopped = query(Limits::expansions(limit));
         assert_eq!(stopped.outcome, Outcome::LimitReached, "limit {limit}");
         assert_eq!(stopped.stats.expanded, limit);
@@ -371,8 +371,8 @@ mod parallel {
         }
     }
 
-    /// On the threaded path a budget that runs out during refinement stops the query, and
-    /// one that fits leaves it unchanged.
+    /// A budget that runs out during refinement stops the parallel query, and one that
+    /// fits leaves it unchanged.
     #[test]
     fn floor_plan_budget() {
         let map = floor_plan(6, 6, 3);
@@ -385,9 +385,13 @@ mod parallel {
         let unlimited = query(Limits::NONE);
         let total = unlimited.stats.expanded;
         assert_eq!(query(Limits::expansions(total)), unlimited);
-        let stopped = query(Limits::expansions(total / 2));
+        // Planning takes 88 of the 152 expansions, so `total - 1` stops in the last segment.
+        // The estimated refinement work is too small for threads, so the calling thread
+        // refines under the exact budget; `threaded_refinement_respects_budget` in
+        // `src/hierarchical/query.rs` forces threads.
+        let stopped = query(Limits::expansions(total - 1));
         assert_eq!(stopped.outcome, heuristic_search::Outcome::LimitReached);
-        assert!(stopped.stats.expanded >= total / 2);
+        assert_eq!(stopped.stats.expanded, total - 1);
     }
 
     /// A long path across a floor plan, with many segments to share among threads.

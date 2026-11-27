@@ -705,9 +705,10 @@ mod tests {
             }
         }
 
-        /// Under an expansion budget that may run out during refinement, the threaded
-        /// refinement either stops or, if it finds the path, finds the unlimited one; and
-        /// it always finds it when the whole query fits the budget.
+        /// Under an expansion budget that runs out `percent` of the way through refinement,
+        /// the threaded refinement either finds the unlimited path or stops, and only once
+        /// the threads have reported at least the budget, so refinement did run under it;
+        /// it always finds the path when the whole query fits the budget.
         #[test]
         fn threaded_refinement_respects_budget(
             walls in proptest::array::uniform3(any::<u64>().prop_map(|w| w & w.rotate_left(7))),
@@ -723,7 +724,9 @@ mod tests {
             let distance = |a: &GridCell, b: &GridCell| Octile::between(*a, *b);
             if let Ok((segments, stats, _)) = plan(&graph, &hierarchy, [start], goal, &distance, &mut |_: &Stats| false) {
                 let unlimited = join(refine_all(&graph, &hierarchy, &segments, &distance, |_: &Stats| false), stats);
-                let mut limit = Limits::expansions(unlimited.stats.expanded * percent / 100);
+                let refinement = unlimited.stats.expanded - stats.expanded;
+                let max = stats.expanded + refinement * percent / 100;
+                let mut limit = Limits::expansions(max);
                 let threaded = join(
                     refine_par(&graph, &hierarchy, &segments, &distance, (stats, &mut limit), u64::MAX, || cores, 1),
                     stats,
@@ -734,6 +737,7 @@ mod tests {
                     prop_assert_eq!(threaded, unlimited);
                 } else {
                     prop_assert_eq!(threaded.outcome, crate::Outcome::LimitReached);
+                    prop_assert!(threaded.stats.expanded >= max);
                 }
             }
         }
