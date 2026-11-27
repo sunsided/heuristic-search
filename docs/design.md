@@ -799,11 +799,27 @@ pub fn hierarchical_a_star_par(...)                              // feature `par
   abstract graph. Refinement is not budgeted: each search stays in one region and is known
   to succeed, and an unbudgeted refinement keeps the parallel and sequential results equal.
 - **Parallel refinement.** The refinements are independent. `hierarchical_a_star_par`
-  splits them into one contiguous share per available core under `std::thread::scope` and
-  joins the shares in order, so its result, stats included, equals the sequential one. It
-  is a separate function rather than a feature-switched body because it needs `Send` and
-  `Sync` bounds; enabling `parallel` anywhere in a dependency graph must not add bounds to
-  `hierarchical_a_star`.
+  estimates their work before starting: each abstract edge inside a region is taken to
+  cost the mean expansions of the searches that connected the start and goal, which are
+  restricted searches of the same kind, already done and free to count. Only if the
+  estimate fills two threads of a thousand expansions does it split the edges into one
+  contiguous share per thread (capped by the available cores), run the first share on
+  the calling thread and join the shares in order, so its result, stats included, equals
+  the sequential one. The threshold comes from measurements on grids: an expansion costs
+  about half a microsecond, a scoped spawn tens to a hundred, and `available_parallelism`
+  about thirty (it reads cgroup files on Linux, so it is asked only once threads are
+  due); the estimate is off by up to a factor of two either way, and a thousand leaves
+  room for that. On a 300 x 300 floor plan with rooms, or with 8 x 8 or 16 x 16 clusters,
+  and the octile distance, refinement takes a few hundred expansions per query (at most
+  about a thousand); 297 of 300 queries run sequentially and cost what
+  `hierarchical_a_star` costs, where a thread per core for every query would make them
+  two to three times slower. With large rooms and `distance` zero (benchmark `large rooms
+  dijkstra`: 37 abstract edges, most of the query's 15 000 expansions in
+  refinement) the edges run on 16 threads and the query takes about 0.6 of the
+  sequential time. Connecting the start and goal and the abstract search stay sequential
+  and bound the speed-up. It is a separate function rather than a feature-switched body
+  because it needs `Send` and `Sync` bounds; enabling `parallel` anywhere in a dependency
+  graph must not add bounds to `hierarchical_a_star`.
 - **Smoothing.** HPA*'s post-processing pass that shortcuts the path near cluster borders
   is not implemented: it needs line-of-sight or repeated local searches over the whole
   path, which costs about as much as the refinement it would improve.

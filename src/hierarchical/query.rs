@@ -151,7 +151,7 @@ where
 {
     match plan(graph, hierarchy, starts, goal, &distance, budget) {
         Err(result) => result,
-        Ok((segments, stats)) => {
+        Ok((segments, stats, _)) => {
             let refined = segments
                 .iter()
                 .map(|(from, to)| refine(graph, hierarchy, from, to, &distance))
@@ -163,9 +163,21 @@ where
 
 /// [`hierarchical_a_star`] with the abstract edges refined across threads.
 ///
-/// The refinements are split into one contiguous share per available core and run under
-/// [`std::thread::scope`]. The result, statistics included, is the same as that of
+/// The refinement work is estimated before it starts: every abstract edge inside one
+/// region is assumed to cost as many expansions as the mean search that connected the
+/// start and goal to their regions. If that fills two threads of a thousand expansions
+/// each, the edges are split into one contiguous share per such thread, capped by the
+/// available cores, and run under [`std::thread::scope`] with the first share on the
+/// calling thread; otherwise the calling thread refines them all and no thread is
+/// spawned. The result, statistics included, is the same as that of
 /// [`hierarchical_a_star`].
+///
+/// It pays off when refinement dominates a query: long paths through large regions, or a
+/// weak `distance` (`|_, _| 0` makes every refinement Dijkstra's algorithm). With small
+/// regions and a good `distance`, refinement is a few hundred expansions and this runs
+/// sequentially, about as fast as [`hierarchical_a_star`]. Connecting the start and goal
+/// and the search on the abstract graph run on the calling thread either way, which
+/// bounds the speed-up.
 ///
 /// # Panics
 ///
@@ -219,46 +231,108 @@ where
     R: Regions<G::State> + Sync,
     D: Fn(&G::State, &G::State) -> G::Cost + Sync,
 {
-    let (segments, stats) = match plan(graph, hierarchy, starts, goal, &distance, budget) {
-        Err(result) => return result,
-        Ok(plan) => plan,
-    };
+    let (segments, stats, per_search) =
+        match plan(graph, hierarchy, starts, goal, &distance, budget) {
+            Err(result) => return result,
+            Ok(plan) => plan,
+        };
 
-    let threads = std::thread::available_parallelism().map_or(1, core::num::NonZeroUsize::get);
-    let share = segments.len().div_ceil(threads);
-    let refined = std::thread::scope(|scope| {
-        let handles: Vec<_> = segments
-            .chunks(share)
-            .map(|part| {
-                let distance = &distance;
-                scope.spawn(move || {
-                    part.iter()
-                        .map(|(from, to)| refine(graph, hierarchy, from, to, distance))
-                        .collect::<Vec<_>>()
-                })
-            })
-            .collect();
-
-        handles
-            .into_iter()
-            .flat_map(|handle| {
-                handle
-                    .join()
-                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
-            })
-            .collect()
-    });
+    // Asked only when the work fills two threads: the call reads cgroup files on Linux.
+    let cores = || std::thread::available_parallelism().map_or(1, core::num::NonZeroUsize::get);
+    let refined = refine_par(
+        graph,
+        hierarchy,
+        &segments,
+        &distance,
+        per_search,
+        cores,
+        EXPANSIONS_PER_THREAD,
+    );
 
     join(refined, stats)
 }
 
+/// The least refinement work, in expansions, worth a thread of its own.
+///
+/// On grids an expansion costs about half a microsecond and spawning a scoped thread tens
+/// to a hundred, so a thread that carries a thousand expansions spends at most about a
+/// tenth of its time starting up.
+#[cfg(feature = "parallel")]
+const EXPANSIONS_PER_THREAD: u64 = 1000;
+
+/// Refines `segments` in path order, across at most `cores()` threads (the calling thread
+/// included), each carrying an estimated `per_thread` expansions or more.
+///
+/// The work is estimated as `per_search` expansions for every segment inside one region;
+/// a segment between two regions is a single expansion. If the estimate does not fill two
+/// threads, the calling thread refines everything and no thread is spawned; otherwise the
+/// segments are split into contiguous shares, all but the first on spawned threads.
+#[cfg(feature = "parallel")]
+fn refine_par<G, R, D>(
+    graph: &G,
+    hierarchy: &Hierarchy<G::State, G::Cost, R>,
+    segments: &[(G::State, G::State)],
+    distance: &D,
+    per_search: u64,
+    cores: impl FnOnce() -> usize,
+    per_thread: u64,
+) -> Vec<Refined<G>>
+where
+    G: Successors + Sync,
+    G::State: Clone + Hash + Eq + Send + Sync,
+    G::Action: Clone + Send,
+    G::Cost: Send + Sync,
+    R: Regions<G::State> + Sync,
+    D: Fn(&G::State, &G::State) -> G::Cost + Sync,
+{
+    let refine_all = |part: &[(G::State, G::State)]| {
+        part.iter()
+            .map(|(from, to)| refine(graph, hierarchy, from, to, distance))
+            .collect::<Vec<_>>()
+    };
+
+    let regions = &hierarchy.regions;
+    let inside = segments
+        .iter()
+        .filter(|(from, to)| regions.region(from) == regions.region(to))
+        .count();
+    let estimate = per_search.saturating_mul(inside as u64);
+    let threads = segments
+        .len()
+        .min(usize::try_from(estimate / per_thread.max(1)).unwrap_or(usize::MAX));
+    let threads = if threads < 2 { 1 } else { threads.min(cores()) };
+    if threads < 2 {
+        return refine_all(segments);
+    }
+
+    let mut shares = segments.chunks(segments.len().div_ceil(threads));
+    let first = shares.next().unwrap_or_default();
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = shares
+            .map(|part| scope.spawn(move || refine_all(part)))
+            .collect();
+        let mut refined = refine_all(first);
+        for handle in handles {
+            refined.extend(
+                handle
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+            );
+        }
+
+        refined
+    })
+}
+
 /// The abstract edges to refine, as `(from, to)` states in path order, with the counters
-/// of the connecting and abstract searches; or the final result if the search ends before
+/// of the connecting and abstract searches and the mean expansions of a connecting search
+/// (which, like a refinement, stays inside one region); or the final result if the search ends before
 /// refinement (a start is the goal, no abstract path, or the budget ran out).
 type Plan<G> = Result<
     (
         Vec<(<G as Successors>::State, <G as Successors>::State)>,
         Stats,
+        u64,
     ),
     GraphResult<G>,
 >;
@@ -306,7 +380,8 @@ where
         added: vec![Vec::new(); goal_id + 1],
     };
     let mut counters = Stats::default();
-    for (from, to) in connections(hierarchy, &starts, &goal, base) {
+    let connections = connections(hierarchy, &starts, &goal, base);
+    for &(from, to) in &connections {
         let inner = hierarchy.local(graph, state(from), state(to), distance, |inner: &Stats| {
             budget.exhausted(&counters.plus(*inner))
         });
@@ -317,6 +392,8 @@ where
             Outcome::Unsolvable | Outcome::Cutoff => {}
         }
     }
+
+    let per_search = counters.expanded / (connections.len() as u64).max(1);
 
     let h = heuristic_fn(|id: &usize| Some(distance(state(*id), &goal)));
     let inner = a_star_multi(
@@ -341,7 +418,7 @@ where
         .map(|pair| (state(pair[0]).clone(), state(pair[1]).clone()))
         .collect();
 
-    Ok((segments, counters))
+    Ok((segments, counters, per_search))
 }
 
 /// The abstract edges a query adds, as `(from, to)` node ids: from every start (id
@@ -475,6 +552,65 @@ impl<C: Cost> Successors for Abstract<'_, C> {
         let base = self.base.get(*id).map_or(&[][..], Vec::as_slice);
         for &(to, cost) in base.iter().chain(&self.added[*id]) {
             emit((), to, cost);
+        }
+    }
+}
+
+#[cfg(all(test, feature = "parallel"))]
+mod tests {
+    //! The threaded refinement against the sequential one, with the work threshold forced
+    //! down so that even small maps use threads.
+
+    use alloc::vec::Vec;
+
+    use crate::Limits;
+    use proptest::prelude::*;
+
+    use super::{Hierarchy, plan, refine, refine_par};
+    use crate::grid::{EightConnected, GridCell, Octile, UniformGrid};
+
+    /// A 12 x 12 grid whose walls are the set bits of `walls`, row-major.
+    struct Map {
+        /// Bit `y * 12 + x` set means the cell is a wall.
+        walls: [u64; 3],
+    }
+
+    impl UniformGrid for Map {
+        fn width(&self) -> usize {
+            12
+        }
+
+        fn height(&self) -> usize {
+            12
+        }
+
+        fn is_passable(&self, x: usize, y: usize) -> bool {
+            let bit = y * 12 + x;
+            self.walls[bit / 64] & (1 << (bit % 64)) == 0
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn threaded_refinement_matches_sequential(
+            walls in proptest::array::uniform3(any::<u64>().prop_map(|w| w & w.rotate_left(7))),
+            size in 1_usize..5,
+            cores in 2_usize..6,
+            start in (0_usize..12, 0_usize..12),
+            goal in (0_usize..12, 0_usize..12),
+        ) {
+            let map = Map { walls };
+            let hierarchy = Hierarchy::grid(&map, size);
+            let graph = EightConnected(&map);
+            let distance = |a: &GridCell, b: &GridCell| Octile::between(*a, *b);
+            if let Ok((segments, _, _)) = plan(&graph, &hierarchy, [start], goal, &distance, Limits::NONE) {
+                let sequential: Vec<_> = segments
+                    .iter()
+                    .map(|(from, to)| refine(&graph, &hierarchy, from, to, &distance))
+                    .collect();
+                let threaded = refine_par(&graph, &hierarchy, &segments, &distance, u64::MAX, || cores, 1);
+                prop_assert_eq!(threaded, sequential);
+            }
         }
     }
 }
