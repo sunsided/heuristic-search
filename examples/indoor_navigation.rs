@@ -19,9 +19,10 @@
 //! mean expansions per query (the hierarchical searches count the connecting, abstract and
 //! refining searches, not the build), and the path cost against A*'s (`1.0000` is
 //! optimal). Room regions must match A* exactly and clusters must never beat it; the
-//! example asserts both. Timings are as measured on your machine; the parallel variant
-//! spawns threads for every query, which on refinements this short costs more than it
-//! saves.
+//! example asserts both. Timings are as measured on your machine. The parallel variant
+//! spawns threads only when the estimated refinement work pays for them, so on most of
+//! these short queries it runs sequentially and costs about the same; only the longest
+//! cluster refinements use more than one thread.
 //!
 //! Run with `cargo run --release --features parallel --example indoor_navigation`.
 

@@ -141,7 +141,7 @@ prints the states it expanded and the time it took, and asserts that the costs a
 
 | Example | Scenario | Shows |
 |---|---|---|
-| [`contraction_hierarchies`](https://github.com/sunsided/heuristic-search/blob/main/examples/contraction_hierarchies.rs) | 1000 routes in a city of 22 629 intersections | A query settles about 287 states where Dijkstra settles 11 248; how many queries pay for the preprocessing |
+| [`contraction_hierarchies`](https://github.com/sunsided/heuristic-search/blob/main/examples/contraction_hierarchies.rs) | 1000 routes in a city of 22 629 intersections | A query settles about 292 states where Dijkstra settles 11 248; how many queries pay for the preprocessing |
 | [`alt_landmarks`](https://github.com/sunsided/heuristic-search/blob/main/examples/alt_landmarks.rs) | The same routes | Landmark bounds cut A*'s expansions about 13-fold over the straight-line heuristic, also inside `bae_star` |
 | [`mm_bidirectional`](https://github.com/sunsided/heuristic-search/blob/main/examples/mm_bidirectional.rs) | The same routes | Neither side of MM expands beyond half the optimal cost; on roads plain A* is still faster |
 | [`crowd_pathfinding`](https://github.com/sunsided/heuristic-search/blob/main/examples/crowd_pathfinding.rs) | 300 units on a 256 x 256 map | One `FlowField` serves every unit heading to a rally point; `solve_batch`, reused workspaces and A* paused across frames |

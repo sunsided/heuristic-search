@@ -22,10 +22,9 @@
 //!
 //! The honest lesson of this network: MM is not worth it here. With the straight-line
 //! heuristic it expands only a few percent fewer states than A* with the same heuristic,
-//! and each expansion costs more (MM keeps its frontiers ordered by `pr`, `f` and `g`), so
-//! it is slower in wall time. MM0 expands exactly as many states as bidirectional
-//! Dijkstra, which on this network also stops at half of `C*` on each side, at a higher
-//! cost per expansion. The straight-line heuristic is weak where most roads are about three
+//! but a bidirectional expansion costs more than one of A*, so it is slower in wall time.
+//! MM0 expands exactly as many states as bidirectional Dijkstra, which on this network
+//! also stops at half of `C*` on each side, at about the same cost per query. The straight-line heuristic is weak where most roads are about three
 //! times slower than the motorway it assumes, so `max(f, 2g)` is mostly `2g` and MM behaves
 //! much like MM0. And two half-depth searches save only about half the work on a road
 //! grid, whose search space grows quadratically with the cost. MM's guarantee pays off

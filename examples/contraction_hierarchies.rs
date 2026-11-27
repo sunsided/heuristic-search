@@ -18,11 +18,11 @@
 //! consists of the network's own road segments, not of shortcuts, so it is replayed edge
 //! by edge.
 //!
-//! The witness searches are given more room than the default [`WitnessLimits`] (16 hops,
-//! 64 settled states): a street grid has many equally fast detours, and a witness search
-//! that gives up too early adds shortcuts that a longer search would have found
-//! unnecessary. Here the wider limits build no slower and give fewer shortcuts and faster
-//! queries.
+//! The hierarchy uses the default witness limits (16 hops, 256 settled states, see
+//! [`WitnessLimits`](heuristic_search::WitnessLimits)). A street grid has many equally
+//! fast detours, and a witness search that gives up too early adds shortcuts that a longer
+//! search would have found unnecessary; on this network much wider limits save under 2 %
+//! more shortcuts.
 //!
 //! Run with `cargo run --release --example contraction_hierarchies`. Timings vary between
 //! machines and runs; the counts do not.
@@ -36,16 +36,10 @@ mod road_network;
 
 use std::time::{Duration, Instant};
 
-use heuristic_search::{ContractionHierarchy, Limits, Solution, WitnessLimits, a_star, dijkstra};
+use heuristic_search::{ContractionHierarchy, Limits, Solution, a_star, dijkstra};
 
 use race::{Method, Totals};
 use road_network::RoadNetwork;
-
-/// Witness search limits for the street grid.
-const LIMITS: WitnessLimits = WitnessLimits {
-    max_hops: 64,
-    max_settled: 1_000,
-};
 
 /// Builds the network and the hierarchy, races the three methods and unpacks one route.
 fn main() {
@@ -53,7 +47,7 @@ fn main() {
     println!("{}", network.summary());
 
     let started = Instant::now();
-    let hierarchy = ContractionHierarchy::build_with_limits(&network, [0], LIMITS);
+    let hierarchy = ContractionHierarchy::build(&network, [0]);
     let build = started.elapsed();
     assert_eq!(
         hierarchy.len(),
