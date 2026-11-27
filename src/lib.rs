@@ -140,7 +140,8 @@
 //! - [`lrta_star`] and [`rta_star`]: LRTA* and RTA*, a lookahead of one expansion.
 //! - [`lss_lrta_star`]: LSS-LRTA*, an A* lookahead of `n` expansions and a Dijkstra update.
 //! - [`lhb_lrta_star`]: the same agent with the limited-horizon Bellman update of Hadar et
-//!   al.; [`lhb_update`] is that update on its own, for offline learning.
+//!   al.; [`lhb_gbfs`] and [`lhb_bwa_star`] run it after a GBFS or a batch weighted A*
+//!   (BWAS) search phase; [`lhb_update`] is that update on its own, for offline learning.
 //! - [`rtaa_star`]: RTAA*, the A* lookahead with a cheaper update.
 //!
 //! [`RealTimeDStar`] (Real-time D*) is a real-time agent for graphs whose edge costs change:
@@ -303,8 +304,8 @@ pub use outcome::{Limits, Outcome, SearchResult, Solution, Stats};
 pub use problem::{Predecessors, Successors};
 pub use rbfs::{rbfs, rbfs_multi};
 pub use real_time::{
-    AgentStep, LearnedHeuristic, RealTimeDStar, TrialResult, TrialStats, lhb_lrta_star, lhb_update,
-    lrta_star, lss_lrta_star, rta_star, rtaa_star,
+    AgentStep, LearnedHeuristic, RealTimeDStar, TrialResult, TrialStats, lhb_bwa_star, lhb_gbfs,
+    lhb_lrta_star, lhb_update, lrta_star, lss_lrta_star, rta_star, rtaa_star,
 };
 #[cfg(feature = "float")]
 pub use search_core::NonNegF64;

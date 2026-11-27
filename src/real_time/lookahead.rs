@@ -1,10 +1,12 @@
-//! Real-time search with an A* lookahead of `n` expansions: [`lss_lrta_star`] (LSS-LRTA*),
+//! Real-time search with a lookahead of `n` expansions: [`lss_lrta_star`] (LSS-LRTA*),
 //! [`lhb_lrta_star`] (the same agent with the limited-horizon Bellman update of Hadar et al.),
+//! [`lhb_gbfs`] and [`lhb_bwa_star`] (that update after a GBFS or BWAS search phase),
 //! [`rtaa_star`] (RTAA*), and the limited-horizon update on its own, [`lhb_update`].
 //!
-//! All four share one engine, [`Lookahead`]: a bounded A* from the current state that keeps
-//! every edge it generated, so the update rules in [`update`] can run shortest-path
-//! computations over the explored graph. The rules differ only in what they write back.
+//! All of them share one engine, [`Lookahead`]: a bounded best-first search from the current
+//! state (A*, GBFS or batch weighted A*) that keeps every edge it generated, so the update
+//! rules in [`update`] can run shortest-path computations over the explored graph. The
+//! rules differ only in what they write back.
 
 mod update;
 
@@ -13,7 +15,8 @@ use core::hash::Hash;
 
 use search_core::{Budget, Cost, Goal, Heuristic};
 
-use crate::cost::CostExt;
+use crate::best_first::Order;
+use crate::cost::{CostExt, Weight};
 use crate::open_list::OpenList;
 use crate::outcome::{Limits, Stats};
 use crate::problem::{Successors, collect_successors};
@@ -156,6 +159,172 @@ where
     H: Heuristic<G::State, G::Cost>,
 {
     let search = Lookahead::new(graph, goal, lookahead);
+
+    search.trial(start, table, budget, update::limited_horizon)
+}
+
+/// One trial of the limited-horizon Bellman update (LHB) of Hadar et al. 2025 with greedy
+/// best-first search (GBFS) as its search phase, learning in `table`.
+///
+/// Each step runs GBFS from the current state with `table` as the heuristic for at most
+/// `lookahead` expansions, stopping early when it selects a goal: the open state with the
+/// smallest value is expanded next, path costs only break ties, and a state is never
+/// reopened. The update is [`lhb_update`]'s over the search graph GBFS built, so it reads
+/// the cheapest paths off every generated edge, not off GBFS's parent links. The agent then
+/// moves along GBFS's path to the open state with the smallest value (or to the goal GBFS
+/// selected) and plans again.
+///
+/// GBFS can reach deeper than A* with the same `lookahead`, so a step can learn values
+/// further from the agent, but the moves follow the heuristic, not the cheapest path in
+/// the search graph, so a trial that learns nothing need not be a cheapest path. The
+/// update does not depend on the search phase: from an admissible table it stays
+/// admissible, from a consistent one consistent.
+///
+/// The [`Budget`] is asked before every expansion; [`TrialStats::max_step_expansions`]
+/// never exceeds `lookahead`.
+///
+/// # Panics
+///
+/// Panics if `lookahead` is zero: the agent could never move.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{LearnedHeuristic, Limits, Successors, Zero, lhb_gbfs};
+///
+/// /// A corridor `0..=20` with unit moves both ways.
+/// struct Corridor;
+///
+/// impl Successors for Corridor {
+///     type State = u8;
+///     type Action = i8;
+///     type Cost = u32;
+///
+///     fn successors(&self, cell: &u8, mut emit: impl FnMut(i8, u8, u32)) {
+///         if *cell < 20 {
+///             emit(1, cell + 1, 1);
+///         }
+///         if let Some(left) = cell.checked_sub(1) {
+///             emit(-1, left, 1);
+///         }
+///     }
+/// }
+///
+/// let mut table = LearnedHeuristic::new(Zero);
+/// let goal = |cell: &u8| *cell == 0;
+///
+/// // Repeated trials learn until one changes nothing; on this corridor, that one is a
+/// // cheapest path.
+/// let last = loop {
+///     let result = lhb_gbfs(&Corridor, 10, &goal, &mut table, 4, Limits::NONE);
+///     if result.trial.updates == 0 {
+///         break result;
+///     }
+/// };
+///
+/// assert_eq!(last.solution().map(|path| path.cost), Some(10));
+/// ```
+pub fn lhb_gbfs<G, T, H>(
+    graph: &G,
+    start: G::State,
+    goal: &T,
+    table: &mut LearnedHeuristic<G::State, G::Cost, H>,
+    lookahead: usize,
+    budget: impl Budget<Stats>,
+) -> GraphTrial<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
+{
+    let search = Lookahead::new(graph, goal, lookahead).phase(Order::H, 1);
+
+    search.trial(start, table, budget, update::limited_horizon)
+}
+
+/// One trial of the limited-horizon Bellman update (LHB) of Hadar et al. 2025 with batch
+/// weighted A* (BWAS, Agostinelli et al. 2019) as its search phase, learning in `table`.
+///
+/// Each step runs BWAS from the current state with `table` as the heuristic for at most
+/// `lookahead` expansions. BWAS is Weighted A* ordered by `g + w * h` (as
+/// [`weighted_a_star`](crate::weighted_a_star)) that takes the `batch` open states with the
+/// smallest keys at once and then expands them all, as Agostinelli et al. do to evaluate a
+/// network on a whole batch; a state reached by a strictly cheaper path is reopened. The
+/// papers write the order as `λ g + h` with `λ` in `[0, 1]`, which sorts like `g + w * h`
+/// for `w = 1 / λ`. If a batch contains a goal, the step stops before expanding any of it;
+/// the last batch is cut so that the step makes at most `lookahead` expansions. The update
+/// is [`lhb_update`]'s over the search graph, and the agent moves along the BWAS path to
+/// the open state with the smallest key (or to the selected goal) and plans again.
+///
+/// With [`Weight::ONE`] and a batch of one this is [`lhb_lrta_star`]. The update does not
+/// depend on the search phase: from an admissible table it stays admissible, from a
+/// consistent one consistent. The moves do: a trial that learns nothing need not be a
+/// cheapest path, as a batch expands states out of `g + w * h` order and the weight
+/// trades cost for depth.
+///
+/// The [`Budget`] is asked before every expansion; [`TrialStats::max_step_expansions`]
+/// never exceeds `lookahead`.
+///
+/// # Panics
+///
+/// Panics if `lookahead` or `batch` is zero.
+///
+/// # Examples
+///
+/// ```
+/// use heuristic_search::{LearnedHeuristic, Limits, Successors, Weight, Zero, lhb_bwa_star};
+///
+/// /// A corridor `0..=20` with unit moves both ways.
+/// struct Corridor;
+///
+/// impl Successors for Corridor {
+///     type State = u8;
+///     type Action = i8;
+///     type Cost = u32;
+///
+///     fn successors(&self, cell: &u8, mut emit: impl FnMut(i8, u8, u32)) {
+///         if *cell < 20 {
+///             emit(1, cell + 1, 1);
+///         }
+///         if let Some(left) = cell.checked_sub(1) {
+///             emit(-1, left, 1);
+///         }
+///     }
+/// }
+///
+/// let mut table = LearnedHeuristic::new(Zero);
+/// let goal = |cell: &u8| *cell == 0;
+/// let weight = Weight::new(5, 3); // λ = 0.6
+/// let result = lhb_bwa_star(&Corridor, 10, &goal, &mut table, 8, weight, 4, Limits::NONE);
+///
+/// assert_eq!(result.solution().map(|path| path.cost), Some(10));
+/// assert!(result.trial.max_step_expansions <= 8);
+/// ```
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the lookahead agents' arguments plus BWAS's weight and batch size"
+)]
+pub fn lhb_bwa_star<G, T, H>(
+    graph: &G,
+    start: G::State,
+    goal: &T,
+    table: &mut LearnedHeuristic<G::State, G::Cost, H>,
+    lookahead: usize,
+    weight: Weight,
+    batch: usize,
+    budget: impl Budget<Stats>,
+) -> GraphTrial<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
+{
+    assert!(batch > 0, "a batch needs at least one state");
+    let search = Lookahead::new(graph, goal, lookahead).phase(Order::Weighted(weight), batch);
 
     search.trial(start, table, budget, update::limited_horizon)
 }
@@ -371,7 +540,8 @@ enum Status {
     Dead,
 }
 
-/// One bounded A* over a graph, keeping every generated edge for the update rules.
+/// One bounded best-first search over a graph, keeping every generated edge for the update
+/// rules.
 struct Lookahead<'a, G: Successors, T: ?Sized> {
     /// The graph being searched.
     graph: &'a G,
@@ -379,6 +549,14 @@ struct Lookahead<'a, G: Successors, T: ?Sized> {
     goal: &'a T,
     /// The most expansions of one lookahead.
     limit: usize,
+    /// The open-list order: A* ([`Weight::ONE`]), Weighted A* or GBFS.
+    order: Order,
+    /// How many open states each iteration takes before expanding them (BWAS); one for
+    /// plain best-first search.
+    batch: usize,
+    /// The batch taken off the open list for expansion; kept between batches and searches,
+    /// also when a search ends inside one, so its allocation is reused.
+    selected: Vec<NodeId>,
     /// The generated states, their `g` and A* parent links.
     space: SearchSpace<G::State, G::Action, G::Cost>,
     /// Table value of each node, by [`NodeId`], read once when the node is created.
@@ -390,7 +568,7 @@ struct Lookahead<'a, G: Successors, T: ?Sized> {
     children: Vec<bool>,
     /// Every generated edge `(from, to, cost)`, duplicates included.
     edges: Vec<(NodeId, NodeId, G::Cost)>,
-    /// The A* open list, keyed by `f = g + h`.
+    /// The open list, keyed by [`Lookahead::order`].
     open: OpenList<G::Cost>,
     /// Successors of the node being expanded; reused between expansions.
     buffer: Vec<(G::Action, G::State, G::Cost)>,
@@ -403,12 +581,15 @@ where
     G::Action: Clone,
     T: Goal<G::State> + ?Sized,
 {
-    /// An empty lookahead of at most `limit` expansions per search.
+    /// An empty A* lookahead of at most `limit` expansions per search.
     fn new(graph: &'a G, goal: &'a T, limit: usize) -> Self {
         Self {
             graph,
             goal,
             limit,
+            order: Order::Weighted(Weight::ONE),
+            batch: 1,
+            selected: Vec::new(),
             space: SearchSpace::seed([], goal).0,
             h: Vec::new(),
             status: Vec::new(),
@@ -416,6 +597,15 @@ where
             edges: Vec::new(),
             open: OpenList::new(),
             buffer: Vec::new(),
+        }
+    }
+
+    /// The same lookahead with open-list `order`, taking `batch` states per iteration.
+    fn phase(self, order: Order, batch: usize) -> Self {
+        Self {
+            order,
+            batch,
+            ..self
         }
     }
 
@@ -463,8 +653,12 @@ where
         path.finish(end, stats, trial)
     }
 
-    /// Runs A* from `start` for at most [`Lookahead::limit`] expansions, replacing the
-    /// previous search graph.
+    /// Runs the search from `start` for at most [`Lookahead::limit`] expansions, replacing
+    /// the previous search graph.
+    ///
+    /// Each iteration takes up to [`Lookahead::batch`] open states and then expands them;
+    /// a goal among them ends the search before any of them is expanded, so a goal is
+    /// never interior to the search graph.
     fn search<H: Heuristic<G::State, G::Cost>>(
         &mut self,
         start: G::State,
@@ -480,16 +674,37 @@ where
                 return Frontier::Exhausted;
             };
 
-            if self.goal.is_goal(self.space.state(node)) || expansions == self.limit {
+            if expansions == self.limit {
                 return Frontier::Target(node);
             }
 
-            if budget.exhausted(stats) {
-                return Frontier::Limit;
+            let mut selected = core::mem::take(&mut self.selected);
+            selected.clear();
+            while selected.len() < self.batch && expansions + selected.len() < self.limit {
+                let Some(node) = self.peek() else {
+                    break;
+                };
+
+                if self.goal.is_goal(self.space.state(node)) {
+                    self.selected = selected;
+                    return Frontier::Target(node);
+                }
+
+                self.pop();
+                selected.push(node);
             }
 
-            self.expand(node, table, stats);
-            expansions += 1;
+            for &node in &selected {
+                if budget.exhausted(stats) {
+                    self.selected = selected;
+                    return Frontier::Limit;
+                }
+
+                self.expand(node, table, stats);
+                expansions += 1;
+            }
+
+            self.selected = selected;
         }
     }
 
@@ -510,7 +725,7 @@ where
         self.create(0, h);
     }
 
-    /// The open node with the smallest `f`, left on the open list.
+    /// The open node with the smallest key, left on the open list.
     fn peek(&mut self) -> Option<NodeId> {
         let (statuses, space) = (&self.status, &self.space);
 
@@ -519,16 +734,22 @@ where
             .map(|(node, _)| node)
     }
 
-    /// Closes `node` and generates its successors, recording every edge.
+    /// Takes the node [`Lookahead::peek`] returns off the open list; it stays
+    /// [`Status::Open`] until it is expanded.
+    fn pop(&mut self) {
+        let (statuses, space) = (&self.status, &self.space);
+        self.open
+            .pop_where(|node, g| statuses[node] == Status::Open && g == space.g(node));
+    }
+
+    /// Closes `node`, taken off the open list by [`Lookahead::pop`], and generates its
+    /// successors, recording every edge.
     fn expand<H: Heuristic<G::State, G::Cost>>(
         &mut self,
         node: NodeId,
         table: &mut LearnedHeuristic<G::State, G::Cost, H>,
         stats: &mut Stats,
     ) {
-        let (statuses, space) = (&self.status, &self.space);
-        self.open
-            .pop_where(|node, g| statuses[node] == Status::Open && g == space.g(node));
         self.status[node] = Status::Closed;
 
         stats.expanded += 1;
@@ -543,7 +764,8 @@ where
         self.buffer = buffer;
     }
 
-    /// Records the edge from `parent` to `next` and opens or reopens `next` as A* does.
+    /// Records the edge from `parent` to `next` and opens `next`, or reopens it on a cheaper
+    /// path if [`Lookahead::order`] reopens.
     fn generate<H: Heuristic<G::State, G::Cost>>(
         &mut self,
         parent: NodeId,
@@ -554,14 +776,15 @@ where
         stats: &mut Stats,
     ) {
         let id = if let Some(id) = self.space.find(&next) {
-            if let Reach::Improved(_) = self.space.reach(next, parent, action, cost, true) {
+            let improve = self.order.reopens();
+            if let Reach::Improved(_) = self.space.reach(next, parent, action, cost, improve) {
                 self.reopen(id, stats);
             }
 
             id
         } else {
             let h = table.get(&next);
-            let Reach::New(id) = self.space.reach(next, parent, action, cost, true) else {
+            let Reach::New(id) = self.space.reach(next, parent, action, cost, false) else {
                 unreachable!("the state is not known yet");
             };
 
@@ -605,11 +828,11 @@ where
     fn push_open(&mut self, id: NodeId) {
         if let Some(h) = self.h[id] {
             let g = self.space.g(id);
-            self.open.push(id, g.saturating_add(h), g);
+            self.open.push(id, self.order.key(g, h), g);
         }
     }
 
-    /// Moves the agent along the A* path to `target` and returns the number of moves.
+    /// Moves the agent along the search path to `target` and returns the number of moves.
     fn travel(&self, target: NodeId, path: &mut Trajectory<G::State, G::Action, G::Cost>) -> u64 {
         let mut links = Vec::new();
         let mut node = target;

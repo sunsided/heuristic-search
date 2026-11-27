@@ -19,7 +19,8 @@ In scope:
 - preprocessed queries on static graphs: contraction hierarchies;
 - dynamic graphs: LPA*, D* Lite, AD*; Field D* on grids with per-cell costs;
 - real-time search with learned tables: LRTA*, RTA*, LSS-LRTA*, RTAA*, and the
-  limited-horizon Bellman update (LHB); Real-time D* (RTD*) for changing graphs;
+  limited-horizon Bellman update (LHB) after A*, GBFS or BWAS search phases; Real-time D*
+  (RTD*) for changing graphs;
 - parallel (feature `parallel`): hash-distributed A* (HDA*);
 - many queries: reusable workspaces, resumable A*, flow fields (backward Dijkstra from a
   goal set) and parallel batches.
@@ -726,11 +727,14 @@ means the trial learned nothing, which is how callers detect convergence.
 | `rta_star` | the successors | second-best `c + h`; the best with fewer than two live successors | nothing (inadmissible by design) |
 | `lss_lrta_star` | A*, `n` expansions | Dijkstra from OPEN into CLOSED, closed values start at infinity | admissible, consistent |
 | `lhb_lrta_star` | A*, `n` expansions | the paper's Eq. 5 by its Algorithm 1 | admissible, consistent |
+| `lhb_gbfs` | GBFS, `n` expansions | Eq. 5 | admissible, consistent |
+| `lhb_bwa_star` | BWAS (weight `w`, batch `B`), `n` expansions | Eq. 5 | admissible, consistent |
 | `rtaa_star` | A*, `n` expansions | `h(s) = f(best open) - g(s)` | admissible, consistent |
 | `lhb_update` | A*, `n` expansions, no move | Eq. 5, offline | admissible (consistent through the agent; tested there) |
 
-Engine: the three lookahead agents share one bounded A* (`Lookahead`) that reopens on
-cheaper paths and records *every* generated edge, not only parent links: a shortest-path
+Engine: the lookahead agents share one bounded best-first search (`Lookahead`), A* unless
+a search phase says otherwise, that reopens on cheaper paths and records *every* generated
+edge, not only parent links: a shortest-path
 update over parent links alone overestimates on cycles. A goal that A* selects ends the
 lookahead and stays a seed of the update (peeked, not popped), otherwise closed states
 whose only exit is the goal would be marked dead. The agent then moves along the A* path
@@ -748,7 +752,9 @@ graphs with an uninformed table the agent can wander away forever; the budget st
 
 | Paper (arXiv 2511.10264v1) | Here | Status |
 | --- | --- | --- |
-| LHBL search phase: run any search (A*, GBFS) from a sampled state for `N` expansions, guided by the target network `h_θ⁻` | `lhb_update` runs A* with the table itself as the heuristic (the tabular case has no separate target network) | same, A* only |
+| LHBL search phase: run any search (A*, GBFS) from a sampled state for `N` expansions, guided by the target network `h_θ⁻` | `lhb_update` runs A* with the table itself as the heuristic (the tabular case has no separate target network); the agents `lhb_lrta_star`, `lhb_gbfs` and `lhb_bwa_star` run A*, GBFS and BWAS | same; GBFS and BWAS only inside the agent |
+| BWAS (background section, from DeepCubeA): order `λ g + h` with `λ ∈ [0, 1]`, expand the `B` lowest-cost nodes in parallel; `B = 1`, `λ = 1` is A*, `λ = 0` GBFS | `lhb_bwa_star` orders by `g + w h` with the crate's rational `Weight` (`w = 1 / λ`), takes `B` open states, then expands them; `λ = 0` is `lhb_gbfs` | same order; `λ = 0` as its own function |
+| DeepCubeA's BWAS (its code) records goals when popped and stops after the iteration that popped one | a goal among the selected batch ends the step before the batch is expanded, so a goal is never interior to the search graph; the last batch is cut at `N` expansions | deliberate deviation, as for A* |
 | Search graph `G(V, E)`: generated states and edges, cycles allowed | `Lookahead` records every generated edge, duplicates included | same |
 | Leaves `L(n)`: descendants of `n` without children in `G` | nodes never expanded, or expanded without successors (`children == false`) | same |
 | Eq. 5: `h(s) = 0` if `s` is a goal, else `min over l in L(n) of C(n, l) + h_θ⁻(l)` | interior nodes take the minimum over reachable leaves with the old leaf values; goal nodes get 0 afterwards, so a goal leaf with `h ≠ 0` still contributes its old value to its ancestors | same; goal case read literally |
@@ -917,7 +923,10 @@ rejected: they are not one-shot searches.
   arbitrary tables), convergence to the Dijkstra cost from consistent and from admissible
   inconsistent tables (the latter beyond the classic theorems for the lookahead searches;
   clean over 5000 random cases per property in one run), LSS and LHB agreement where their updates cannot differ, and offline
-  LHB sweeps reaching exact costs.
+  LHB sweeps reaching exact costs. The GBFS and BWAS phases join the admissibility,
+  consistency and completeness properties; converged trials are checked against the
+  optimum only for BWAS with a batch of one (within `w`), and BWAS with weight one and
+  a batch of one must equal `lhb_lrta_star` trial for trial.
 - Many queries (`tests/it/workspace.rs`, `flow.rs`, `batch.rs`, `send_sync.rs`): one
   workspace reused across random queries, budget stops and starts that are goals returns
   whole results equal to fresh searches; resumable A* in calls of 1 to 3 expansions
@@ -964,7 +973,14 @@ rejected: they are not one-shot searches.
 - LHB: Eq. 5 and Algorithm 1 disagree for a goal leaf with a nonzero value; we use the old
   value for its ancestors and set the goal itself to 0. Algorithm 1 alone would keep the
   goal's value. Default: Eq. 5 as written.
-- LHB: the paper allows GBFS or BWAS as the search phase; only A* is implemented.
+- LHB with GBFS or BWAS: the agent moves to the open state its search would expand next.
+  With GBFS a trial that learns nothing can still take a detour (test
+  `gbfs_phase_follows_the_values`), and so can BWAS with a batch above one, even at
+  weight one (found by the convergence property test). With a batch of one and weight
+  `w` the converged trials stayed within `w` times the cheapest cost on the random test
+  graphs, which is not proven.
+  Moving along the cheapest path in the search graph instead would make the phases learn
+  differently but move like A*. Default: each phase moves by its own order.
 
 ## References
 
@@ -1044,3 +1060,6 @@ rejected: they are not one-shot searches.
   learning of heuristics with limited-horizon search. arXiv:2511.10264, 2025. (LHB)
 - D. M. Bond, N. A. Widger, W. Ruml, X. Sun. Real-time search in dynamic worlds. SoCS
   2010. (Real-time D*)
+- F. Agostinelli, S. McAleer, A. Shmakov, P. Baldi. Solving the Rubik's cube with deep
+  reinforcement learning and search. Nature Machine Intelligence 1, 2019. (DeepCubeA,
+  BWAS)

@@ -17,6 +17,8 @@
 //! | [`rta_star`]      | the successors          | second-best `c(s, s') + h(s')`, not admissible |
 //! | [`lss_lrta_star`] | A*, `n` expansions      | Dijkstra from the open list (Koenig and Sun)   |
 //! | [`lhb_lrta_star`] | A*, `n` expansions      | shortest paths to the frontier leaves (LHB)    |
+//! | [`lhb_gbfs`]      | GBFS, `n` expansions    | LHB                                            |
+//! | [`lhb_bwa_star`]  | BWAS, `n` expansions    | LHB                                            |
 //! | [`rtaa_star`]     | A*, `n` expansions      | `h(s) = f(best open) - g(s)`                   |
 //!
 //! [`lhb_update`] is the limited-horizon Bellman update of Hadar et al. on its own: a bounded
@@ -28,8 +30,14 @@
 //! at a time. It runs D* Lite from the goal and falls back to LSS-LRTA*'s lookahead and
 //! update until D* Lite's search reaches it, and reports its run as a [`TrialResult`].
 //!
-//! The lookahead searches move along the A* path to the open state with the smallest `f`
-//! (or to the goal, if A* selected one), then plan again from there.
+//! The lookahead searches move along the search path to the open state their search would
+//! expand next (for A* the smallest `f`), or to the goal, if the search selected one, then
+//! plan again from there. [`lhb_gbfs`] and [`lhb_bwa_star`] run the LHB update after the
+//! other search phases the paper names: greedy best-first search, and batch weighted A*
+//! (BWAS) of Agostinelli et al., which expands a batch of open states at once. Their moves follow
+//! their own order, so a trial that learns nothing is not always a cheapest path: GBFS
+//! ignores path costs, and batches expand states out of order. With a batch of one, BWAS
+//! with weight `w` stayed within `w` times the cheapest cost on the test graphs.
 //!
 //! ```mermaid
 //! flowchart TD
@@ -52,7 +60,7 @@ mod single;
 mod table;
 
 pub use d_star::{AgentStep, RealTimeDStar};
-pub use lookahead::{lhb_lrta_star, lhb_update, lss_lrta_star, rtaa_star};
+pub use lookahead::{lhb_bwa_star, lhb_gbfs, lhb_lrta_star, lhb_update, lss_lrta_star, rtaa_star};
 pub use single::{lrta_star, rta_star};
 pub use table::LearnedHeuristic;
 

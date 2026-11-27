@@ -76,7 +76,8 @@ for the design behind it.
   Real-time D* (`RealTimeDStar`), D* Lite and LSS-LRTA* under a per-move expansion limit
 - Real-time search with learned tables that persist across trials (`LearnedHeuristic`):
   LRTA*, RTA*, LSS-LRTA* (A* lookahead, Dijkstra update), RTAA*, and the limited-horizon
-  Bellman update of Hadar et al. 2025 (`lhb_update` offline, `lhb_lrta_star` inside the
+  Bellman update of Hadar et al. 2025 (`lhb_update` offline, `lhb_lrta_star`,
+  `lhb_gbfs` and `lhb_bwa_star` with A*, GBFS and batch weighted A* search phases inside the
   LSS-LRTA* agent); learning curves in `benches/learning.rs` and the design notes
 - Parallel (feature `parallel`): hash-distributed A* (`hda_star`), one A* search over
   several threads that own the states by hash, with the same optimal cost as A*
