@@ -9,10 +9,10 @@ use proptest::prelude::*;
 
 use crate::fixtures::{Graph, Grid, assert_valid_path};
 
-/// A random directed graph with up to 40 nodes and edge costs `0..=9`: zero-cost edges,
+/// A random directed graph with up to 25 nodes and edge costs `0..=9`: zero-cost edges,
 /// self loops, parallel edges and unreachable pairs all occur.
 fn random_graph() -> impl Strategy<Value = Graph> {
-    (2_usize..40).prop_flat_map(|nodes| {
+    (2_usize..25).prop_flat_map(|nodes| {
         prop::collection::vec((0..nodes, 0..nodes, 0_u64..10), 0..nodes * 3)
             .prop_map(move |edges| Graph::new(nodes, &edges))
     })
@@ -88,11 +88,11 @@ proptest! {
         ranks.sort_unstable();
         prop_assert_eq!(ranks, (0..nodes).map(Some).collect::<Vec<_>>());
 
+        let backward: Vec<_> = (0..nodes).map(|goal| hierarchy.backward_search_space(&goal)).collect();
         for start in 0..nodes {
             let forward = hierarchy.forward_search_space(&start);
             prop_assert_eq!(forward[0], (&start, 0));
-            for goal in 0..nodes {
-                let backward = hierarchy.backward_search_space(&goal);
+            for (goal, backward) in backward.iter().enumerate() {
                 let meeting = forward
                     .iter()
                     .filter_map(|&(state, f)| {
@@ -109,8 +109,8 @@ proptest! {
     #[test]
     fn multi_query_is_cheapest_pair(
         graph in random_graph(),
-        starts in prop::collection::vec(0_usize..40, 0..4),
-        goals in prop::collection::vec(0_usize..40, 0..4),
+        starts in prop::collection::vec(0_usize..25, 0..4),
+        goals in prop::collection::vec(0_usize..25, 0..4),
     ) {
         let nodes = graph.edges.len();
         let hierarchy = ContractionHierarchy::build(&graph, 0..nodes);

@@ -16,6 +16,7 @@ In scope:
 - multiple heuristics: MHA*;
 - bidirectional: NBS, BAE*, DIBBS, MM (plus bidirectional BFS and Dijkstra as baselines);
 - expensive edge evaluation: LazySP;
+- preprocessed queries on static graphs: contraction hierarchies;
 - dynamic graphs: LPA*, D* Lite, AD*; Field D* on grids with per-cell costs;
 - real-time search with learned tables: LRTA*, RTA*, LSS-LRTA*, RTAA*, and the
   limited-horizon Bellman update (LHB);
@@ -890,7 +891,7 @@ rejected: they are not one-shot searches.
   `EightConnected` predecessors equal its reversed successors, and grid fields agree with
   A*; batches equal the sequential searches at 0 to 5 threads, in order; panics reach the
   caller; Send and Sync are asserted at compile time.
-- Contraction hierarchies: every pair on random graphs of up to 40 nodes (zero costs,
+- Contraction hierarchies: every pair on random graphs of up to 25 nodes (zero costs,
   self loops, parallel edges, unreachable pairs) costs what `dijkstra` costs, with
   witness limits of zero, tiny and default; every path is replayed on the graph. The
   upward search spaces of start and goal meet at the query cost, ranks are a
