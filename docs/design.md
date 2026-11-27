@@ -401,8 +401,12 @@ Per-algorithm notes:
   cost 1, 2 or blocked (by default between three corner pairs; ignored variants: every
   corner pair, costs 1, 3, 10 or blocked, and every 4 x 4 grid of costs 1, 2 or
   blocked between opposite corners). On the benchmark grid (65 x 65 corners), a plan plus a repair after the
-  gap moves: 9.1 ms, against 1.8 ms for 4-connected D* Lite; each expansion updates eight
-  neighbours whose `rhs` reads eight `g` values from the hash index.
+  gap moves: about 10 ms, against 1.8 ms for 4-connected D* Lite; each expansion updates
+  eight neighbours whose `rhs` reads eight `g` values from the hash index. The lattice A*
+  gets the interpolated path's cost as a bound and stops once its smallest `f` reaches it
+  (no lattice path can be cheaper from then on; ties keep the interpolated path). On the
+  benchmark the interpolated path wins both times, and the lattice A* expands 96 and
+  1 928 corners instead of 436 and 3 267.
 - Grids: `UniformGrid` (width, height, `is_passable(x, y)`), cells `(x, y)`, 8-connected
   **without corner cutting** (a diagonal move needs both orthogonal neighbours open).
   Costs are `Octile { straight, diagonal }`, the exact value `straight + diagonal * √2`:

@@ -5,25 +5,28 @@
 //! straight to an adjacent corner at the cheaper bordering cell's cost, and diagonally
 //! across a cell at `√2` times its cost. [`a_star`] searches it with `min_cost` times the
 //! Euclidean distance as the heuristic, which every move's cost bounds from above, so the
-//! heuristic is consistent and the result optimal.
+//! heuristic is consistent and the result optimal. Given the cost of a path already in
+//! hand, it stops once its smallest `f` reaches that cost: no lattice path is cheaper then.
 
 use alloc::vec;
 
 use search_core::NonNegF64;
 
 use super::{Corners, RING, coordinate};
-use crate::best_first::a_star;
+use crate::best_first::{a_star, a_star_below};
 use crate::grid::{CostGrid, GridCell, sqrt};
 use crate::outcome::{Limits, Solution};
 use crate::problem::Successors;
 
 /// The cheapest 8-connected path from `start` to `goal` over the corners, as points, or
-/// `None` if there is none. `min_cost` must bound every cell cost from below.
+/// `None` if there is none or, given a `bound`, none cheaper than `bound`. `min_cost` must
+/// bound every cell cost from below.
 pub(super) fn cheapest<G: CostGrid>(
     grid: &G,
     start: GridCell,
     goal: GridCell,
     min_cost: f64,
+    bound: Option<NonNegF64>,
 ) -> Option<Solution<(f64, f64), (), NonNegF64>> {
     let heuristic = crate::heuristic_fn(|&corner: &GridCell| {
         let (dx, dy) = (
@@ -32,14 +35,12 @@ pub(super) fn cheapest<G: CostGrid>(
         );
         NonNegF64::new(min_cost * sqrt(dx * dx + dy * dy))
     });
-    let solution = a_star(
-        &Lattice(Corners(grid)),
-        start,
-        &|&corner: &GridCell| corner == goal,
-        heuristic,
-        Limits::NONE,
-    )
-    .into_solution()?;
+    let (lattice, is_goal) = (Lattice(Corners(grid)), |&corner: &GridCell| corner == goal);
+    let result = match bound {
+        Some(bound) => a_star_below(&lattice, start, &is_goal, heuristic, bound),
+        None => a_star(&lattice, start, &is_goal, heuristic, Limits::NONE),
+    };
+    let solution = result.into_solution()?;
 
     Some(Solution {
         actions: vec![(); solution.actions.len()],

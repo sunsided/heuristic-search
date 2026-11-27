@@ -91,6 +91,32 @@ where
     Engine::new(graph, goal, heuristic, order).run([start], budget)
 }
 
+/// A* from `start` that gives up once no path can cost less than `bound`: it stops with
+/// [`Outcome::Unsolvable`] as soon as the smallest `f = g + h` on the open list reaches
+/// `bound`, so a returned path always costs less than `bound`. Runs without a budget.
+///
+/// With a consistent heuristic, `f` never falls along a path, so no path found later could
+/// cost less than `bound` either.
+#[cfg(feature = "float")]
+pub(crate) fn a_star_below<G, T, H>(
+    graph: &G,
+    start: G::State,
+    goal: &T,
+    heuristic: H,
+    bound: G::Cost,
+) -> GraphResult<G>
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
+{
+    let mut engine = Engine::new(graph, goal, heuristic, Order::Weighted(Weight::ONE));
+    engine.bound = Some(bound);
+    engine.run([start], crate::outcome::Limits::NONE)
+}
+
 /// Dijkstra's algorithm (uniform-cost search) from `start` to the cheapest goal.
 ///
 /// A* with the [`Zero`] heuristic: always optimal for non-negative edge costs.
@@ -399,6 +425,8 @@ struct Engine<'a, G: Successors, T: ?Sized, H> {
     closed: Vec<bool>,
     /// Successors of the node being expanded; reused between expansions.
     buffer: Vec<(G::Action, G::State, G::Cost)>,
+    /// The open-list key at which the run gives up as unsolvable, if any.
+    bound: Option<G::Cost>,
 }
 
 impl<'a, G, T, H> Engine<'a, G, T, H>
@@ -420,6 +448,7 @@ where
             h: Vec::new(),
             closed: Vec::new(),
             buffer: Vec::new(),
+            bound: None,
         }
     }
 
@@ -441,6 +470,10 @@ where
         }
 
         while let Some(node) = open.pop_live(|id| space.g(id)) {
+            if self.reaches_bound(space.g(node), node) {
+                return self.finish(Outcome::Unsolvable);
+            }
+
             if self.goal.is_goal(space.state(node)) {
                 return self.finish(Outcome::Found(space.solution(node)));
             }
@@ -453,6 +486,13 @@ where
         }
 
         self.finish(Outcome::Unsolvable)
+    }
+
+    /// Returns `true` if the open node `node`, at path cost `g`, has a key at or above the
+    /// bound. Every open node has a heuristic value.
+    fn reaches_bound(&self, g: G::Cost, node: NodeId) -> bool {
+        self.bound
+            .is_some_and(|bound| self.h[node].is_some_and(|h| self.order.key(g, h) >= bound))
     }
 
     /// Generates the successors of `node` and opens the new and improved ones.
