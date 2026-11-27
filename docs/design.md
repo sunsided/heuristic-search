@@ -542,6 +542,39 @@ Per-algorithm notes:
   (first successor edge with an equal label, hence `Action: PartialEq`) to return real
   states and true costs; a step without such an edge is a `ReplayError { state, action }`
   in the `MeetResult`.
+- Contraction hierarchies (`ContractionHierarchy`, module `contraction`) are a
+  preprocessed value, not a search function: `build(graph, states)` copies the graph,
+  `query(start, goal)` and `query_multi(starts, goals)` answer from the copy alone. Costs
+  are static; a changed edge cost needs a new build.
+  - **States** are enumerated from the given seeds by exploring `Successors`, so only
+    `Successors` and `State: Clone + Hash + Eq` are needed: passing every state covers
+    the whole graph, and one seed covers a strongly connected one. No `Predecessors`
+    bound: the build keeps both edge directions itself. States get dense indices in
+    discovery order (a hash index like `SearchSpace`'s). A query with a state outside the
+    hierarchy is `Unsolvable`, unless a start is a goal.
+  - **Edges** live in one arena: an original edge keeps its action; a shortcut `u -> w`
+    keeps the ids of the two edges `u -> v` and `v -> w` it replaces, which name the
+    middle state `v` and also the right action among parallel edges (a map from `(u, w)`
+    to `v` could not tell those apart). Self loops are dropped; of parallel edges the
+    overlay keeps the cheapest, and a cheaper shortcut replaces an overlay edge in place
+    (overlay edges are not referred to by anything yet).
+  - **Order**: importance is edge difference (shortcuts minus removed edges) plus
+    contracted neighbours plus search space depth (one more than the deepest contracted
+    neighbour), recomputed when a state reaches the front of the queue and pushed back if
+    it grew past the next one (lazy updates). Ties go to the smaller index, so builds are
+    deterministic; all adjacency is in `Vec`s, never hash-map iteration order.
+  - **Witness searches** are Dijkstra from `u` on the remaining states without `v`,
+    bounded by the dearest `u -> v -> w`, by `WitnessLimits` (default 16 hops and 64
+    settled states) and by a hop count per label. Any path found at most as cheap is a
+    witness, settled or not; a search cut off by a limit adds the shortcut, which costs
+    space but never correctness. With limits of zero every bypassed pair gets a
+    shortcut; the property tests run those too.
+  - **Query**: bidirectional Dijkstra relaxing only edges towards higher ranks, labels in
+    per-query hash maps so a query costs what it touches, a meeting checked on every
+    label improvement (roots included), and each side stops when its minimum reaches the
+    best meeting. The packed path is unpacked iteratively with a stack.
+  - `rank`, `forward_search_space` and `backward_search_space` expose the order and the
+    full upward search spaces (in settling order) for visualisation.
 - LPA*, D* Lite and AD* share one core: LPA* is D* Lite run from the start. AD* adds
   inflation for overconsistent keys and `CLOSED`/`INCONS` (reset from lists, not scans).
   Target moves raise `km` by `numerator * h(old, new)` in scaled key units, which keeps
@@ -857,6 +890,12 @@ rejected: they are not one-shot searches.
   `EightConnected` predecessors equal its reversed successors, and grid fields agree with
   A*; batches equal the sequential searches at 0 to 5 threads, in order; panics reach the
   caller; Send and Sync are asserted at compile time.
+- Contraction hierarchies: every pair on random graphs of up to 40 nodes (zero costs,
+  self loops, parallel edges, unreachable pairs) costs what `dijkstra` costs, with
+  witness limits of zero, tiny and default; every path is replayed on the graph. The
+  upward search spaces of start and goal meet at the query cost, ranks are a
+  permutation, multi-queries cost the cheapest pair, and sampled queries on the
+  benchmark grid match `dijkstra` and replay move by move.
 - Every search function has a doctest.
 - `no_std` is checked by building for `thumbv7em-none-eabihf`.
 - The property-test oracle (Bellman-Ford in the test fixtures) is independent of the
@@ -927,6 +966,8 @@ rejected: they are not one-shot searches.
   Intelligence 291, 2021. (DIBBS)
 - R. C. Holte, A. Felner, G. Sharon, N. R. Sturtevant. Bidirectional search that is
   guaranteed to meet in the middle. AAAI 2016. (MM)
+- R. Geisberger, P. Sanders, D. Schultes, D. Delling. Contraction hierarchies: faster
+  and simpler hierarchical routing in road networks. WEA 2008, LNCS 5038.
 - C. M. Dellin, S. S. Srinivasa. A unifying formalism for shortest path problems with
   expensive edge evaluations via lazy best-first search over paths with edge selectors.
   ICAPS 2016. (LazySP)

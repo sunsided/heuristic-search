@@ -5,7 +5,8 @@
 //! searches meet many transpositions; Jump Point Search
 //! against A* on the 8-connected version of the wall grid, and (feature `float`) Theta*
 //! and Lazy Theta* there, and Field D*'s plan and repair over the grid's corners;
-//! (feature `parallel`) hash-distributed A* against A* on both versions of the grid.
+//! (feature `parallel`) hash-distributed A* against A* on both versions of the grid; and
+//! a contraction hierarchy's build and query on the wall grid.
 //!
 //! Run with `cargo bench`.
 
@@ -13,11 +14,11 @@ use std::hint::black_box;
 
 use criterion::Criterion;
 use heuristic_search::{
-    AdStar, DStarLite, DynamicGraph, EdgeSelector, EesEstimates, EightConnected, FocalList,
-    LandmarkSelection, Landmarks, Limits, MhaWeights, OctileDistance, Predecessors, Successors,
-    UniformGrid, Weight, a_star, ana_star, ara_star, beam_search, beam_stack_search, dfs, dps, ees,
-    focal_fn, focal_search, fringe_search, heuristic_fn, ida_star, ida_star_tt, iddfs, jps,
-    lazy_sp, lss_lrta_star, mha_star, nbs, rbfs, sma_star,
+    AdStar, ContractionHierarchy, DStarLite, DynamicGraph, EdgeSelector, EesEstimates,
+    EightConnected, FocalList, LandmarkSelection, Landmarks, Limits, MhaWeights, OctileDistance,
+    Predecessors, Successors, UniformGrid, Weight, a_star, ana_star, ara_star, beam_search,
+    beam_stack_search, dfs, dps, ees, focal_fn, focal_search, fringe_search, heuristic_fn,
+    ida_star, ida_star_tt, iddfs, jps, lazy_sp, lss_lrta_star, mha_star, nbs, rbfs, sma_star,
 };
 
 /// Side length of the benchmark grid.
@@ -281,6 +282,19 @@ fn bench_hda_star(c: &mut Criterion, grid: &Grid) {
             },
         );
     }
+}
+
+/// A contraction hierarchy of the wall grid: the preprocessing, and one query around the
+/// wall on the finished hierarchy.
+fn bench_contraction_hierarchy(c: &mut Criterion, grid: &Grid) {
+    c.bench_function("contraction_hierarchy build grid", |b| {
+        b.iter(|| black_box(ContractionHierarchy::build(grid, [START])));
+    });
+
+    let hierarchy = ContractionHierarchy::build(grid, [START]);
+    c.bench_function("contraction_hierarchy query grid", |b| {
+        b.iter(|| black_box(hierarchy.query(START, GOAL)));
+    });
 }
 
 /// Theta* and Lazy Theta* on the 8-connected grid, around the wall.
@@ -658,6 +672,7 @@ fn main() {
     bench_jps(&mut c, &grid);
     #[cfg(feature = "parallel")]
     bench_hda_star(&mut c, &grid);
+    bench_contraction_hierarchy(&mut c, &grid);
     #[cfg(feature = "float")]
     bench_theta_star(&mut c, &grid);
     bench_focal_search(&mut c, &grid);

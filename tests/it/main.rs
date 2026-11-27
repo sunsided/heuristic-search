@@ -7,6 +7,7 @@ mod batch;
 mod beam;
 mod bidirectional;
 mod bounded;
+mod contraction;
 mod depth_first;
 mod dynamic;
 #[cfg(feature = "float")]
