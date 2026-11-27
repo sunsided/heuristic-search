@@ -61,7 +61,7 @@ for the design behind it.
   threads (`solve_batch`, feature `parallel`); graphs, heuristics, planners and results
   are `Send + Sync` when their parameters are
 - Weighted and anytime: Weighted A*, ARA*, ANA*
-- Bounded-suboptimal: focal search (with a public focal list and tie-breaking), EES, DPS
+- Bounded-suboptimal: focal search (with a public focal list, tie-breaking and an optional focal value apart from `f`), EES, DPS
 - Bidirectional: bidirectional BFS and Dijkstra, NBS, DIBBS, BAE*, MM (and MM0); meets by a user
   relation (`MeetRelation`) between states and backward nodes of their own type (such
   as subgoals), with path replay or a typed `ReplayError`

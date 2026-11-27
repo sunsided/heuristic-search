@@ -71,7 +71,8 @@
 //! Bounded-suboptimal searches return a solution within `w` times the optimum:
 //!
 //! - [`focal_search`]: expands by a free [`FocalKey`] among `f <= w * f_min`. Its open list,
-//!   [`FocalList`], is public for searches with their own loop.
+//!   [`FocalList`], is public for searches with their own loop; it can admit items to focal
+//!   by a value apart from `f` ([`FocalList::push_with_value`]).
 //! - [`ees`]: Explicit Estimation Search, guided by inadmissible estimates.
 //! - [`dps`]: Dynamic Potential Search, needs only `h`.
 //!
