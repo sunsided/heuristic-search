@@ -31,7 +31,7 @@ proptest! {
             let h = |state: &usize| Some(exact[*state].map_or(0, |d| d / 2));
             let is_goal = |state: &usize| *state == goal;
             let budget = limit.map_or(Limits::NONE, Limits::expansions);
-            let starts = [start, (start + 1) % nodes, goal];
+            let next = (start + 1) % nodes;
 
             prop_assert_eq!(
                 a_star_in(&mut workspace, &graph, start, &is_goal, heuristic_fn(h), budget),
@@ -49,22 +49,26 @@ proptest! {
                 gbfs_in(&mut workspace, &graph, start, &is_goal, heuristic_fn(h), budget),
                 gbfs(&graph, start, &is_goal, heuristic_fn(h), budget)
             );
-            prop_assert_eq!(
-                a_star_multi_in(&mut workspace, &graph, starts, &is_goal, heuristic_fn(h), budget),
-                a_star_multi(&graph, starts, &is_goal, heuristic_fn(h), budget)
-            );
-            prop_assert_eq!(
-                dijkstra_multi_in(&mut workspace, &graph, starts, &is_goal, budget),
-                dijkstra_multi(&graph, starts, &is_goal, budget)
-            );
-            prop_assert_eq!(
-                weighted_a_star_multi_in(&mut workspace, &graph, starts, &is_goal, heuristic_fn(h), weight, budget),
-                weighted_a_star_multi(&graph, starts, &is_goal, heuristic_fn(h), weight, budget)
-            );
-            prop_assert_eq!(
-                gbfs_multi_in(&mut workspace, &graph, starts, &is_goal, heuristic_fn(h), budget),
-                gbfs_multi(&graph, starts, &is_goal, heuristic_fn(h), budget)
-            );
+            // With the goal among the starts (no expansion), and without it, with a
+            // repeated start.
+            for starts in [[start, next, goal], [start, next, start]] {
+                prop_assert_eq!(
+                    a_star_multi_in(&mut workspace, &graph, starts, &is_goal, heuristic_fn(h), budget),
+                    a_star_multi(&graph, starts, &is_goal, heuristic_fn(h), budget)
+                );
+                prop_assert_eq!(
+                    dijkstra_multi_in(&mut workspace, &graph, starts, &is_goal, budget),
+                    dijkstra_multi(&graph, starts, &is_goal, budget)
+                );
+                prop_assert_eq!(
+                    weighted_a_star_multi_in(&mut workspace, &graph, starts, &is_goal, heuristic_fn(h), weight, budget),
+                    weighted_a_star_multi(&graph, starts, &is_goal, heuristic_fn(h), weight, budget)
+                );
+                prop_assert_eq!(
+                    gbfs_multi_in(&mut workspace, &graph, starts, &is_goal, heuristic_fn(h), budget),
+                    gbfs_multi(&graph, starts, &is_goal, heuristic_fn(h), budget)
+                );
+            }
         }
     }
 
