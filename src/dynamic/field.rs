@@ -175,8 +175,9 @@ impl FieldDStar {
     /// [`FieldDStar::stats`] for the totals. A search stopped by its budget continues
     /// where it stopped on the next call. Once the repair has settled, the path is
     /// extracted and compared with the 8-connected A* (see [`FieldDStar`]) outside the
-    /// budget. That A* starts afresh on every call and may expand every corner once, so
-    /// after a small change it can cost more than the repair.
+    /// budget. That A* starts afresh on every call and stops once it cannot beat the
+    /// interpolated path, but may still expand every corner once, so after a small change
+    /// it can cost more than the repair.
     pub fn compute<G: CostGrid>(&mut self, grid: &G, budget: impl Budget<Stats>) -> FieldResult {
         let (settled, stats) = self.core.repair(&Corners(grid), budget);
         let outcome = if settled {
@@ -201,7 +202,8 @@ impl FieldDStar {
     /// form's fixed point, and every finite case of [`interpolate`] uses a neighbour with a
     /// finite, strictly smaller value that a lattice move of finite cost reaches (straight
     /// to `s1` at `min(c, b)`, or diagonally across `c` to `s2`), so following those moves
-    /// reaches the goal. The result is never dearer than that path.
+    /// reaches the goal. The result is never dearer than that path. The lattice search
+    /// stops once it cannot beat the interpolated path; ties keep the interpolated one.
     fn path<G: CostGrid>(
         &self,
         grid: &G,
@@ -212,19 +214,15 @@ impl FieldDStar {
         }
 
         let interpolated = path::extract(grid, g, self.start, self.goal);
-        let lattice = lattice::cheapest(grid, self.start, self.goal, self.min_cost);
+        let bound = interpolated.as_ref().map(|interpolated| interpolated.cost);
+        let lattice = lattice::cheapest(grid, self.start, self.goal, self.min_cost, bound);
         debug_assert!(
-            lattice.is_some(),
+            bound.is_some() || lattice.is_some(),
             "a finite g(start) implies an 8-connected path"
         );
 
-        match (interpolated, lattice) {
-            (Some(interpolated), Some(lattice)) if lattice.cost < interpolated.cost => {
-                Some(lattice)
-            }
-            (Some(interpolated), _) => Some(interpolated),
-            (None, lattice) => lattice,
-        }
+        // Bounded by the interpolated cost, the lattice search only returns a cheaper path.
+        lattice.or(interpolated)
     }
 
     /// The interpolated cost `g` from the current start to the goal, or `None` if the goal
