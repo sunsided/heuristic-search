@@ -714,6 +714,8 @@ remembered. This needs nothing from `search-core`: `Budget<Stats>` is asked as b
 impl<S, A, C> FlowField<S, A, C> {
     pub fn build<G: Predecessors<Node = S, Action = A, Cost = C>>(
         graph: &G, goals: impl IntoIterator<Item = S>, budget: impl Budget<Stats>) -> Self;
+    pub fn rebuild<G: Predecessors<Node = S, Action = A, Cost = C>>(
+        &mut self, graph: &G, goals: impl IntoIterator<Item = S>, budget: impl Budget<Stats>);
     pub fn cost(&self, state: &S) -> Option<C>;
     pub fn next(&self, state: &S) -> Option<(&A, &S, C)>;
     pub fn path(&self, start: &S) -> Option<Solution<S, A, C>>;
@@ -728,7 +730,9 @@ edge (`Predecessors` reports the forward action and cost), so `next` is one hop 
 `path` is the existing walk to the root. Only expanded states are answered: with
 non-negative costs their `g` is final, and so is every ancestor's; states generated but
 not expanded before a budget stop have tentative costs and are reported as unknown.
-`is_complete` tells "no goal reachable" apart from "not settled yet". The name avoids
+`is_complete` tells "no goal reachable" apart from "not settled yet". `rebuild` runs the same
+search in the field's own workspace, which the engine clears on seeding, so a field for a
+moving goal keeps its allocations. The name avoids
 `FieldDStar` and `FieldResult`, which are Field D*.
 
 `EightConnected` implements `Predecessors` so fields run on grids: the corner rule needs

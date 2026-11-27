@@ -1,7 +1,8 @@
 //! Flow fields: on random graphs the field's costs equal the exact distance to the nearest
-//! goal, its steps are forward edges along cheapest paths, and a budget-cut field answers
-//! exactly for the states closest to the goals. On grids, the predecessors of
-//! [`EightConnected`] mirror its successors and the field agrees with A*.
+//! goal, its steps are forward edges along cheapest paths, a budget-cut field answers
+//! exactly for the states closest to the goals, and a rebuilt field equals a fresh one. On
+//! grids, the predecessors of [`EightConnected`] mirror its successors and the field agrees
+//! with A*.
 
 use std::collections::BTreeSet;
 
@@ -48,6 +49,29 @@ proptest! {
                 }
                 None => prop_assert!(exact[v].is_none() || goals.contains(&v)),
             }
+        }
+    }
+
+    /// A rebuilt field answers like a fresh build for the new goal, whatever the old field
+    /// held: complete, cut by its budget, or for another goal.
+    #[test]
+    fn rebuilt_field_matches_fresh_build(
+        (graph, goal) in graph_and_goal(),
+        old in 0_usize..12,
+        old_limit in prop::option::of(0_u64..6),
+        limit in prop::option::of(0_u64..6),
+    ) {
+        let nodes = graph.edges.len();
+        let budget = |l: Option<u64>| l.map_or(Limits::NONE, Limits::expansions);
+        let mut field = FlowField::build(&graph, [old % nodes], budget(old_limit));
+        field.rebuild(&graph, [goal], budget(limit));
+        let fresh = FlowField::build(&graph, [goal], budget(limit));
+
+        prop_assert_eq!(field.is_complete(), fresh.is_complete());
+        prop_assert_eq!(field.stats(), fresh.stats());
+        for v in 0..nodes {
+            prop_assert_eq!(field.cost(&v), fresh.cost(&v));
+            prop_assert_eq!(field.next(&v), fresh.next(&v));
         }
     }
 
