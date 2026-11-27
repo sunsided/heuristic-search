@@ -554,7 +554,8 @@ struct Lookahead<'a, G: Successors, T: ?Sized> {
     /// How many open states each iteration takes before expanding them (BWAS); one for
     /// plain best-first search.
     batch: usize,
-    /// The states of the current batch, taken off the open list and not yet expanded.
+    /// The batch taken off the open list for expansion; kept between batches and searches,
+    /// also when a search ends inside one, so its allocation is reused.
     selected: Vec<NodeId>,
     /// The generated states, their `g` and A* parent links.
     space: SearchSpace<G::State, G::Action, G::Cost>,
@@ -685,6 +686,7 @@ where
                 };
 
                 if self.goal.is_goal(self.space.state(node)) {
+                    self.selected = selected;
                     return Frontier::Target(node);
                 }
 
@@ -694,6 +696,7 @@ where
 
             for &node in &selected {
                 if budget.exhausted(stats) {
+                    self.selected = selected;
                     return Frontier::Limit;
                 }
 
