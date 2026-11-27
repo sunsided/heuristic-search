@@ -6,7 +6,7 @@
 //! meet in the middle. MM0 is the same search with zero heuristics, a blind bidirectional
 //! search with that guarantee.
 //!
-//! The example answers the same 1000 random queries on the city (see
+//! The example answers the same 300 random queries (30 in debug builds) on the city (see
 //! `support/road_network.rs`) with `dijkstra`, `bidirectional_dijkstra`, `a_star`, `mm` and
 //! MM0, the heuristic searches using the straight-line travel time (distance over top
 //! speed) towards the goal and, for the backward side, from the start. The first table
@@ -17,15 +17,16 @@
 //! reversed network) give every expanded state its distance from its own side's root. The
 //! table shows the largest such distance on each side as a fraction of `C*`: at most 0.5
 //! for MM and MM0, which the example asserts (a state's `g` at expansion is at least its
-//! distance, so this follows from MM's bound on `g`).
+//! distance, so this follows from MM's bound on `g`). A* is listed for contrast: its one
+//! side runs nearly all the way to the goal.
 //!
 //! The honest lesson of this network: MM is not worth it here. With the straight-line
 //! heuristic it expands only a few percent fewer states than A* with the same heuristic,
 //! and each expansion costs more (MM keeps its frontiers ordered by `pr`, `f` and `g`), so
 //! it is slower in wall time. MM0 expands exactly as many states as bidirectional
 //! Dijkstra, which on this network also stops at half of `C*` on each side, at a higher
-//! cost per expansion. The straight-line heuristic is weak where most roads are four times
-//! slower than the motorway it assumes, so `max(f, 2g)` is mostly `2g` and MM behaves
+//! cost per expansion. The straight-line heuristic is weak where most roads are about three
+//! times slower than the motorway it assumes, so `max(f, 2g)` is mostly `2g` and MM behaves
 //! much like MM0. And two half-depth searches save only about half the work on a road
 //! grid, whose search space grows quadratically with the cost. MM's guarantee pays off
 //! where heuristic bidirectional searches would otherwise run past the middle and the
@@ -42,13 +43,15 @@ mod race;
 mod road_network;
 
 use heuristic_search::{
-    FlowField, Limits, Predecessors, SearchResult, Successors, Zero, a_star,
-    bidirectional_dijkstra, dijkstra, heuristic_fn, mm,
+    FlowField, Limits, Predecessors, Successors, Zero, a_star, bidirectional_dijkstra, dijkstra,
+    heuristic_fn, mm,
 };
 
 use race::Method;
 use road_network::RoadNetwork;
 
+/// Queries to answer in release builds.
+const QUERIES: usize = 300;
 /// Queries (in release builds) whose expanded states are checked against `C* / 2`.
 const SAMPLED: usize = 100;
 
@@ -72,26 +75,18 @@ fn main() {
     println!("{}\n", network.summary());
 
     let methods = methods(&network);
-    let count = race::query_count(1_000);
+    let count = race::query_count(QUERIES);
     let queries = network.random_queries(count, 42);
     let totals = race::race(&network, &queries, &methods);
     race::print_table(&totals, count);
 
+    let sample = &queries[..race::query_count(SAMPLED)];
     println!(
         "\nlargest distance from its own root of a state expanded on each side, as a \
          fraction of C*\n(mean and worst over {} queries)",
-        race::query_count(SAMPLED)
+        sample.len()
     );
-    println!(
-        "{:<30} {:>18} {:>18}",
-        "method", "forward mean/max", "backward mean/max"
-    );
-    let sample = &queries[..race::query_count(SAMPLED)];
-    for (name, method) in &methods {
-        if name.starts_with("bidirectional") || name.starts_with("mm") {
-            meet_in_the_middle(&network, name, method, sample);
-        }
-    }
+    meet_in_the_middle(&network, &methods[1..], sample);
 }
 
 /// The searches to compare, Dijkstra first as the reference.
@@ -127,62 +122,64 @@ fn methods(network: &RoadNetwork) -> Vec<Method<'_>> {
     ]
 }
 
-/// Runs `method` on every query of `sample` and prints how far from its own root each side
-/// expanded, relative to the optimal cost. Asserts the `C* / 2` bound for MM.
+/// Runs every method on every query of `sample` and prints how far from its own root
+/// each side expanded, relative to the optimal cost. Asserts the `C* / 2` bound for MM.
 #[expect(
     clippy::cast_precision_loss,
     reason = "ratios of travel times for display"
 )]
-fn meet_in_the_middle(
-    network: &RoadNetwork,
-    name: &str,
-    method: &dyn Fn(u32, u32) -> SearchResult<u32, u32, u32>,
-    sample: &[(u32, u32)],
-) {
-    let mut sums = [0.0; 2];
-    let mut worst = [0.0_f64; 2];
+fn meet_in_the_middle(network: &RoadNetwork, methods: &[Method], sample: &[(u32, u32)]) {
+    // Per method and side: the sum and the worst of the fractions of `C*`.
+    let mut sums = vec![[0.0; 2]; methods.len()];
+    let mut worst = vec![[0.0_f64; 2]; methods.len()];
     for &(start, goal) in sample {
-        let from_start = FlowField::build(&Reversed(network), [start], Limits::NONE);
-        let to_goal = FlowField::build(network, [goal], Limits::NONE);
+        let fields = [
+            FlowField::build(&Reversed(network), [start], Limits::NONE),
+            FlowField::build(network, [goal], Limits::NONE),
+        ];
         network.take_expansions();
 
-        let optimal = method(start, goal)
-            .solution()
-            .expect("the city is strongly connected")
-            .cost;
-        let (forward, backward) = network.take_expansions();
-        let farthest = |expanded: &[u32], field: &FlowField<u32, u32, u32>| {
-            expanded
-                .iter()
-                .map(|v| field.cost(v).expect("every state reaches every other"))
-                .max()
-                .unwrap_or(0)
-        };
-        let reached = [
-            farthest(&forward, &from_start),
-            farthest(&backward, &to_goal),
-        ];
-        if name.starts_with("mm") {
-            for distance in reached {
-                assert!(
-                    2 * distance <= optimal,
-                    "{name} expanded past C*/2 on {start} -> {goal}"
-                );
+        for (m, (name, method)) in methods.iter().enumerate() {
+            let optimal = method(start, goal)
+                .solution()
+                .expect("the city is strongly connected")
+                .cost;
+            let (forward, backward) = network.take_expansions();
+            for (side, expanded) in [forward, backward].iter().enumerate() {
+                let farthest = expanded
+                    .iter()
+                    .map(|v| {
+                        fields[side]
+                            .cost(v)
+                            .expect("every state reaches every other")
+                    })
+                    .max()
+                    .unwrap_or(0);
+                if name.starts_with("mm") {
+                    assert!(
+                        2 * farthest <= optimal,
+                        "{name} expanded past C*/2 on {start} -> {goal}"
+                    );
+                }
+                let fraction = f64::from(farthest) / f64::from(optimal);
+                sums[m][side] += fraction;
+                worst[m][side] = worst[m][side].max(fraction);
             }
-        }
-        for side in 0..2 {
-            let fraction = f64::from(reached[side]) / f64::from(optimal);
-            sums[side] += fraction;
-            worst[side] = worst[side].max(fraction);
         }
     }
 
-    let mean = |side: usize| sums[side] / sample.len() as f64;
     println!(
-        "{name:<30} {:>11.3} / {:.3} {:>11.3} / {:.3}",
-        mean(0),
-        worst[0],
-        mean(1),
-        worst[1],
+        "{:<30} {:>18} {:>18}",
+        "method", "forward mean/max", "backward mean/max"
     );
+    for (m, (name, _)) in methods.iter().enumerate() {
+        let mean = |side: usize| sums[m][side] / sample.len() as f64;
+        println!(
+            "{name:<30} {:>11.3} / {:.3} {:>11.3} / {:.3}",
+            mean(0),
+            worst[m][0],
+            mean(1),
+            worst[m][1],
+        );
+    }
 }
