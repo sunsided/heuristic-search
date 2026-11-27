@@ -29,6 +29,8 @@ exclude = [
 ## The checked float cost `NonNegF64`, re-exported from `search-core`, the any-angle
 ## grid searches Theta* and Lazy Theta*, and Field D*, whose Euclidean costs need it.
 float = ["search-core/float"]
+## Multi-threaded searches; needs `std`.
+parallel = []
 
 [dependencies]
 # Hash table for duplicate detection under no_std; see docs/design.md.

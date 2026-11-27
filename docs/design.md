@@ -18,7 +18,8 @@ In scope:
 - expensive edge evaluation: LazySP;
 - dynamic graphs: LPA*, D* Lite, AD*; Field D* on grids with per-cell costs;
 - real-time search with learned tables: LRTA*, RTA*, LSS-LRTA*, RTAA*, and the
-  limited-horizon Bellman update (LHB).
+  limited-horizon Bellman update (LHB);
+- parallel (feature `parallel`): hash-distributed A* (HDA*).
 
 Out of scope: symbolic (BDD) search, multi-objective search, width/novelty search,
 stochastic search, factored (decoupled) search. Those have their own crates in the
@@ -26,7 +27,9 @@ ecosystem (see `plan/architecture.md`).
 
 Constraints:
 
-- `no_std` + `alloc`. Time limits come from the caller (see [Budgets](#budgets)).
+- `no_std` + `alloc`. Time limits come from the caller (see [Budgets](#budgets)). The
+  feature `parallel` links `std` for its threads, channels and locks; the default build
+  stays `no_std`.
 - No dependency on `sas-plus` or other ecosystem crates.
 - `forbid(unsafe_code)`, pedantic clippy, docs on every item.
 
@@ -511,6 +514,44 @@ Per-algorithm notes:
   drops below one a queued key used. Paths are read off tight edges by BFS from the
   target, each step charged its cheapest parallel edge, with a greedy fallback for AD*.
 
+## Parallel search
+
+Module `hda`, feature `parallel`. `hda_star` (and `hda_star_multi`) is hash-distributed
+A* (Kishimoto, Fukunaga and Botea): one A* search over `threads` scoped threads
+(`std::thread::scope`), with only `std::sync` for coordination.
+
+- Ownership: a state belongs to thread `hash(state) % threads`, hashed by its own
+  `DefaultHashBuilder` instance, separate from the per-thread tables (whose bucket bits
+  would otherwise all share the same residue). Each thread keeps an arena of the states it
+  owns, a `HashTable` index, a lazy `OpenList` by `f = g + h`, a heuristic value and
+  closed flag per node, and its `Stats`.
+- Messages: expanding a node sends each successor `(state, g, parent link)` over the
+  owner's `mpsc` channel; successors a thread owns itself are recorded at once. The
+  receiver keeps the cheaper path, reopening closed nodes. A parent link is `(owner
+  thread, node id in that thread's arena, action, edge cost)`, so the path is walked
+  across the arenas after the threads are joined, summing the cost along the links.
+- Goals are tested on pop. A popped goal updates the incumbent (a `Mutex<Option<..>>` of
+  cost and link) if cheaper and is not expanded; no thread expands a node with `f >= U`.
+  Among equally cheap paths, the one returned depends on timing.
+- Termination: one `AtomicUsize` counts threads that are not idle plus messages sent and
+  not yet recorded. A sender counts a message before sending it; a receiver uncounts it
+  after recording it; an idle thread woken by a message counts itself back in first. A
+  thread goes idle when its inbox is empty and its open list has no `f < U`, and
+  uncounts itself. Only that can bring the counter to zero, and zero is absorbing, so
+  the thread that reaches it knows no work remains anywhere and sends `Stop` to every
+  channel. Idle threads block in `recv`; no sleeps or timeouts. With an admissible `h`
+  every cheaper solution would leave a node with `f < U` open or in flight, so `U` is
+  optimal.
+- Budget: the budget and the summed counters sit in a `Mutex`. A thread adds its
+  unreported counters and asks the budget before its first expansion and then every 64
+  of its expansions, so `Limits::expansions(n)` overshoots by at most about 64 per thread.
+  The returned `Stats` are the exact sums over the threads, and include re-expansions of
+  states reached first by a costlier path, which a single thread would not make.
+- The heuristic is cloned per thread (`H: Clone + Send`), since `estimate` takes `&mut
+  self`; the graph and goal are shared by reference (`Sync`), the budget moves into the
+  mutex (`Send`). A panic on one thread stops the others through a drop guard, and the
+  scope then propagates it.
+
 ## Real-time search
 
 Module `real_time`. An agent plans a bounded amount, moves, and learns: every function runs
@@ -762,6 +803,10 @@ rejected: they are not one-shot searches.
   CMU-RI-TR-05-19, Carnegie Mellon University, 2005. (Field D*)
 - D. Ferguson, A. Stentz. Using interpolation to improve path planning: the Field D*
   algorithm. Journal of Field Robotics 23(2), 2006.
+- A. Kishimoto, A. Fukunaga, A. Botea. Scalable, parallel best-first search for optimal
+  sequential planning. ICAPS 2009. (HDA*)
+- A. Kishimoto, A. Fukunaga, A. Botea. Evaluation of a simple, scalable, parallel
+  best-first search strategy. Artificial Intelligence 195, 2013. (HDA*)
 - R. E. Korf. Real-time heuristic search. Artificial Intelligence 42(2-3), 1990. (LRTA*,
   RTA*)
 - S. Koenig, X. Sun. Comparing real-time and incremental heuristic search for real-time

@@ -11,7 +11,7 @@
 //! path, unsolvable, or limit reached) and [`Stats`]. A [`Budget`] (such as [`Limits`], or a
 //! closure that checks a clock) stops a search early.
 //!
-//! The crate is `no_std` and needs only `alloc`.
+//! The crate is `no_std` and needs only `alloc` (feature `parallel` adds `std`).
 //!
 //! ## Algorithms
 //!
@@ -84,6 +84,9 @@
 //! [`mha_star`] (shared multi-heuristic A*) combines one consistent anchor heuristic with
 //! any number of inadmissible ones, within `w1 * w2` times the optimum.
 //!
+//! `hda_star` (feature `parallel`) is hash-distributed A* (HDA*): one A* search over
+//! several threads, each owning the states that hash to it; the same cost as [`a_star`].
+//!
 //! [`lazy_sp`] (`LazySP`) finds cheapest paths when true edge costs are expensive, evaluating
 //! them through an [`EdgeEvaluator`] only on candidate paths.
 //!
@@ -117,6 +120,8 @@
 //! - `float`: re-exports the checked float cost `NonNegF64` from `search-core`, and enables
 //!   the any-angle grid searches `theta_star` and `lazy_theta_star` and the Field D*
 //!   planner `FieldDStar` with its `CostGrid`, whose Euclidean costs are floats.
+//! - `parallel`: multi-threaded searches; needs `std`. Enables hash-distributed A*,
+//!   `hda_star`.
 //!
 //! ## Example
 //!
@@ -163,6 +168,8 @@
 #![forbid(unsafe_code)]
 
 extern crate alloc;
+#[cfg(feature = "parallel")]
+extern crate std;
 
 /// Doctests for the code examples in README.md (not part of the API).
 #[cfg(doctest)]
@@ -181,6 +188,8 @@ mod dynamic;
 mod focal;
 mod fringe;
 mod grid;
+#[cfg(feature = "parallel")]
+mod hda;
 mod indexed_heap;
 mod keyed_set;
 mod lazy;
@@ -234,6 +243,8 @@ pub use grid::{
     EightConnected, GridCell, GridStep, LineOfSight, Octile, OctileDistance, UniformGrid, jps,
     jps_multi,
 };
+#[cfg(feature = "parallel")]
+pub use hda::{hda_star, hda_star_multi};
 pub use lazy::{EdgeEvaluator, EdgeSelector, lazy_sp, lazy_sp_multi};
 pub use mha::{MhaWeights, mha_star, mha_star_multi};
 pub use outcome::{Limits, Outcome, SearchResult, Solution, Stats};
