@@ -299,6 +299,55 @@ where
     update::limited_horizon(&search, frontier, table)
 }
 
+/// An edge `(action, to, cost)` of graph `G`.
+type Edge<G> = (
+    <G as Successors>::Action,
+    <G as Successors>::State,
+    <G as Successors>::Cost,
+);
+
+/// One planning step of LSS-LRTA* from `start`, as the local search of
+/// [`RealTimeDStar`](crate::RealTimeDStar): a lookahead of at most `lookahead` expansions
+/// and the Dijkstra update, without moving.
+///
+/// Returns the first edge of the A* path to the state LSS-LRTA* would move to, or `None`
+/// if no goal is reachable from `start` (or `start` is a goal), and the number of changed
+/// table values. Expansions are added to `stats`.
+pub(super) fn lss_lrta_step<G, T, H>(
+    graph: &G,
+    start: G::State,
+    goal: &T,
+    table: &mut LearnedHeuristic<G::State, G::Cost, H>,
+    lookahead: usize,
+    stats: &mut Stats,
+) -> (Option<Edge<G>>, u64)
+where
+    G: Successors,
+    G::State: Clone + Hash + Eq,
+    G::Action: Clone,
+    T: Goal<G::State> + ?Sized,
+    H: Heuristic<G::State, G::Cost>,
+{
+    let mut search = Lookahead::new(graph, goal, lookahead);
+    let mut unlimited = Limits::NONE;
+    let frontier = search.search(start, table, &mut unlimited, stats);
+    let changed = update::dijkstra(&search, frontier, table);
+    let Frontier::Target(target) = frontier else {
+        return (None, changed);
+    };
+
+    let mut first = None;
+    let mut node = target;
+    while let Some((parent, action, cost)) = search.space.parent(node) {
+        first = Some((action.clone(), node, cost));
+        node = parent;
+    }
+
+    let first = first.map(|(action, node, cost)| (action, search.space.state(node).clone(), cost));
+
+    (first, changed)
+}
+
 /// Where a lookahead stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Frontier {

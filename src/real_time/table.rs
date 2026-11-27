@@ -103,6 +103,14 @@ impl<S: Hash + Eq, C: Cost, H: Heuristic<S, C>> LearnedHeuristic<S, C, H> {
     pub fn base(&self) -> &H {
         &self.base
     }
+
+    /// The same learned values in front of another base heuristic.
+    pub(crate) fn rebase<B: Heuristic<S, C>>(self, base: B) -> LearnedHeuristic<S, C, B> {
+        LearnedHeuristic {
+            base,
+            learned: self.learned,
+        }
+    }
 }
 
 impl<S: Hash + Eq, C: Cost, H: Heuristic<S, C>> Heuristic<S, C> for LearnedHeuristic<S, C, H> {
