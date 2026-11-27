@@ -10,6 +10,7 @@ mod dynamic;
 #[cfg(feature = "float")]
 mod field;
 mod fixtures;
+mod flow;
 mod fringe;
 mod grid;
 #[cfg(feature = "parallel")]

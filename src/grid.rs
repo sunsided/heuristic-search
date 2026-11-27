@@ -30,7 +30,7 @@ pub use theta::{
     AnyAngleResult, lazy_theta_star, lazy_theta_star_multi, theta_star, theta_star_multi,
 };
 
-use crate::problem::Successors;
+use crate::problem::{Predecessors, Successors};
 #[cfg(feature = "float")]
 use search_core::NonNegF64;
 
@@ -375,14 +375,15 @@ impl Heuristic<GridCell, Octile> for OctileDistance {
 /// A [`UniformGrid`] as an 8-connected graph with [`Octile`] costs, for the general searches
 /// ([`a_star`](crate::a_star) and the others) on the same moves that [`jps()`] uses.
 ///
-/// It implements [`Successors`] only. The searches that also need
-/// [`CostExt`](crate::CostExt) on the cost ([`ana_star`](crate::ana_star),
-/// [`dps`](crate::dps), [`dibbs`](crate::dibbs), [`bae_star`](crate::bae_star),
-/// [`bidirectional_dijkstra`](crate::bidirectional_dijkstra)) or
-/// [`Predecessors`](crate::Predecessors) do not run on it: `Octile` has no subtraction.
+/// It implements [`Successors`] and [`Predecessors`], so a [`FlowField`](crate::FlowField)
+/// runs on it. The searches that also need [`CostExt`](crate::CostExt) on the cost
+/// ([`ana_star`](crate::ana_star), [`dps`](crate::dps), [`dibbs`](crate::dibbs),
+/// [`bae_star`](crate::bae_star), [`bidirectional_dijkstra`](crate::bidirectional_dijkstra))
+/// do not run on it: `Octile` has no subtraction.
 ///
-/// Edges follow the corner rule of [`UniformGrid`]; an edge's action is
-/// its [`GridStep`]. Blocked cells and cells off the grid have no successors.
+/// Edges follow the corner rule of [`UniformGrid`], which is symmetric, so every move can
+/// be made in both directions; an edge's action is its [`GridStep`]. Blocked cells and
+/// cells off the grid have no successors and no predecessors.
 ///
 /// # Examples
 ///
@@ -438,6 +439,18 @@ impl<G: UniformGrid> Successors for EightConnected<G> {
             };
             emit(step, target, cost);
         }
+    }
+}
+
+impl<G: UniformGrid> Predecessors for EightConnected<G> {
+    type Node = GridCell;
+    type Action = GridStep;
+    type Cost = Octile;
+
+    fn predecessors(&self, cell: &GridCell, mut emit: impl FnMut(GridStep, GridCell, Octile)) {
+        // A move and its reverse need the same cells, so the predecessors are the cells
+        // one move away, reached by the reverse step.
+        self.successors(cell, |(dx, dy), from, cost| emit((-dx, -dy), from, cost));
     }
 }
 

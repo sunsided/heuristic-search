@@ -185,6 +185,7 @@ mod bounded;
 mod cost;
 mod depth_first;
 mod dynamic;
+mod flow;
 mod focal;
 mod fringe;
 mod grid;
@@ -235,6 +236,7 @@ pub use dynamic::{
 };
 #[cfg(feature = "float")]
 pub use dynamic::{FieldDStar, FieldResult};
+pub use flow::FlowField;
 pub use focal::{FocalList, TieBreak};
 pub use fringe::{fringe_search, fringe_search_multi};
 #[cfg(feature = "float")]
