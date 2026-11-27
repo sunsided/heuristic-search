@@ -2,10 +2,10 @@
 //! search agents that plan a few expansions per move and keep what they learn across
 //! repeated trials.
 //!
-//! The map has a cul-de-sac that opens towards the start and points straight at the
-//! goal, so the Manhattan distance lures every agent into it. Behind it, a wall crosses
-//! the map with a gap at the bottom and a swamp ford (stepping into it costs [`SWAMP`])
-//! closer to the straight line. Each agent runs trial after trial from the same start
+//! The map has a cul-de-sac that opens towards the start and points at the goal, so the
+//! Manhattan distance lures every agent into it. Past it, a narrow passage leads to the
+//! goal, either straight through a swamp ford (stepping into it costs [`SWAMP`]) or
+//! along a short bypass of floor. Each agent runs trial after trial from the same start
 //! with one `LearnedHeuristic`, which starts at the Manhattan distance and is raised
 //! wherever the agent finds it too optimistic. A trial that changes nothing in the table
 //! means the agent has converged.
@@ -25,9 +25,11 @@
 //! BWAS with `w = 1, b = 1`) must converge to the cheapest path, which the example
 //! asserts. GBFS ignores path costs and BWAS trades cost for depth through its weight and
 //! expands batches out of order, so their converged trials may keep a detour. On this map
-//! GBFS and the weighted BWAS settle on the ford, few steps but expensive to enter, while
-//! a batch alone (`w = 1, b = 4`) still converges to the cheapest path. The verdict
-//! column is computed from the costs, not written in.
+//! GBFS and BWAS with a batch of three settle on the ford: a batch can take in the goal
+//! through the ford before the bypass is expanded, and a goal in the batch ends the
+//! lookahead. The other batch sizes and the
+//! weight converge to the cheapest path here; whether a detour sticks depends on the
+//! map. The verdict column is computed from the costs, not written in.
 //!
 //! Run with `cargo run --release --example learning_heuristics`.
 
@@ -39,19 +41,18 @@ use heuristic_search::{
 /// The map: `#` wall, `.` floor (cost 1 to enter), `~` swamp (cost [`SWAMP`] to enter),
 /// `S` start and `G` goal.
 const MAP: &str = "\
-################################
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#.....#######...#..............#
-#...........#...#..............#
-#.S.........#...#..........G...#
-#...........#...#..............#
-#.....#######...#..............#
-#...............~..............#
-#...............#..............#
-#..............................#
-################################";
+######################
+#....................#
+#.....#######........#
+#...........#........#
+#.S.........#........#
+#...........#........#
+#.....#######........#
+#....................#
+#########.############
+#########.~G##########
+#########...##########
+######################";
 
 /// The cost of stepping into a swamp cell.
 const SWAMP: u32 = 12;
@@ -253,9 +254,10 @@ fn main() {
         Agent::LhbLrta,
         Agent::LhbGbfs,
         Agent::LhbBwa(Weight::ONE, 1),
+        Agent::LhbBwa(Weight::ONE, 2),
+        Agent::LhbBwa(Weight::ONE, 3),
         Agent::LhbBwa(Weight::ONE, 4),
         Agent::LhbBwa(Weight::integer(3), 4),
-        Agent::LhbBwa(Weight::integer(5), 1),
     ];
     for agent in agents {
         let (costs, expansions) = learn(agent, &map);

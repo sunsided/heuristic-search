@@ -20,7 +20,8 @@
 //! refining searches, not the build), and the path cost against A*'s (`1.0000` is
 //! optimal). Room regions must match A* exactly and clusters must never beat it; the
 //! example asserts both. Timings are as measured on your machine; the parallel variant
-//! pays for spawning threads on every query, so it only wins when refinements are long.
+//! spawns threads for every query, which on refinements this short costs more than it
+//! saves.
 //!
 //! Run with `cargo run --release --features parallel --example indoor_navigation`.
 
@@ -420,7 +421,7 @@ fn main() {
     }
 
     println!(
-        "\nRoom regions are exact (cost/A* = 1); square clusters need no floor-plan knowledge \
-         and trade a little path quality for a smaller abstract graph."
+        "\nRoom regions are exact (cost/A* = 1); square clusters need no floor plan \
+         and cost a few percent more per path."
     );
 }
