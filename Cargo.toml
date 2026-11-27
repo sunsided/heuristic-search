@@ -64,6 +64,19 @@ cognitive_complexity = "warn"
 broken_intra_doc_links = "deny"
 private_intra_doc_links = "allow"
 
+# Examples that use the multi-threaded searches; the others need no feature.
+[[example]]
+name = "crowd_pathfinding"
+required-features = ["parallel"]
+
+[[example]]
+name = "parallel_hda_star"
+required-features = ["parallel"]
+
+[[example]]
+name = "indoor_navigation"
+required-features = ["parallel"]
+
 [[bench]]
 name = "search"
 harness = false

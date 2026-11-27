@@ -132,6 +132,27 @@ The crate is `no_std` and needs only `alloc`. The feature `float` adds the float
 feature `parallel` adds hash-distributed A*, `solve_batch` and `hierarchical_a_star_par`
 and needs `std`.
 
+## Examples
+
+The [`examples`](https://github.com/sunsided/heuristic-search/tree/main/examples)
+directory has runnable scenarios on generated inputs (a city road network, a game map, a
+hospital floor, a rover's terrain). Each one compares a search with its obvious baseline,
+prints the states it expanded and the time it took, and asserts that the costs agree:
+
+| Example | Scenario | Shows |
+|---|---|---|
+| [`contraction_hierarchies`](https://github.com/sunsided/heuristic-search/blob/main/examples/contraction_hierarchies.rs) | 1000 routes in a city of 22 629 intersections | A query settles about 287 states where Dijkstra settles 11 248; how many queries pay for the preprocessing |
+| [`alt_landmarks`](https://github.com/sunsided/heuristic-search/blob/main/examples/alt_landmarks.rs) | The same routes | Landmark bounds cut A*'s expansions about 13-fold over the straight-line heuristic, also inside `bae_star` |
+| [`mm_bidirectional`](https://github.com/sunsided/heuristic-search/blob/main/examples/mm_bidirectional.rs) | The same routes | Neither side of MM expands beyond half the optimal cost; on roads plain A* is still faster |
+| [`crowd_pathfinding`](https://github.com/sunsided/heuristic-search/blob/main/examples/crowd_pathfinding.rs) | 300 units on a 256 x 256 map | One `FlowField` serves every unit heading to a rally point; `solve_batch`, reused workspaces and A* paused across frames |
+| [`parallel_hda_star`](https://github.com/sunsided/heuristic-search/blob/main/examples/parallel_hda_star.rs) | One long query on a 512 x 512 map | Where hash-distributed A* pays off (expensive successors) and where it does not (a plain grid) |
+| [`indoor_navigation`](https://github.com/sunsided/heuristic-search/blob/main/examples/indoor_navigation.rs) | 100 deliveries on a hospital floor | Room regions give exact paths with about 16 times fewer expansions; square clusters need no floor plan and cost a few percent more |
+| [`rover_replanning`](https://github.com/sunsided/heuristic-search/blob/main/examples/rover_replanning.rs) | A rover that sees obstacles only within its sensor range | Real-time D* never exceeds its per-step limit; D* Lite drives shorter but can stall for thousands of expansions |
+| [`learning_heuristics`](https://github.com/sunsided/heuristic-search/blob/main/examples/learning_heuristics.rs) | Repeated trials past a cul-de-sac | LRTA*, LSS-LRTA* and the LHB phases learn the way out; GBFS and batched BWAS can settle on a detour |
+
+Run one with `cargo run --release --example contraction_hierarchies`. `crowd_pathfinding`,
+`parallel_hda_star` and `indoor_navigation` need `--features parallel`.
+
 ## MSRV
 
 Rust 1.85 (`rust-version` in `Cargo.toml`). The MSRV is a signal, not a contract: it may

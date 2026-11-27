@@ -35,15 +35,18 @@
     reason = "this example picks its cells by position, not at random"
 )]
 mod game_map;
+#[path = "support/prng.rs"]
+pub mod prng;
 
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use game_map::{GameMap, Rng};
+use game_map::GameMap;
 use heuristic_search::{
     EightConnected, GridCell, GridStep, Limits, Octile, OctileDistance, Stats, Successors, a_star,
     hda_star,
 };
+use prng::SplitMix64;
 
 /// Side length of the map in cells.
 const SIZE: usize = 512;
@@ -67,7 +70,7 @@ impl Successors for Expensive<'_> {
 
     fn successors(&self, cell: &GridCell, emit: impl FnMut(GridStep, GridCell, Octile)) {
         let seed = u64::try_from(cell.0 * SIZE + cell.1).expect("cell index fits in u64");
-        let mut rng = Rng::new(seed);
+        let mut rng = SplitMix64::new(seed);
         for _ in 0..WORK_ROUNDS {
             black_box(rng.next_u64());
         }

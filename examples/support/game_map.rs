@@ -9,37 +9,7 @@
 
 use heuristic_search::{GridCell, UniformGrid};
 
-/// A tiny seeded pseudo-random generator (`SplitMix64`), so the maps and unit positions are
-/// the same on every run without a dependency.
-pub struct Rng(u64);
-
-impl Rng {
-    /// A generator that starts from `seed`.
-    pub fn new(seed: u64) -> Self {
-        Self(seed)
-    }
-
-    /// The next 64 random bits.
-    pub fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-
-    /// A number in `0..n`; `n` must be above zero. The modulo bias is negligible for the
-    /// small `n` used here.
-    pub fn below(&mut self, n: usize) -> usize {
-        let n = u64::try_from(n).expect("usize fits in u64");
-        usize::try_from(self.next_u64() % n).expect("below n, which came from a usize")
-    }
-
-    /// A number in `low..high`; `high` must be above `low`.
-    pub fn range(&mut self, low: usize, high: usize) -> usize {
-        low + self.below(high - low)
-    }
-}
+use crate::prng::SplitMix64;
 
 /// A rectangular map of passable and blocked cells.
 pub struct GameMap {
@@ -74,7 +44,7 @@ impl GameMap {
             height,
             open: vec![true; width * height],
         };
-        let mut rng = Rng::new(seed);
+        let mut rng = SplitMix64::new(seed);
         let area = width * height;
         for _ in 0..area / 1200 {
             map.forest(&mut rng);
@@ -102,7 +72,7 @@ impl GameMap {
     }
 
     /// A uniformly random open cell.
-    pub fn random_open(&self, rng: &mut Rng) -> GridCell {
+    pub fn random_open(&self, rng: &mut SplitMix64) -> GridCell {
         loop {
             let cell = (rng.below(self.width), rng.below(self.height));
             if self.is_passable(cell.0, cell.1) {
@@ -119,7 +89,7 @@ impl GameMap {
     }
 
     /// Blocks a disc of trees with a random centre and a radius of 2 to 9 cells.
-    fn forest(&mut self, rng: &mut Rng) {
+    fn forest(&mut self, rng: &mut SplitMix64) {
         let (cx, cy) = (rng.below(self.width), rng.below(self.height));
         let radius = rng.range(2, 10);
         for y in cy.saturating_sub(radius)..=cy + radius {
@@ -133,7 +103,7 @@ impl GameMap {
 
     /// Blocks a river, 3 to 5 cells wide, that meanders from the top edge to the bottom,
     /// with a ford of open ground every 40 to 80 rows.
-    fn river(&mut self, rng: &mut Rng) {
+    fn river(&mut self, rng: &mut SplitMix64) {
         let mut x = rng.range(self.width / 3, 2 * self.width / 3);
         let mut next_ford = rng.range(20, 60);
         for y in 0..self.height {
@@ -155,7 +125,7 @@ impl GameMap {
 
     /// Builds a walled base, 12 to 39 cells a side, with a gate three cells wide in two
     /// of its sides, and clears the inside.
-    fn base(&mut self, rng: &mut Rng) {
+    fn base(&mut self, rng: &mut SplitMix64) {
         let (w, h) = (rng.range(12, 40), rng.range(12, 40));
         let (x0, y0) = (
             rng.below(self.width.saturating_sub(w)),

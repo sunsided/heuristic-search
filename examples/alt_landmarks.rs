@@ -29,6 +29,8 @@
 //! Run with `cargo run --release --example alt_landmarks`. Timings vary between machines
 //! and runs; the counts do not.
 
+#[path = "support/prng.rs"]
+pub mod prng;
 #[path = "support/race.rs"]
 mod race;
 #[path = "support/road_network.rs"]

@@ -31,14 +31,17 @@
 
 #[path = "support/game_map.rs"]
 mod game_map;
+#[path = "support/prng.rs"]
+pub mod prng;
 
 use std::time::{Duration, Instant};
 
-use game_map::{GameMap, Rng};
+use game_map::GameMap;
 use heuristic_search::{
     AStarSearch, EightConnected, FlowField, GridCell, Limits, Octile, OctileDistance, Outcome,
     Workspace, a_star, a_star_in, solve_batch,
 };
+use prng::SplitMix64;
 
 /// Side length of the map in cells.
 const SIZE: usize = 256;
@@ -72,7 +75,7 @@ struct Run {
 fn main() {
     let map = GameMap::generate(SIZE, SIZE, SEED);
     let graph = EightConnected(&map);
-    let mut rng = Rng::new(SEED ^ 1);
+    let mut rng = SplitMix64::new(SEED ^ 1);
     let units: Vec<GridCell> = (0..UNITS).map(|_| map.random_open(&mut rng)).collect();
     let rally = map.nearest_open((SIZE / 2, SIZE / 3));
 
@@ -95,7 +98,7 @@ fn main() {
     );
     assert_eq!(field.costs, baseline.costs, "the flow field changed a cost");
 
-    let mut targets = Rng::new(SEED ^ 2);
+    let mut targets = SplitMix64::new(SEED ^ 2);
     let queries: Vec<(GridCell, GridCell)> = units
         .iter()
         .map(|&unit| (unit, map.random_open(&mut targets)))

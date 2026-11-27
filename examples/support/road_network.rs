@@ -17,6 +17,8 @@ use std::cell::RefCell;
 
 use heuristic_search::{Heuristic, Predecessors, Successors, heuristic_fn};
 
+use crate::prng::SplitMix64;
+
 /// Intersections per side of the street grid.
 const GRID: u32 = 150;
 /// Distance between neighbouring intersections in metres.
@@ -129,40 +131,6 @@ impl Adjacency {
     }
 }
 
-/// A tiny seeded pseudo-random generator (`SplitMix64`), so every run sees the same city.
-#[derive(Debug, Clone)]
-pub struct SplitMix64(u64);
-
-impl SplitMix64 {
-    /// A generator with a fixed `seed`.
-    pub fn new(seed: u64) -> Self {
-        Self(seed)
-    }
-
-    /// The next 64 random bits.
-    pub fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^ (z >> 31)
-    }
-
-    /// A uniform float in `[-1, 1)`.
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "53 random bits fit an f64 exactly"
-    )]
-    fn next_signed(&mut self) -> f64 {
-        (self.next_u64() >> 11) as f64 / (1_u64 << 52) as f64 - 1.0
-    }
-
-    /// A uniform integer in `0..n`.
-    pub fn below(&mut self, n: u32) -> u32 {
-        u32::try_from(self.next_u64() % u64::from(n)).expect("below n fits u32")
-    }
-}
-
 /// The travel time in deciseconds for `metres` at `speed` metres per second, rounded up.
 #[expect(
     clippy::cast_possible_truncation,
@@ -221,7 +189,7 @@ impl Builder {
     fn streets(&mut self, rng: &mut SplitMix64) {
         for y in 0..GRID {
             for x in 0..GRID {
-                let jitter = (JITTER * rng.next_signed(), JITTER * rng.next_signed());
+                let jitter = (JITTER * rng.signed(), JITTER * rng.signed());
                 self.node((
                     f64::from(x) * BLOCK + jitter.0,
                     f64::from(y) * BLOCK + jitter.1,
@@ -433,10 +401,13 @@ impl RoadNetwork {
     /// `count` random pairs of distinct intersections, the same for the same `seed`.
     pub fn random_queries(&self, count: usize, seed: u64) -> Vec<(u32, u32)> {
         let mut rng = SplitMix64::new(seed);
-        let nodes = u32::try_from(self.len()).expect("fewer than 2^32 intersections");
+        let nodes = self.len();
         let mut queries = Vec::with_capacity(count);
         while queries.len() < count {
-            let (start, goal) = (rng.below(nodes), rng.below(nodes));
+            let pick = |rng: &mut SplitMix64| {
+                u32::try_from(rng.below(nodes)).expect("fewer than 2^32 intersections")
+            };
+            let (start, goal) = (pick(&mut rng), pick(&mut rng));
             if start != goal {
                 queries.push((start, goal));
             }

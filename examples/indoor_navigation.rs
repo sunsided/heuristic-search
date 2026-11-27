@@ -26,7 +26,7 @@
 //! Run with `cargo run --release --features parallel --example indoor_navigation`.
 
 #[path = "support/prng.rs"]
-mod prng;
+pub mod prng;
 
 use std::time::{Duration, Instant};
 

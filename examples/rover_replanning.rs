@@ -28,7 +28,7 @@
 //! Run with `cargo run --release --example rover_replanning`.
 
 #[path = "support/prng.rs"]
-mod prng;
+pub mod prng;
 
 use heuristic_search::{
     AgentStep, DStarLite, DynamicGraph, GridCell, Limits, Octile, RealTimeDStar, Weight,
