@@ -53,10 +53,17 @@ pub struct WitnessLimits {
 }
 
 impl WitnessLimits {
-    /// The limits [`ContractionHierarchy::build`] uses: 16 hops and 64 settled states.
+    /// The limits [`ContractionHierarchy::build`] uses: 16 hops and 256 settled states.
+    ///
+    /// The settled limit is the one that binds. Road networks have many equally fast
+    /// detours, and a search that stops after 64 states misses them: on a city of
+    /// 22 600 intersections, 256 settled states give 11 % fewer shortcuts and 17 % fewer
+    /// states settled per query than 64 and build no slower; limits four times as large
+    /// save under 2 % more. Grids gain slightly; sparse random graphs build about
+    /// 1.7 times as long for 15 % fewer shortcuts.
     pub const DEFAULT: Self = Self {
         max_hops: 16,
-        max_settled: 64,
+        max_settled: 256,
     };
 }
 
