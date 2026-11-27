@@ -14,7 +14,7 @@ In scope:
 - weighted and anytime: Weighted A* (WA*), ARA*, ANA*;
 - bounded-suboptimal: EES, DPS;
 - multiple heuristics: MHA*;
-- bidirectional: NBS, BAE*, DIBBS (plus bidirectional BFS and Dijkstra as baselines);
+- bidirectional: NBS, BAE*, DIBBS, MM (plus bidirectional BFS and Dijkstra as baselines);
 - expensive edge evaluation: LazySP;
 - dynamic graphs: LPA*, D* Lite, AD*; Field D* on grids with per-cell costs;
 - real-time search with learned tables: LRTA*, RTA*, LSS-LRTA*, RTAA*, and the
@@ -117,7 +117,7 @@ pub trait CostExt: Cost {
 ```
 
 It is implemented for every `search-core` cost type and bounds only `ana_star`, `dps`,
-`dibbs`, `bae_star` and `bidirectional_dijkstra` (which shares their loop). `NonNegF64`
+`dibbs`, `bae_star`, and `bidirectional_dijkstra` and `mm` (which share their loop). `NonNegF64`
 subtraction clamps at zero (`inf - inf` is zero). `Decimal<K>::to_f64` returns the raw unit
 count; the common factor `10^K` cancels in the ratios. ANA* keys its open list by a private
 `f64` wrapper ordered with `total_cmp`, since its keys can be `-inf`.
@@ -521,10 +521,16 @@ Per-algorithm notes:
   NBS follows Chen et al.'s waiting/ready pair rule (miniplan's `Nbs` alternates sides
   instead). DIBBS and BAE* both order by `2g + h - h_opposite` and stop at
   `b_F + b_B >= 2 mu`; DIBBS expands the side with the smaller `b`, BAE* the side with fewer
-  open states. Bidirectional BFS runs the core on a unit-cost view and restores costs.
+  open states. MM orders by `pr = max(f, 2g)`, expands the side with the smaller `pr`, and
+  keeps each side's open states also keyed by `f` and by `g` for its stopping rule
+  `mu <= max(pr_min, f_min_F, f_min_B, g_min_F + g_min_B + epsilon)`. `epsilon`, the
+  smallest edge cost, is zero: `Cost` cannot know it, zero is always correct, and a caller
+  parameter would break the shared signature of the bidirectional searches. MM0 is `mm` with
+  `Zero` heuristics, not a function of its own. Bidirectional BFS runs the core on a
+  unit-cost view and restores costs.
 - Meets: by default a node meets the opposite side's node with an equal state, found
   through that side's hash index. The `_meet` searches (`bidirectional_bfs_meet`,
-  `bidirectional_dijkstra_meet`, `nbs_meet`, `dibbs_meet`, `bae_star_meet`, all with a set
+  `bidirectional_dijkstra_meet`, `nbs_meet`, `dibbs_meet`, `bae_star_meet`, `mm_meet`, all with a set
   of starts) take a `MeetRelation<S, N>` between forward states `S` and backward nodes `N`,
   the graph's own `Predecessors::Node` type (a `RegressionGraph`), so regression can run
   over subgoals of another type. The relation is told of every new node (dense id per
@@ -795,7 +801,7 @@ costs, and RTAA* was the cheap variant.
 
 Every A* variant is a snake-case function ending in `_star`: `a_star`, `weighted_a_star`,
 `ida_star`, `ara_star`, `ana_star`, `mha_star`, `bae_star`. Non-A* searches keep their usual names (`bfs`,
-`dijkstra`, `gbfs`, `dfs`, `iddfs`, `nbs`, `dibbs`, `ees`, `dps`, `lazy_sp`,
+`dijkstra`, `gbfs`, `dfs`, `iddfs`, `nbs`, `dibbs`, `mm`, `ees`, `dps`, `lazy_sp`,
 `focal_search`). Suffixes compose in a fixed order: `_tt` for an algorithm variant,
 `_multi` for several starts, `_meet` for a meet relation (which always takes several
 starts, so there is no `_meet_multi`), `_in` for a search in a caller's `Workspace`
@@ -919,6 +925,8 @@ rejected: they are not one-shot searches.
   exact title and venue not verified.
 - V. Sewell, S. Jacobson. Dynamically improved bounds bidirectional search. Artificial
   Intelligence 291, 2021. (DIBBS)
+- R. C. Holte, A. Felner, G. Sharon, N. R. Sturtevant. Bidirectional search that is
+  guaranteed to meet in the middle. AAAI 2016. (MM)
 - C. M. Dellin, S. S. Srinivasa. A unifying formalism for shortest path problems with
   expensive edge evaluations via lazy best-first search over paths with edge selectors.
   ICAPS 2016. (LazySP)

@@ -3,7 +3,8 @@
 //! The [`Cost`] and [`CostExt`] traits come from `search-core`. [`CostExt`] adds the
 //! subtraction and conversion to `f64` that a few searches need for their priorities, such
 //! as the `(G - g) / h` order of [`ana_star`](crate::ana_star), the `2g + h - h_opposite` key
-//! of [`dibbs`](crate::dibbs) and [`bae_star`](crate::bae_star), and the potential of
+//! of [`dibbs`](crate::dibbs) and [`bae_star`](crate::bae_star) (whose loop [`mm`](crate::mm)
+//! shares), and the potential of
 //! [`dps`](crate::dps).
 
 use search_core::Cost;
