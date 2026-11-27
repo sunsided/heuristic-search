@@ -243,6 +243,9 @@ semantics. Per family:
 
 - best-first, anytime, bounded and MHA*: all starts seed one search space;
 - `lazy_sp_multi`: each round runs `a_star_multi` from all starts;
+- `hierarchical_a_star_multi`: every start becomes its own abstract node, connected to the
+  entrances of its region, and the abstract A* seeds all of them; a repeated start gives
+  two nodes with the same edges, which changes nothing but the work;
 - bidirectional: all starts seed the forward side, as the goals seed the backward side.
   The backward heuristic must then estimate the cost back to the nearest start;
 - `dfs_multi`: starts are searched in order with one shared closed set;

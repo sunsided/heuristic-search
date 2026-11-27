@@ -403,6 +403,7 @@ where
     R: Regions<G::State>,
     D: Fn(&G::State, &G::State) -> G::Cost,
 {
+    /// Why refinement cannot fail on the graph the hierarchy was built from.
     const STALE: &str = "abstract edges refine in the graph the hierarchy was built from";
 
     let regions = &hierarchy.regions;

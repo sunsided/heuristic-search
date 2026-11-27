@@ -9,6 +9,7 @@ use heuristic_search::{
 };
 use proptest::prelude::*;
 
+use crate::fixtures::{assert_valid_path, distances_to, graph_and_goal};
 use crate::jps::{Map, map_and_cells, oracle};
 
 /// The admissible octile estimate between two cells.
@@ -129,6 +130,26 @@ proptest! {
         }
     }
 
+    /// On random directed graphs with zero-cost edges and three regions, the hierarchy of
+    /// [`Hierarchy::new`] finds a cheapest path from every node, or none exactly when the
+    /// goal is unreachable.
+    #[test]
+    fn full_hierarchy_on_graphs((graph, goal) in graph_and_goal()) {
+        let nodes = graph.edges.len();
+        let region = |s: &usize| s % 3;
+        let blind = |_: &usize, _: &usize| 0_u64;
+        let hierarchy = Hierarchy::new(&graph, region, 0..nodes, blind);
+        let exact = distances_to(&graph, goal);
+
+        for (start, &expected) in exact.iter().enumerate() {
+            let result = hierarchical_a_star(&graph, &hierarchy, start, goal, blind, Limits::NONE);
+            prop_assert_eq!(result.solution().map(|s| s.cost), expected, "from {}", start);
+            if let Some(solution) = result.solution() {
+                assert_valid_path(&graph, start, solution);
+            }
+        }
+    }
+
     /// Several starts: the path begins at one of them and costs no more than the best
     /// single-start query.
     #[test]
@@ -202,15 +223,19 @@ fn floor_plans() {
     assert!((1.0..=1.1).contains(&mean), "mean suboptimality {mean}");
 }
 
+/// Two 4 x 8 halves joined by a gap at `(4, 2)`, with `(7, 6)` walled in.
+fn halves() -> Map {
+    Map::parse(&[
+        "....#...", "....#...", "........", "....#...", "....#...", "....#..#", "....#.#.",
+        "....#..#",
+    ])
+}
+
 /// A start that is the goal is free; a start or goal on an entrance and a start and goal
-/// in one cluster refine without repeated states; empty starts find nothing; an
-/// unreachable goal is unsolvable; a zero budget stops.
+/// in one cluster refine without repeated states.
 #[test]
 fn edge_cases() {
-    let map = Map::parse(&[
-        "....#...", //
-        "....#...", "........", "....#...", "....#...", "....#..#", "....#.#.", "....#..#",
-    ]);
+    let map = halves();
     let graph = EightConnected(&map);
     let hierarchy = Hierarchy::grid(&map, 4);
     let query = |start: GridCell, goal: GridCell| {
@@ -241,6 +266,32 @@ fn edge_cases() {
         seen.dedup();
         assert_eq!(seen, solution.states, "no repeated states");
     }
+}
+
+/// Repeated starts change nothing; empty starts find nothing; an unreachable goal is
+/// unsolvable; a zero budget stops.
+#[test]
+fn outcomes() {
+    let map = halves();
+    let graph = EightConnected(&map);
+    let hierarchy = Hierarchy::grid(&map, 4);
+    let query = |start: GridCell, goal: GridCell| {
+        hierarchical_a_star(&graph, &hierarchy, start, goal, distance, Limits::NONE)
+    };
+
+    let repeated = hierarchical_a_star_multi(
+        &graph,
+        &hierarchy,
+        [(0, 0), (0, 0)],
+        (7, 0),
+        distance,
+        Limits::NONE,
+    );
+    assert_eq!(
+        repeated.outcome,
+        query((0, 0), (7, 0)).outcome,
+        "repeated starts"
+    );
 
     assert_eq!(query((0, 0), (7, 6)).outcome, Outcome::Unsolvable);
     assert_eq!(

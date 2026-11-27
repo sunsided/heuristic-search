@@ -2,7 +2,7 @@
 //! bounds), the anytime, bounded-suboptimal and multi-heuristic searches, `LazySP` and
 //! focal search on a grid with a wall; the focal list itself; NBS; D* Lite and AD* repairs
 //! after the wall changes; and the depth-first searches on a small open grid, where tree
-//! searches meet many transpositions; Jump Point Search
+//! searches meet many transpositions; Jump Point Search and hierarchical A* (clusters of 8)
 //! against A* on the 8-connected version of the wall grid, and (feature `float`) Theta*
 //! and Lazy Theta* there, and Field D*'s plan and repair over the grid's corners;
 //! (feature `parallel`) hash-distributed A* against A* on both versions of the grid; a
@@ -229,12 +229,27 @@ fn bench_beam(c: &mut Criterion, grid: &Grid) {
     });
 }
 
-/// Jump Point Search against A* on the same 8-connected grid, around the wall.
+/// Jump Point Search and hierarchical A* against A* on the same 8-connected grid, around
+/// the wall.
 fn bench_jps(c: &mut Criterion, grid: &Grid) {
     // `(x, y)`: from the top left to the bottom left, behind the wall.
     let (start, goal) = ((0, 0), (0, SIZE - 1));
     c.bench_function("jps grid", |b| {
         b.iter(|| black_box(jps(grid, start, goal, Limits::NONE)));
+    });
+    let clusters = Hierarchy::grid(grid, 8);
+    let distance = |a: &GridCell, b: &GridCell| Octile::between(*a, *b);
+    c.bench_function("hierarchical_a_star eight-connected grid", |b| {
+        b.iter(|| {
+            black_box(hierarchical_a_star(
+                &EightConnected(grid),
+                &clusters,
+                start,
+                goal,
+                distance,
+                Limits::NONE,
+            ))
+        });
     });
     c.bench_function("a_star eight-connected grid", |b| {
         b.iter(|| {
