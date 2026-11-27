@@ -8,7 +8,8 @@
 //! (feature `parallel`) hash-distributed A* against A* on both versions of the grid; a
 //! contraction hierarchy's build and query on the wall grid; and hierarchical A* against
 //! A* on a generated floor plan of rooms joined by doors, with the cost ratio of the two
-//! paths printed once.
+//! paths printed once; and hierarchical A* with sequential and (feature `parallel`)
+//! parallel refinement on a plan of large rooms, where refinement dominates the query.
 //!
 //! Run with `cargo bench`.
 
@@ -684,27 +685,31 @@ const ROOMS: usize = 10;
 /// Cells per side of a room.
 const ROOM: usize = 9;
 
-/// A floor plan of `ROOMS` by `ROOMS` rooms with one-cell walls and a two-cell door in
-/// every wall between neighbouring rooms, at an offset that varies from wall to wall.
-struct FloorPlan {
+/// Cells per side of a room in the plan whose refinements are worth threads.
+const LARGE_ROOM: usize = 30;
+
+/// A floor plan of `ROOMS` by `ROOMS` rooms of `CELLS` by `CELLS` cells with one-cell
+/// walls and a two-cell door in every wall between neighbouring rooms, at an offset that
+/// varies from wall to wall.
+struct FloorPlan<const CELLS: usize> {
     /// `true` marks a passable cell, row-major.
     open: Vec<bool>,
 }
 
-impl FloorPlan {
+impl<const CELLS: usize> FloorPlan<CELLS> {
     /// Side length of the plan in cells.
-    const SIDE: usize = ROOMS * (ROOM + 1) + 1;
+    const SIDE: usize = ROOMS * (CELLS + 1) + 1;
 
     /// The plan with its doors.
     fn new() -> Self {
-        let wall = |i: usize| i % (ROOM + 1) == 0;
+        let wall = |i: usize| i % (CELLS + 1) == 0;
         let mut open: Vec<bool> = (0..Self::SIDE * Self::SIDE)
             .map(|i| !wall(i % Self::SIDE) && !wall(i / Self::SIDE))
             .collect();
         for a in 0..ROOMS {
             for b in 1..ROOMS {
-                let line = b * (ROOM + 1);
-                let along = a * (ROOM + 1) + 1 + (a * 7 + b * 3) % (ROOM - 1);
+                let line = b * (CELLS + 1);
+                let along = a * (CELLS + 1) + 1 + (a * 7 + b * 3) % (CELLS - 1);
                 for d in along..along + 2 {
                     open[d * Self::SIDE + line] = true;
                     open[line * Self::SIDE + d] = true;
@@ -717,11 +722,11 @@ impl FloorPlan {
 
     /// The room of a cell; walls belong to the room to their right or below.
     fn room(&(x, y): &GridCell) -> usize {
-        (y / (ROOM + 1)).min(ROOMS - 1) * ROOMS + (x / (ROOM + 1)).min(ROOMS - 1)
+        (y / (CELLS + 1)).min(ROOMS - 1) * ROOMS + (x / (CELLS + 1)).min(ROOMS - 1)
     }
 }
 
-impl UniformGrid for FloorPlan {
+impl<const CELLS: usize> UniformGrid for FloorPlan<CELLS> {
     fn width(&self) -> usize {
         Self::SIDE
     }
@@ -737,7 +742,7 @@ impl UniformGrid for FloorPlan {
 
 /// Prints the cost of the hierarchical path over `clusters` divided by the cheapest cost.
 fn print_cost_ratio(
-    graph: EightConnected<&FloorPlan>,
+    graph: EightConnected<&FloorPlan<ROOM>>,
     clusters: &Hierarchy<GridCell, Octile, heuristic_search::GridClusters>,
     start: GridCell,
     goal: GridCell,
@@ -763,12 +768,14 @@ fn print_cost_ratio(
 /// plus building the cluster hierarchy; prints the cost ratio of the cluster path to the
 /// cheapest path.
 fn bench_hierarchical_a_star(c: &mut Criterion) {
-    let plan = FloorPlan::new();
+    type Plan = FloorPlan<ROOM>;
+
+    let plan = Plan::new();
     let graph = EightConnected(&plan);
-    let (start, goal) = ((1, 1), (FloorPlan::SIDE - 2, FloorPlan::SIDE - 2));
+    let (start, goal) = ((1, 1), (Plan::SIDE - 2, Plan::SIDE - 2));
     let distance = |a: &GridCell, b: &GridCell| Octile::between(*a, *b);
-    let cells = (0..FloorPlan::SIDE).flat_map(|x| (0..FloorPlan::SIDE).map(move |y| (x, y)));
-    let rooms = Hierarchy::new(&graph, FloorPlan::room, cells, distance);
+    let cells = (0..Plan::SIDE).flat_map(|x| (0..Plan::SIDE).map(move |y| (x, y)));
+    let rooms = Hierarchy::new(&graph, Plan::room, cells, distance);
     let clusters = Hierarchy::grid(&plan, ROOM + 1);
 
     print_cost_ratio(graph, &clusters, start, goal);
@@ -826,6 +833,48 @@ fn bench_hierarchical_a_star(c: &mut Criterion) {
     });
 }
 
+/// Hierarchical A* sequential and (feature `parallel`) with parallel refinement over the
+/// rooms of a floor plan with large rooms, queried with Dijkstra's algorithm
+/// (`distance` zero), so every refinement explores much of its room: enough work per
+/// query for refinement across threads to pay off.
+fn bench_hierarchical_refinement(c: &mut Criterion) {
+    type Plan = FloorPlan<LARGE_ROOM>;
+
+    let plan = Plan::new();
+    let graph = EightConnected(&plan);
+    let (start, goal) = ((1, 1), (Plan::SIDE - 2, Plan::SIDE - 2));
+    let octile = |a: &GridCell, b: &GridCell| Octile::between(*a, *b);
+    let cells = (0..Plan::SIDE).flat_map(|x| (0..Plan::SIDE).map(move |y| (x, y)));
+    let rooms = Hierarchy::new(&graph, Plan::room, cells, octile);
+    let zero = |_: &GridCell, _: &GridCell| Octile::default();
+
+    c.bench_function("hierarchical_a_star large rooms dijkstra", |b| {
+        b.iter(|| {
+            black_box(hierarchical_a_star(
+                &graph,
+                &rooms,
+                start,
+                goal,
+                zero,
+                Limits::NONE,
+            ))
+        });
+    });
+    #[cfg(feature = "parallel")]
+    c.bench_function("hierarchical_a_star_par large rooms dijkstra", |b| {
+        b.iter(|| {
+            black_box(heuristic_search::hierarchical_a_star_par(
+                &graph,
+                &rooms,
+                start,
+                goal,
+                zero,
+                Limits::NONE,
+            ))
+        });
+    });
+}
+
 /// Runs every benchmark.
 fn main() {
     let grid = Grid::new();
@@ -858,6 +907,7 @@ fn main() {
     bench_depth_first(&mut c, &grid);
     bench_lss_lrta_star(&mut c, &grid);
     bench_hierarchical_a_star(&mut c);
+    bench_hierarchical_refinement(&mut c);
 
     c.final_summary();
 }
