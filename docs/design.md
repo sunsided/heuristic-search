@@ -310,14 +310,16 @@ and neighbours of an entry. EES (cleanup order), DPS (order by `f`), the bidirec
 searches (one or two per side) and the incremental core (inconsistency queue) use it.
 Costs are `Ord`, so they serve as keys directly.
 
-`FocalList<C, K>` is **public**, so `mapf-search` can drive its own low-level loop. Items
-are dense ids, each at most once; `push` replaces. It keeps an open order by `f` and an
-exact focal sublist `f <= w * f_min` ordered by the focal key, also when `f_min` falls.
-Focal membership depends on `f` alone, so items sit in `f` buckets (a `BTreeMap<C,
-Vec<id>>` with swap-remove slots) and a boundary `f` moves whole buckets in or out; the
-focal sublist is a 4-ary indexed heap (`IndexedHeap`) with exact removal. A push or
-remove is `O(log n)` plus the items of buckets that cross the boundary; `peek_min_f`
-scans the bucket of minimal `f`. Ties go by `f`,
+`FocalList<C, K>` is **public**, so `mapf-search` can drive its own low-level loop and
+ECBS high level. Items are dense ids, each at most once; `push` replaces. It keeps an open
+order by `f` (a `BTreeSet` of open keys, so `min_f` and `peek_min_f` are `O(log n)`) and
+an exact focal sublist `value <= w * f_min` ordered by the focal key, also when `f_min`
+falls. The value is `f` itself for `push`; `push_with_value` sets it apart, as ECBS's high
+level needs (lower bound as `f`, cost as value). Focal membership depends on the value
+alone, so items sit in value buckets (a `BTreeMap<C, Vec<id>>` with swap-remove slots) and
+a boundary value moves whole buckets in or out; the focal sublist is a 4-ary indexed heap
+(`IndexedHeap`) with exact removal. A push or remove is `O(log n)` plus the items of
+buckets that cross the boundary. Ties go by `f`,
 then `TieBreak::{LargerG, SmallerG}`, then FIFO; with weight 1 it is an A* open list with
 the focal key as tie-breaker. It is property-tested against a naive model.
 
