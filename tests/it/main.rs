@@ -26,3 +26,4 @@ mod sma;
 mod small_graphs;
 #[cfg(feature = "float")]
 mod theta;
+mod workspace;

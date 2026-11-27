@@ -86,14 +86,6 @@ impl<K: Ord + Copy, C: Ord + Copy> OpenList<K, C> {
         self.pushes += 1;
     }
 
-    /// Pops the entry with the smallest key whose `g` still equals `current_g(node)`.
-    ///
-    /// Outdated entries are dropped on the way. Returns `None` once the heap is empty.
-    pub(crate) fn pop_live(&mut self, current_g: impl Fn(NodeId) -> C) -> Option<NodeId> {
-        self.pop_where(|node, g| g.cmp(&current_g(node)).is_eq())
-            .map(|(node, _)| node)
-    }
-
     /// Pops the smallest entry for which `live(node, g)` holds, dropping the others on the
     /// way, and returns its node and key.
     pub(crate) fn pop_where(&mut self, live: impl Fn(NodeId, C) -> bool) -> Option<(NodeId, K)> {

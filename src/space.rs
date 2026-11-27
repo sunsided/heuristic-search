@@ -60,24 +60,43 @@ impl<S: Hash + Eq, A, C: Cost> SearchSpace<S, A, C> {
         starts: impl IntoIterator<Item = S>,
         goal: &T,
     ) -> (Self, Option<NodeId>) {
-        let mut space = Self {
+        let mut space = Self::new();
+        let start_goal = space.reseed(starts, goal);
+
+        (space, start_goal)
+    }
+
+    /// An empty space.
+    pub(crate) fn new() -> Self {
+        Self {
             nodes: Vec::new(),
             index: HashTable::new(),
             hasher: DefaultHashBuilder::default(),
-        };
+        }
+    }
+
+    /// Forgets every node, keeping the allocations, and adds the start states as in
+    /// [`SearchSpace::seed`].
+    pub(crate) fn reseed<T: Goal<S> + ?Sized>(
+        &mut self,
+        starts: impl IntoIterator<Item = S>,
+        goal: &T,
+    ) -> Option<NodeId> {
+        self.nodes.clear();
+        self.index.clear();
 
         for start in starts {
-            if space.find(&start).is_some() {
+            if self.find(&start).is_some() {
                 continue;
             }
 
-            let id = space.insert(start, C::ZERO, None);
-            if goal.is_goal(space.state(id)) {
-                return (space, Some(id));
+            let id = self.insert(start, C::ZERO, None);
+            if goal.is_goal(self.state(id)) {
+                return Some(id);
             }
         }
 
-        (space, None)
+        None
     }
 
     /// The number of nodes in the space.

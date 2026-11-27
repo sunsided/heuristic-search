@@ -207,8 +207,10 @@ pub use anytime::{
 };
 pub use beam::{beam_search, beam_search_multi, beam_stack_search, beam_stack_search_multi};
 pub use best_first::{
-    GraphResult, a_star, a_star_multi, dijkstra, dijkstra_multi, gbfs, gbfs_multi, weighted_a_star,
-    weighted_a_star_multi,
+    AStarSearch, GraphResult, Workspace, a_star, a_star_in, a_star_multi, a_star_multi_in,
+    dijkstra, dijkstra_in, dijkstra_multi, dijkstra_multi_in, gbfs, gbfs_in, gbfs_multi,
+    gbfs_multi_in, weighted_a_star, weighted_a_star_in, weighted_a_star_multi,
+    weighted_a_star_multi_in,
 };
 pub use bfs::{bfs, bfs_multi};
 pub use bidirectional::{
