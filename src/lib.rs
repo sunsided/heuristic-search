@@ -130,6 +130,8 @@
 //! - `FieldDStar` (feature `float`): Field D*, D* Lite over the corners of a `CostGrid`
 //!   with per-cell costs, whose paths cross cells at any angle through points on cell
 //!   edges.
+//! - [`RealTimeDStar`]: Real-time D*, D* Lite under a fixed number of expansions per move,
+//!   with LSS-LRTA* steps until its search reaches the agent (see the real-time searches).
 //!
 //! Real-time searches plan a bounded amount, move, and learn values in a
 //! [`LearnedHeuristic`] the caller keeps across trials; each call runs one trial and
@@ -140,6 +142,12 @@
 //! - [`lhb_lrta_star`]: the same agent with the limited-horizon Bellman update of Hadar et
 //!   al.; [`lhb_update`] is that update on its own, for offline learning.
 //! - [`rtaa_star`]: RTAA*, the A* lookahead with a cheaper update.
+//!
+//! [`RealTimeDStar`] (Real-time D*) is a real-time agent for graphs whose edge costs change:
+//! each [`RealTimeDStar::step`] splits a per-move expansion limit between D* Lite from the
+//! goal and an LSS-LRTA* lookahead from the agent, and moves one edge, along a cheapest path
+//! once D* Lite has reached the agent. [`RealTimeDStar::into_trial`] reports the run as a
+//! [`TrialResult`].
 //!
 //! Costs are generic over [`Cost`]. For planning, `u32` is the intended default: action
 //! costs are small integers and heuristics over them stay exact. [`Cost`], [`Heuristic`],
@@ -190,7 +198,7 @@
 //! `_multi` (several starts), `_meet` (a meet relation, always with several starts), `_in`
 //! (in a caller's [`Workspace`]). Incremental planners and other searches that keep state
 //! between calls are types ([`LpaStar`], [`DStarLite`], [`AdStar`], `FieldDStar`,
-//! [`AStarSearch`], [`FlowField`]).
+//! [`RealTimeDStar`], [`AStarSearch`], [`FlowField`]).
 //!
 //! See `docs/design.md` in the repository for the design.
 //!
@@ -295,8 +303,8 @@ pub use outcome::{Limits, Outcome, SearchResult, Solution, Stats};
 pub use problem::{Predecessors, Successors};
 pub use rbfs::{rbfs, rbfs_multi};
 pub use real_time::{
-    LearnedHeuristic, TrialResult, TrialStats, lhb_lrta_star, lhb_update, lrta_star, lss_lrta_star,
-    rta_star, rtaa_star,
+    AgentStep, LearnedHeuristic, RealTimeDStar, TrialResult, TrialStats, lhb_lrta_star, lhb_update,
+    lrta_star, lss_lrta_star, rta_star, rtaa_star,
 };
 #[cfg(feature = "float")]
 pub use search_core::NonNegF64;

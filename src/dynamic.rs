@@ -38,7 +38,7 @@ use crate::cost::Weight;
 use crate::outcome::{SearchResult, Stats};
 #[cfg(feature = "float")]
 pub use field::{FieldDStar, FieldResult};
-use incremental::Incremental;
+pub(crate) use incremental::Incremental;
 pub use multi::{AdStarMulti, DStarLiteMulti, LpaStarMulti};
 
 /// A graph with stable vertices whose edge costs may change between searches.

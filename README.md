@@ -72,7 +72,8 @@ for the design behind it.
   actions, and ranks and upward search spaces are readable for visualisation
 - Dynamic graphs: LPA*, D* Lite, AD* (start moves keyed by D* Lite's `km`); Field D*
   (`FieldDStar`, feature `float`) over the corners of a `CostGrid` with per-cell costs,
-  interpolated any-angle paths through cell edges, cell-change repair and a moving start
+  interpolated any-angle paths through cell edges, cell-change repair and a moving start;
+  Real-time D* (`RealTimeDStar`), D* Lite and LSS-LRTA* under a per-move expansion limit
 - Real-time search with learned tables that persist across trials (`LearnedHeuristic`):
   LRTA*, RTA*, LSS-LRTA* (A* lookahead, Dijkstra update), RTAA*, and the limited-horizon
   Bellman update of Hadar et al. 2025 (`lhb_update` offline, `lhb_lrta_star` inside the

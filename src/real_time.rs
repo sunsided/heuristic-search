@@ -23,6 +23,11 @@
 //! A* from one state and the update, without moving, as the paper uses it to label sampled
 //! states offline.
 //!
+//! [`RealTimeDStar`] (Real-time D*) is a planner rather than a trial function: an agent on a
+//! [`DynamicGraph`](crate::DynamicGraph) whose costs change, stepped by the caller one move
+//! at a time. It runs D* Lite from the goal and falls back to LSS-LRTA*'s lookahead and
+//! update until D* Lite's search reaches it, and reports its run as a [`TrialResult`].
+//!
 //! The lookahead searches move along the A* path to the open state with the smallest `f`
 //! (or to the goal, if A* selected one), then plan again from there.
 //!
@@ -41,10 +46,12 @@
 //! the trial cost. [`Outcome::Unsolvable`] means the agent proved that no goal is reachable
 //! from where it stands, which on a graph with irreversible edges need not hold for `start`.
 
+mod d_star;
 mod lookahead;
 mod single;
 mod table;
 
+pub use d_star::{AgentStep, RealTimeDStar};
 pub use lookahead::{lhb_lrta_star, lhb_update, lss_lrta_star, rtaa_star};
 pub use single::{lrta_star, rta_star};
 pub use table::LearnedHeuristic;

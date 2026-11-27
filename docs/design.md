@@ -19,7 +19,7 @@ In scope:
 - preprocessed queries on static graphs: contraction hierarchies;
 - dynamic graphs: LPA*, D* Lite, AD*; Field D* on grids with per-cell costs;
 - real-time search with learned tables: LRTA*, RTA*, LSS-LRTA*, RTAA*, and the
-  limited-horizon Bellman update (LHB);
+  limited-horizon Bellman update (LHB); Real-time D* (RTD*) for changing graphs;
 - parallel (feature `parallel`): hash-distributed A* (HDA*);
 - many queries: reusable workspaces, resumable A*, flow fields (backward Dijkstra from a
   goal set) and parallel batches.
@@ -827,9 +827,45 @@ Fewer sweeps for longer horizons is the tabular analogue of the paper's finding 
 labels need fewer sampled states than single-step labels; per expansion, the single-step
 update is not worse here.
 
-Not implemented: real-time D* (Bond et al. 2010), which combines real-time search with
-D* Lite's repairs for changing graphs; the incremental planners already cover changing
-costs, and RTAA* was the cheap variant.
+### Real-time D*
+
+`RealTimeDStar` (Bond, Widger, Ruml and Sun 2010) is D* Lite made real-time by a per-move
+expansion limit, with LSS-LRTA* taking the moves until D* Lite's search from the goal
+reaches the agent. It is a type, like the incremental planners: the caller calls
+`step(graph, expansions)` once per move and reports changed edges with `edge_changed` in
+between, as with `DStarLite`. `into_trial` returns the run as a `TrialResult` (travelled
+path, `Stats` of both searches, `TrialStats`), and `step` returns an `AgentStep`
+(`Arrived`, `Informed`, `Partial`, `Waiting`).
+
+| Paper (SoCS 2010, Fig. 1) | Here |
+| --- | --- |
+| `LocalLimit = LocalRatio × ExpandLimit`, `GlobalLimit = ExpandLimit − LocalLimit` | `local_share` (a `Weight` at most `1`) given at construction, `expansions` per `step`; the local share is rounded down and raised to at least one expansion, so `max_step_expansions <= expansions` |
+| `ComputeShortestPath` stops at `GlobalLimit` pops (re-keys count) | `Incremental::repair` under `Limits::expansions(global)`; re-keys count as expansions there too |
+| `ChooseStep`, complete path: the successor minimising `c(s, s') + g(s')` | the same, first on ties |
+| `ChooseStep`, limit reached: the local search's step (LRTA* or LSS-LRTA*) | LSS-LRTA*: A* lookahead of the local share and the Dijkstra update, then the first edge of the A* path to the frontier state LSS-LRTA* would travel to; its learned table lives in the planner |
+| `ChooseStep`, no path: stay, the world may change | `AgentStep::Waiting`; also when the lookahead proves no goal reachable |
+| `km += h(s_last, s_start)` after each move, `ComputeShortestPath` called every iteration | `move_target` after each move; `repair` every step (the paper's footnote notes its own implementation only updated `km` on edge changes, a bug) |
+| AD* as the global search | not offered; the global search is D* Lite |
+
+The local search's heuristic is the planner's `heuristic(v, goal)`, in front of the
+learned values. Both share one closure: the table keeps only learned values and gets the
+heuristic as its base for the duration of each lookahead (`LearnedHeuristic::rebase`),
+so `RealTimeDStar` needs no `Clone` or shared ownership of the heuristic. Learned values
+can overestimate after costs fall (the paper's point that LSS-LRTA* does not handle cost
+decreases); fully informed steps ignore them. Learned dead ends are dropped after any
+reported edge change: an appearing edge can connect them to the goal, and with a local
+share of `1` (no global search) a stale dead end would keep the agent waiting forever.
+This is not in the paper, whose local search is not described as learning dead ends.
+
+Completeness (the paper's Theorem 2): in a static finite graph from which the goal is
+reachable, if the global share exceeds the re-key expansions the start's moves cause,
+D* Lite eventually reaches the agent. From then on every step is fully informed: with a
+consistent heuristic the moved-to vertex is settled at once, since its key is at most the
+old start's. The tests find arrival for every limit from 1 and every share on random
+graphs, with zero and with exact-distance heuristics; that is tested, not proven, for
+the small shares. With a local share of `1` the global search gets nothing and the agent
+is LSS-LRTA* moving one edge per lookahead. In changing graphs there is no guarantee (the
+paper's example of doors that close as the agent approaches).
 
 ## Naming
 
@@ -840,7 +876,7 @@ Every A* variant is a snake-case function ending in `_star`: `a_star`, `weighted
 `_multi` for several starts, `_meet` for a meet relation (which always takes several
 starts, so there is no `_meet_multi`), `_in` for a search in a caller's `Workspace`
 (`a_star_multi_in`). Incremental planners keep state between calls and
-are types: `LpaStar`, `DStarLite`, `AdStar`, `FieldDStar`. Renaming them to `*_star`-style functions was
+are types: `LpaStar`, `DStarLite`, `AdStar`, `FieldDStar`, `RealTimeDStar`. Renaming them to `*_star`-style functions was
 rejected: they are not one-shot searches.
 
 ## Dependencies
@@ -897,6 +933,15 @@ rejected: they are not one-shot searches.
   upward search spaces of start and goal meet at the query cost, ranks are a
   permutation, multi-queries cost the cheapest pair, and sampled queries on the
   benchmark grid match `dijkstra` and replay move by move.
+- Real-time D* (`tests/it/dynamic.rs`): on random strongly connected graphs it reaches the
+  goal for every expansion limit and local share (including `0` and `1`), along real
+  edges, one per step, within the limit per step; with unlimited expansions every step is
+  fully informed and the travelled cost equals Dijkstra's (or the agent waits where no
+  path exists); with random cost changes, additions and removals between steps it still
+  arrives; with exact distances as the heuristic (so start moves raise `km`) it arrives
+  and, unlimited, travels Dijkstra's cost; it leaves a pocket it had learned as a dead end
+  once an exit appears; and on a grid with toggled walls it waits while the goal is
+  enclosed.
 - Every search function has a doctest.
 - `no_std` is checked by building for `thumbv7em-none-eabihf`.
 - The property-test oracle (Bellman-Ford in the test fixtures) is independent of the
@@ -997,3 +1042,5 @@ rejected: they are not one-shot searches.
   memory. ALENEX 2005. (avoidance landmark selection)
 - G. Hadar, F. Agostinelli, S. S. Shperberg. Beyond single-step updates: reinforcement
   learning of heuristics with limited-horizon search. arXiv:2511.10264, 2025. (LHB)
+- D. M. Bond, N. A. Widger, W. Ruml, X. Sun. Real-time search in dynamic worlds. SoCS
+  2010. (Real-time D*)

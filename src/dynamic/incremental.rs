@@ -47,7 +47,7 @@ use crate::keyed_set::KeyedSet;
 use crate::outcome::{Outcome, SearchResult, Solution, Stats};
 
 /// A heuristic `estimate(a, b)` of the cost from `a` to `b`; implemented for closures.
-pub(super) trait Estimate<V, C> {
+pub(crate) trait Estimate<V, C> {
     /// Estimates the cost from `from` to `to`.
     fn estimate(&mut self, from: &V, to: &V) -> C;
 }
@@ -65,7 +65,7 @@ impl<V, C, F: FnMut(&V, &V) -> C> Estimate<V, C> for F {
 /// [`Searched::lookahead`] still reports neighbours: [`Searched::predecessors`] (D* Lite's
 /// direction) are the vertices whose `rhs` may depend on a vertex, and they are updated
 /// whenever its `g` changes.
-pub(super) trait Searched {
+pub(crate) trait Searched {
     /// A vertex. Cloned and hashed into the planner's tables.
     type Vertex: Clone + Hash + Eq;
     /// A strictly positive cost.
@@ -141,7 +141,7 @@ struct Anytime {
 }
 
 /// Incremental search state, kept between calls.
-pub(super) struct Incremental<V, C, D> {
+pub(crate) struct Incremental<V, C, D> {
     /// `true` for LPA* (distances from the start along successors), `false` for D* Lite
     /// (distances to the goal along predecessors).
     forward: bool,
@@ -174,7 +174,7 @@ pub(super) struct Incremental<V, C, D> {
     /// target counts as settled; needed with zero-cost edges.
     pub(super) settle_ties: bool,
     /// Counters over every call.
-    pub(super) total: Stats,
+    pub(crate) total: Stats,
     /// Neighbours of the vertex being processed; reused.
     buffer: Vec<(V, C)>,
 }
@@ -188,7 +188,7 @@ where
     /// Creates the search with only the source inconsistent (`rhs = 0`, `g = inf`).
     ///
     /// `weight` makes it AD* with that initial inflation.
-    pub(super) fn new(
+    pub(crate) fn new(
         forward: bool,
         source: V,
         target: V,
@@ -255,7 +255,7 @@ where
     /// Processes inconsistent vertices until the target is settled (`true`) or `budget`
     /// runs out (`false`), and returns that with this call's counters, which are also
     /// added to [`Incremental::total`]. The target's `g` is final only after `true`.
-    pub(super) fn repair<G: Searched<Vertex = V, Cost = C>>(
+    pub(crate) fn repair<G: Searched<Vertex = V, Cost = C>>(
         &mut self,
         graph: &G,
         mut budget: impl Budget<Stats>,
@@ -290,8 +290,19 @@ where
         self.g[id].filter(|_| self.g[id] == self.rhs[id])
     }
 
+    /// The `g` of `vertex`, consistent or not; `None` if it is infinite or never seen.
+    /// Interns nothing.
+    pub(crate) fn g(&self, vertex: &V) -> Option<C> {
+        self.find(vertex).and_then(|id| self.g[id])
+    }
+
+    /// The heuristic `heuristic(a, b)` the search was created with.
+    pub(crate) fn heuristic(&mut self) -> &mut D {
+        &mut self.heuristic
+    }
+
     /// Updates the vertex whose `rhs` depends on the changed edge `from -> to`.
-    pub(super) fn edge_changed<G: Searched<Vertex = V, Cost = C>>(
+    pub(crate) fn edge_changed<G: Searched<Vertex = V, Cost = C>>(
         &mut self,
         graph: &G,
         from: &V,
@@ -309,7 +320,7 @@ where
     /// target is at least its old `h` minus `h(old, new)`. Scaled keys weigh `h` by at most
     /// the weight's numerator, so adding `numerator * h(old, new)` covers inflated and plain
     /// keys alike (D* Lite's weight is `1`).
-    pub(super) fn move_target(&mut self, target: V) {
+    pub(crate) fn move_target(&mut self, target: V) {
         let old = self.vertices[self.target].clone();
         let moved = self.heuristic.estimate(&old, &target);
         self.km = self
