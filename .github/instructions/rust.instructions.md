@@ -26,7 +26,7 @@ applyTo: "**/*.rs"
 - No universal problem trait: each search names the capability traits it needs
   (`Successors`, `Predecessors`, `UniformGrid`, `DynamicGraph`, ...), and goal tests and
   heuristics are separate values. Every A* variant is named `*_star`; suffixes compose as
-  `_tt`, `_multi`, `_meet`.
+  `_tt`, `_par`, `_multi`, `_meet`, `_in`.
 - Every search returns a `SearchResult` (or its anytime, dynamic or trial form) whose
   `Solution` is a real path whose `cost` is the sum of its edges. Optimal searches have a
   proptest against an independent oracle in `tests/it/`; a new search gets one too.
