@@ -5,8 +5,10 @@
 //! searches meet many transpositions; Jump Point Search
 //! against A* on the 8-connected version of the wall grid, and (feature `float`) Theta*
 //! and Lazy Theta* there, and Field D*'s plan and repair over the grid's corners;
-//! (feature `parallel`) hash-distributed A* against A* on both versions of the grid; and
-//! a contraction hierarchy's build and query on the wall grid.
+//! (feature `parallel`) hash-distributed A* against A* on both versions of the grid; a
+//! contraction hierarchy's build and query on the wall grid; and hierarchical A* against
+//! A* on a generated floor plan of rooms joined by doors, with the cost ratio of the two
+//! paths printed once.
 //!
 //! Run with `cargo bench`.
 
@@ -15,10 +17,11 @@ use std::hint::black_box;
 use criterion::Criterion;
 use heuristic_search::{
     AdStar, ContractionHierarchy, DStarLite, DynamicGraph, EdgeSelector, EesEstimates,
-    EightConnected, FocalList, LandmarkSelection, Landmarks, Limits, MhaWeights, OctileDistance,
-    Predecessors, Successors, UniformGrid, Weight, a_star, ana_star, ara_star, beam_search,
-    beam_stack_search, dfs, dps, ees, focal_fn, focal_search, fringe_search, heuristic_fn,
-    ida_star, ida_star_tt, iddfs, jps, lazy_sp, lss_lrta_star, mha_star, nbs, rbfs, sma_star,
+    EightConnected, FocalList, GridCell, Hierarchy, LandmarkSelection, Landmarks, Limits,
+    MhaWeights, Octile, OctileDistance, Predecessors, Successors, UniformGrid, Weight, a_star,
+    ana_star, ara_star, beam_search, beam_stack_search, dfs, dps, ees, focal_fn, focal_search,
+    fringe_search, heuristic_fn, hierarchical_a_star, ida_star, ida_star_tt, iddfs, jps, lazy_sp,
+    lss_lrta_star, mha_star, nbs, rbfs, sma_star,
 };
 
 /// Side length of the benchmark grid.
@@ -660,6 +663,154 @@ fn bench_lss_lrta_star(c: &mut Criterion, grid: &Grid) {
     });
 }
 
+/// Rooms per side of the floor plan.
+const ROOMS: usize = 10;
+
+/// Cells per side of a room.
+const ROOM: usize = 9;
+
+/// A floor plan of `ROOMS` by `ROOMS` rooms with one-cell walls and a two-cell door in
+/// every wall between neighbouring rooms, at an offset that varies from wall to wall.
+struct FloorPlan {
+    /// `true` marks a passable cell, row-major.
+    open: Vec<bool>,
+}
+
+impl FloorPlan {
+    /// Side length of the plan in cells.
+    const SIDE: usize = ROOMS * (ROOM + 1) + 1;
+
+    /// The plan with its doors.
+    fn new() -> Self {
+        let wall = |i: usize| i % (ROOM + 1) == 0;
+        let mut open: Vec<bool> = (0..Self::SIDE * Self::SIDE)
+            .map(|i| !wall(i % Self::SIDE) && !wall(i / Self::SIDE))
+            .collect();
+        for a in 0..ROOMS {
+            for b in 1..ROOMS {
+                let line = b * (ROOM + 1);
+                let along = a * (ROOM + 1) + 1 + (a * 7 + b * 3) % (ROOM - 1);
+                for d in along..along + 2 {
+                    open[d * Self::SIDE + line] = true;
+                    open[line * Self::SIDE + d] = true;
+                }
+            }
+        }
+
+        Self { open }
+    }
+
+    /// The room of a cell; walls belong to the room to their right or below.
+    fn room(&(x, y): &GridCell) -> usize {
+        (y / (ROOM + 1)).min(ROOMS - 1) * ROOMS + (x / (ROOM + 1)).min(ROOMS - 1)
+    }
+}
+
+impl UniformGrid for FloorPlan {
+    fn width(&self) -> usize {
+        Self::SIDE
+    }
+
+    fn height(&self) -> usize {
+        Self::SIDE
+    }
+
+    fn is_passable(&self, x: usize, y: usize) -> bool {
+        self.open[y * Self::SIDE + x]
+    }
+}
+
+/// Prints the cost of the hierarchical path over `clusters` divided by the cheapest cost.
+fn print_cost_ratio(
+    graph: EightConnected<&FloorPlan>,
+    clusters: &Hierarchy<GridCell, Octile, heuristic_search::GridClusters>,
+    start: GridCell,
+    goal: GridCell,
+) {
+    let distance = |a: &GridCell, b: &GridCell| Octile::between(*a, *b);
+    let optimal = a_star(
+        &graph,
+        start,
+        &|c: &GridCell| *c == goal,
+        OctileDistance(goal),
+        Limits::NONE,
+    );
+    let hierarchical = hierarchical_a_star(&graph, clusters, start, goal, distance, Limits::NONE);
+    if let (Some(optimal), Some(found)) = (optimal.solution(), hierarchical.solution()) {
+        println!(
+            "hierarchical_a_star floor plan: cost ratio {:.4}",
+            found.cost.to_f64() / optimal.cost.to_f64()
+        );
+    }
+}
+
+/// Hierarchical A* over the rooms and over HPA* clusters against A* across a floor plan,
+/// plus building the cluster hierarchy; prints the cost ratio of the cluster path to the
+/// cheapest path.
+fn bench_hierarchical_a_star(c: &mut Criterion) {
+    let plan = FloorPlan::new();
+    let graph = EightConnected(&plan);
+    let (start, goal) = ((1, 1), (FloorPlan::SIDE - 2, FloorPlan::SIDE - 2));
+    let distance = |a: &GridCell, b: &GridCell| Octile::between(*a, *b);
+    let cells = (0..FloorPlan::SIDE).flat_map(|x| (0..FloorPlan::SIDE).map(move |y| (x, y)));
+    let rooms = Hierarchy::new(&graph, FloorPlan::room, cells, distance);
+    let clusters = Hierarchy::grid(&plan, ROOM + 1);
+
+    print_cost_ratio(graph, &clusters, start, goal);
+
+    c.bench_function("a_star floor plan", |b| {
+        b.iter(|| {
+            black_box(a_star(
+                &graph,
+                start,
+                &|c: &GridCell| *c == goal,
+                OctileDistance(goal),
+                Limits::NONE,
+            ))
+        });
+    });
+    c.bench_function("hierarchical_a_star floor plan rooms", |b| {
+        b.iter(|| {
+            black_box(hierarchical_a_star(
+                &graph,
+                &rooms,
+                start,
+                goal,
+                distance,
+                Limits::NONE,
+            ))
+        });
+    });
+    c.bench_function("hierarchical_a_star floor plan clusters", |b| {
+        b.iter(|| {
+            black_box(hierarchical_a_star(
+                &graph,
+                &clusters,
+                start,
+                goal,
+                distance,
+                Limits::NONE,
+            ))
+        });
+    });
+    #[cfg(feature = "parallel")]
+    c.bench_function("hierarchical_a_star_par floor plan clusters", |b| {
+        b.iter(|| {
+            black_box(heuristic_search::hierarchical_a_star_par(
+                &graph,
+                &clusters,
+                start,
+                goal,
+                distance,
+                Limits::NONE,
+            ))
+        });
+    });
+    c.bench_function("Hierarchy::grid floor plan", |b| {
+        b.iter(|| black_box(Hierarchy::grid(&plan, ROOM + 1)));
+    });
+}
+
 /// Runs every benchmark.
 fn main() {
     let grid = Grid::new();
@@ -691,6 +842,7 @@ fn main() {
     bench_ad_star(&mut c);
     bench_depth_first(&mut c, &grid);
     bench_lss_lrta_star(&mut c, &grid);
+    bench_hierarchical_a_star(&mut c);
 
     c.final_summary();
 }

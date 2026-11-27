@@ -11,6 +11,7 @@ In scope:
 - foundational: BFS, DFS, Dijkstra, greedy best-first (GBFS), A*, IDA*;
 - linear- and bounded-memory: fringe search, RBFS, SMA*, beam search, beam-stack search;
 - uniform-cost grids: Jump Point Search (JPS); any-angle Theta* and Lazy Theta*;
+- hierarchical: HPA*-style A* over a region graph, with refinement across threads;
 - weighted and anytime: Weighted A* (WA*), ARA*, ANA*;
 - bounded-suboptimal: EES, DPS;
 - multiple heuristics: MHA*;
@@ -232,7 +233,10 @@ Multi-start search is what backward search from a set of goal states needs, and 
 - Wall-clock time is not measured (no clock in `no_std`); callers time the call.
 
 `Stats` is `#[non_exhaustive]`; later algorithms may add counters (heuristic evaluations,
-meet count for bidirectional search).
+meet count for bidirectional search). It holds counters of work done, not measures of
+solution quality: the suboptimality of hierarchical A* would need a plain A* run to
+compare against, so it is measured in its tests and benchmark instead (see
+[Hierarchical search](#hierarchical-search)).
 
 Every search has a `*_multi` variant (the incremental planners as types) with these
 semantics. Per family:
@@ -708,6 +712,68 @@ learned table, planner, workspace and closure-built heuristic, goal, meet relati
 focal key is `Send + Sync` exactly when its type parameters are. `tests/it/send_sync.rs`
 asserts this at compile time, generically over the parameters.
 
+## Hierarchical search
+
+Module `hierarchical`, after Botea, Müller and Schaeffer's HPA* (2004) and the two-level
+room-and-door scheme of FloorPlan2Nav (ISARC 2026). A `Hierarchy<S, C, R>` is built once
+and answers many queries:
+
+```rust
+pub trait Regions<S> { fn region(&self, state: &S) -> usize; }   // + impl for Fn(&S) -> usize
+impl Hierarchy<S, C, R> {
+    pub fn new(graph, regions: R, states, distance) -> Self;    // every border state an entrance
+}
+impl Hierarchy<GridCell, Octile, GridClusters> {
+    pub fn grid(grid: &impl UniformGrid, size: usize) -> Self;  // HPA* clusters and transitions
+}
+pub fn hierarchical_a_star(graph, &hierarchy, start, goal: S, distance, budget) -> GraphResult<G>;
+pub fn hierarchical_a_star_par(...)                              // feature `parallel`
+```
+
+- **Abstract graph.** Nodes are entrances: states with an edge into another region, and
+  the targets of those edges. Edges are the graph edges between entrances of different
+  regions, and between every two entrances of one region the cost of A* restricted to the
+  region (a `Successors` wrapper that drops edges leaving it). Only costs are stored; a
+  query recomputes the paths it uses.
+- **Grid builder.** Square clusters of `size` cells. Along each border, every maximal run
+  of cell pairs passable on both sides becomes one transition in its middle, or two at its
+  ends when the run has six or more pairs, as in the paper. Without corner cutting, a
+  diagonal move across a border has a passable straight pair beside it, and a run's cells
+  are straight-connected on both sides, so the transitions keep every connection between
+  clusters: the query is complete (it finds a path whenever A* does), though not optimal.
+- **User regions.** `Hierarchy::new` keeps every border crossing, so a cheapest path of
+  the graph decomposes into abstract edges and the query is optimal. Building runs one
+  restricted A* per pair of entrances of a region, quadratic in the entrances, so it suits
+  regions that meet through doors rather than open borders.
+- **Query.** The start and goal are inserted temporarily: restricted A* from the start to
+  each entrance of its region, from each entrance of the goal's region to the goal, and
+  from the start to the goal when they share a region. A* on the abstract graph (node
+  ids, heuristic `distance(node, goal)`) picks the entrances; every abstract edge is then
+  refined, by restricted A* inside its region or as the cheapest graph edge between two
+  regions. The solution concatenates the segments; its cost is their sum.
+- **Goal and heuristic.** The goal is a state, not a `Goal` predicate, since it becomes an
+  abstract node. Searches towards different targets need different heuristics, so the
+  caller passes a pairwise estimate `distance(a, b)` instead of a `Heuristic`.
+- **Budget and stats.** `Stats` add up the connecting, abstract and refining searches; the
+  build is not counted. The budget sees the running totals while connecting and on the
+  abstract graph. Refinement is not budgeted: each search stays in one region and is known
+  to succeed, and an unbudgeted refinement keeps the parallel and sequential results equal.
+- **Parallel refinement.** The refinements are independent. `hierarchical_a_star_par`
+  splits them into one contiguous share per available core under `std::thread::scope` and
+  joins the shares in order, so its result, stats included, equals the sequential one. It
+  is a separate function rather than a feature-switched body because it needs `Send` and
+  `Sync` bounds; enabling `parallel` anywhere in a dependency graph must not add bounds to
+  `hierarchical_a_star`.
+- **Smoothing.** HPA*'s post-processing pass that shortcuts the path near cluster borders
+  is not implemented: it needs line-of-sight or repeated local searches over the whole
+  path, which costs about as much as the refinement it would improve.
+- **Quality.** On generated floor plans (square rooms, one-cell walls, doors of one or two
+  cells, some walls without a door) the cluster paths cost on average about 2 % more than
+  the cheapest path; the test asserts at most 10 %. `benches/search.rs` prints the cost
+  ratio next to the timings. FloorPlan2Nav evaluates on ResPlan floor plans; those are not
+  part of this repository (their licence is not verified), so tests and benchmarks use
+  generated plans.
+
 ## Real-time search
 
 Module `real_time`. An agent plans a bounded amount, moves, and learns: every function runs
@@ -879,7 +945,7 @@ Every A* variant is a snake-case function ending in `_star`: `a_star`, `weighted
 `ida_star`, `ara_star`, `ana_star`, `mha_star`, `bae_star`. Non-A* searches keep their usual names (`bfs`,
 `dijkstra`, `gbfs`, `dfs`, `iddfs`, `nbs`, `dibbs`, `mm`, `ees`, `dps`, `lazy_sp`,
 `focal_search`). Suffixes compose in a fixed order: `_tt` for an algorithm variant,
-`_multi` for several starts, `_meet` for a meet relation (which always takes several
+`_par` for work split across threads (feature `parallel`), `_multi` for several starts, `_meet` for a meet relation (which always takes several
 starts, so there is no `_meet_multi`), `_in` for a search in a caller's `Workspace`
 (`a_star_multi_in`). Incremental planners keep state between calls and
 are types: `LpaStar`, `DStarLite`, `AdStar`, `FieldDStar`, `RealTimeDStar`. Renaming them to `*_star`-style functions was
@@ -951,6 +1017,11 @@ rejected: they are not one-shot searches.
   and, unlimited, travels Dijkstra's cost; it leaves a pocket it had learned as a dead end
   once an exit appears; and on a grid with toggled walls it waits while the goal is
   enclosed.
+- Hierarchical A* (`tests/it/hierarchical.rs`): on random grids the cluster hierarchy finds
+  a path exactly when the oracle does and never a cheaper one, the hierarchy with every
+  border state as an entrance matches the oracle cost, multi-start equals the best single
+  start, every path replays edge by edge on the grid, and with feature `parallel` the
+  threaded refinement returns the same result as the sequential one.
 - Every search function has a doctest.
 - `no_std` is checked by building for `thumbv7em-none-eabihf`.
 - The property-test oracle (Bellman-Ford in the test fixtures) is independent of the
@@ -1056,6 +1127,11 @@ rejected: they are not one-shot searches.
   theory. SODA 2005. (ALT, farthest landmark selection)
 - A. V. Goldberg, R. F. Werneck. Computing point-to-point shortest paths from external
   memory. ALENEX 2005. (avoidance landmark selection)
+- A. Botea, M. Müller, J. Schaeffer. Near optimal hierarchical path-finding. Journal of
+  Game Development 1(1), 2004. (HPA*)
+- FloorPlan2Nav. Proceedings of the International Symposium on Automation and Robotics in
+  Construction (ISARC) 2026, part 2, PDF pages 474–480. Authors and printed page numbers
+  not verified. (Room-and-door graph with local A* per segment, in parallel.)
 - G. Hadar, F. Agostinelli, S. S. Shperberg. Beyond single-step updates: reinforcement
   learning of heuristics with limited-horizon search. arXiv:2511.10264, 2025. (LHB)
 - D. M. Bond, N. A. Widger, W. Ruml, X. Sun. Real-time search in dynamic worlds. SoCS
