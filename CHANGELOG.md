@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/sunsided/heuristic-search/compare/v0.2.2...v0.3.0) - 2026-11-27
+
+### Added
+
+- Add a separate focal value to FocalList ([#36](https://github.com/sunsided/heuristic-search/pull/36))
+- Add runnable examples on realistic generated inputs ([#32](https://github.com/sunsided/heuristic-search/pull/32))
+- Add a separate focal value to FocalList
+- Add a learning heuristics example for the real-time agents
+- Add a rover replanning example for Real-time D*
+- Add an indoor navigation example for hierarchical A*
+- Add road network examples for CH, ALT and MM
+- Add crowd pathfinding and parallel HDA* examples on a game map
+- Add hierarchical A* over a region graph with parallel refinement
+- Add GBFS and BWAS search phases to the LHB real-time search
+- Add Real-time D* (RealTimeDStar)
+- Add contraction hierarchies for many queries on static graphs
+- Add MM bidirectional search that meets in the middle
+- Add ALT landmark heuristics for repeated queries
+- Add solve_batch for independent queries on several threads
+- Add flow fields from a goal set
+- Add hash-distributed A* (HDA*) behind the parallel feature
+- Add the parallel feature for multi-threaded searches
+
+### Changed
+
+- Bring three examples in line with the merged library fixes
+- Spawn refinement threads only when the work pays for them ([#37](https://github.com/sunsided/heuristic-search/pull/37))
+- Keep MM's f and g minima in lazy heaps filled at the first meet ([#35](https://github.com/sunsided/heuristic-search/pull/35))
+- Batch HDA* work counting and cache the incumbent bound ([#34](https://github.com/sunsided/heuristic-search/pull/34))
+- Raise the default witness search limit to 256 settled states ([#33](https://github.com/sunsided/heuristic-search/pull/33))
+- Name both limits of the saturation figure in the CH notes
+- Keep plain FocalList pushes as cheap as before the focal value
+- Spawn refinement threads only when the work pays for them
+- Keep MM's f and g minima in lazy heaps filled at the first meet
+- Batch HDA* work counting and cache the incumbent bound
+- Raise the default witness search limit to 256 settled states
+- Make the ida_star_tt example independent of the hash seed ([#31](https://github.com/sunsided/heuristic-search/pull/31))
+- Share one generator across the examples and list them in the README
+- Show the batch detour and keep the example prose to what is measured
+- Trim the MM example to 300 queries and contrast it with A*
+- Make the ida_star_tt example independent of the hash seed
+- Update the suffix order in the Copilot instructions
+- Test hierarchical A* on directed graphs and bench it on the wall grid
+- Keep the lookahead's batch buffer when a search ends mid-batch
+- Forget learned dead ends after edge changes in Real-time D*
+- Shrink the contraction hierarchy property tests
+- Spell out MM's C in its stopping rule
+- Check the f half of MM's expansion bound
+- Document workspaces, resumable A*, flow fields and batches
+- Test multi-start workspace searches that expand
+- Assert that graphs, planners and results are Send and Sync
+- Reuse best-first workspaces and resume A* across calls
+- Describe the bounded lattice search in the Field D* design notes
+- Stop Field D*'s lattice A* once it cannot beat the interpolated path
+
 ## [0.2.2](https://github.com/sunsided/heuristic-search/compare/v0.2.1...v0.2.2) - 2026-11-22
 
 ### Changed
